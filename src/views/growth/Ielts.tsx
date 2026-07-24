@@ -13,6 +13,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { IELTS_SKILL_COLORS } from '../../components/IeltsTrendChart';
 import type { IeltsResult } from '../../data/types';
 import {
   formatBand,
@@ -26,13 +27,9 @@ import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/appStore';
 
 // The one place multiple line hues are allowed, for legibility. Overall uses
-// the emerald primary; the target line is a dashed neutral.
-const skillColors: Record<IeltsSkill, string> = {
-  listening: '#60a5fa',
-  reading: '#c084fc',
-  writing: '#f59e0b',
-  speaking: '#f472b6',
-};
+// the emerald primary; the target line is a dashed neutral. Shared with the
+// dashboard preview so both charts read identically.
+const skillColors: Record<IeltsSkill, string> = IELTS_SKILL_COLORS as Record<IeltsSkill, string>;
 
 const emptyForm = { date: format(new Date(), 'yyyy-MM-dd'), listening: '', reading: '', writing: '', speaking: '' };
 

@@ -8,6 +8,7 @@ import type {
   IeltsResult,
   Project,
   WeeklyPlan,
+  WebsiteCategory,
 } from './types';
 
 // Env-gated configuration. Both values ship in the client bundle by design;
@@ -89,6 +90,8 @@ interface ProjectRow {
   sort_order: number;
   recurring: 'monthly' | null;
   period: string | null;
+  working_title: string | null;
+  category: WebsiteCategory | null;
 }
 
 interface IeltsResultRow {
@@ -181,6 +184,8 @@ function rowToProject(row: ProjectRow): Project {
   if (row.target_metric !== null) project.targetMetric = row.target_metric;
   if (row.recurring !== null) project.recurring = row.recurring;
   if (row.period !== null) project.period = row.period;
+  if (row.working_title !== null) project.workingTitle = row.working_title;
+  if (row.category !== null) project.category = row.category;
   return project;
 }
 
@@ -208,6 +213,8 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('targetMetric' in patch) row.target_metric = patch.targetMetric ?? null;
   if ('recurring' in patch) row.recurring = patch.recurring ?? null;
   if ('period' in patch) row.period = patch.period ?? null;
+  if ('workingTitle' in patch) row.working_title = patch.workingTitle ?? null;
+  if ('category' in patch) row.category = patch.category ?? null;
   return row;
 }
 
@@ -401,6 +408,8 @@ class SupabaseRepository implements Repository {
         sort_order: input.order,
         recurring: input.recurring ?? null,
         period: input.period ?? null,
+        working_title: input.workingTitle ?? null,
+        category: input.category ?? null,
       })
       .select()
       .single();
