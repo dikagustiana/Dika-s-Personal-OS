@@ -1,0 +1,9 @@
+{
+  "name": "personal-os-bootstrap",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Bootstrap deployment: clones dikagustiana/Dika-s-Personal-OS at main HEAD and builds it.",
+  "scripts": {
+    "build": "bash ./build.sh"
+  }
+}
