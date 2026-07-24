@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { mockRepository } from '../data/mockRepository';
 import type { Repository } from '../data/repository';
 
+// Repository selection: the store boots with the in-memory mock so a bare
+// clone (no credentials) always runs. When VITE_SUPABASE_URL and
+// VITE_SUPABASE_ANON_KEY are set, PassphraseGate (mounted around <App /> in
+// main.tsx) verifies the passphrase against the database and swaps in the
+// Supabase repository via setRepository before any view issues a data call.
+
 export type Workspace = 'work' | 'growth';
 export type WorkView = 'today' | 'timebox' | 'week';
 export type GrowthView = 'projects' | 'analytics';
