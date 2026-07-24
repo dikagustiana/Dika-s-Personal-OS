@@ -38,6 +38,8 @@ export interface BrainDumpEntry extends BaseEntry {
   text: string;
 }
 
+export type TimeBlockCategory = 'deep-work' | 'meeting' | 'break' | 'admin';
+
 export interface TimeBlockEntry extends BaseEntry {
   type: 'timeblock';
   date: string;
@@ -46,6 +48,7 @@ export interface TimeBlockEntry extends BaseEntry {
   label: string;
   taskId?: string;
   status: 'planned' | 'done' | 'skipped';
+  category?: TimeBlockCategory; // duration is derived from start–end, never stored
 }
 
 export type Entry = TaskEntry | HabitEntry | BrainDumpEntry | TimeBlockEntry;
@@ -100,8 +103,22 @@ export interface Project {
   title: string;
   type: 'scholarship' | 'study' | 'research' | 'build' | 'other';
   status: 'active' | 'paused' | 'done';
+  startDate?: string; // YYYY-MM-DD — Gantt bar start (project-level)
   deadline?: string;
   targetMetric?: string;
   milestones: Milestone[]; // escalateTo is only meaningful on WORK projects
   order: number;
+  recurring?: 'monthly'; // monthly-close cycles (WORK); absent = one-off project
+  period?: string; // YYYY-MM period a recurring project belongs to
+}
+
+// A single IELTS practice result. The overall band is always DERIVED from the
+// four skills (mean rounded to the nearest 0.5) and never stored.
+export interface IeltsResult {
+  id: string;
+  date: string; // YYYY-MM-DD
+  listening: number; // 0–9 in 0.5 steps
+  reading: number;
+  writing: number;
+  speaking: number;
 }

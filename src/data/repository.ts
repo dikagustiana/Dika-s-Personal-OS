@@ -3,6 +3,7 @@ import type {
   Domain,
   Entry,
   EntryType,
+  IeltsResult,
   Project,
   WeeklyPlan,
 } from './types';
@@ -32,4 +33,10 @@ export interface Repository {
   createProject(input: Omit<Project, 'id'>): Promise<Project>;
   updateProject(id: string, patch: Partial<Project>): Promise<Project>;
   deleteProject(id: string): Promise<void>;
+
+  // IELTS practice results (GROWTH). Sorted by date ascending.
+  listIeltsResults(): Promise<IeltsResult[]>;
+  createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult>;
+  updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult>;
+  deleteIeltsResult(id: string): Promise<void>;
 }

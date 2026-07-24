@@ -5,6 +5,7 @@ import type {
   Domain,
   Entry,
   EntryType,
+  IeltsResult,
   Project,
   WeeklyPlan,
 } from './types';
@@ -81,10 +82,22 @@ interface ProjectRow {
   title: string;
   type: Project['type'];
   status: Project['status'];
+  start_date: string | null;
   deadline: string | null;
   target_metric: string | null;
   milestones: Project['milestones'];
   sort_order: number;
+  recurring: 'monthly' | null;
+  period: string | null;
+}
+
+interface IeltsResultRow {
+  id: string;
+  date: string;
+  listening: number;
+  reading: number;
+  writing: number;
+  speaking: number;
 }
 
 // --- mapping ----------------------------------------------------------------
@@ -163,9 +176,23 @@ function rowToProject(row: ProjectRow): Project {
     milestones: row.milestones,
     order: row.sort_order,
   };
+  if (row.start_date !== null) project.startDate = row.start_date;
   if (row.deadline !== null) project.deadline = row.deadline;
   if (row.target_metric !== null) project.targetMetric = row.target_metric;
+  if (row.recurring !== null) project.recurring = row.recurring;
+  if (row.period !== null) project.period = row.period;
   return project;
+}
+
+function rowToIeltsResult(row: IeltsResultRow): IeltsResult {
+  return {
+    id: row.id,
+    date: row.date,
+    listening: row.listening,
+    reading: row.reading,
+    writing: row.writing,
+    speaking: row.speaking,
+  };
 }
 
 function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
@@ -176,8 +203,11 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('status' in patch && patch.status !== undefined) row.status = patch.status;
   if ('milestones' in patch && patch.milestones !== undefined) row.milestones = patch.milestones;
   if ('order' in patch && patch.order !== undefined) row.sort_order = patch.order;
+  if ('startDate' in patch) row.start_date = patch.startDate ?? null;
   if ('deadline' in patch) row.deadline = patch.deadline ?? null;
   if ('targetMetric' in patch) row.target_metric = patch.targetMetric ?? null;
+  if ('recurring' in patch) row.recurring = patch.recurring ?? null;
+  if ('period' in patch) row.period = patch.period ?? null;
   return row;
 }
 
@@ -364,10 +394,13 @@ class SupabaseRepository implements Repository {
         title: input.title,
         type: input.type,
         status: input.status,
+        start_date: input.startDate ?? null,
         deadline: input.deadline ?? null,
         target_metric: input.targetMetric ?? null,
         milestones: input.milestones,
         sort_order: input.order,
+        recurring: input.recurring ?? null,
+        period: input.period ?? null,
       })
       .select()
       .single();
@@ -396,5 +429,53 @@ class SupabaseRepository implements Repository {
   async deleteProject(id: string): Promise<void> {
     const { error } = await this.client.from('os_projects').delete().eq('id', id);
     if (error) throw new Error(`deleteProject failed: ${error.message}`);
+  }
+
+  async listIeltsResults(): Promise<IeltsResult[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_results')
+      .select('id, date, listening, reading, writing, speaking')
+      .order('date', { ascending: true });
+    if (error) throw new Error(`listIeltsResults failed: ${error.message}`);
+    return (data as IeltsResultRow[]).map(rowToIeltsResult);
+  }
+
+  async createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult> {
+    const { data, error } = await this.client
+      .from('os_ielts_results')
+      .insert({
+        date: input.date,
+        listening: input.listening,
+        reading: input.reading,
+        writing: input.writing,
+        speaking: input.speaking,
+      })
+      .select('id, date, listening, reading, writing, speaking')
+      .single();
+    if (error) throw new Error(`createIeltsResult failed: ${error.message}`);
+    return rowToIeltsResult(data as IeltsResultRow);
+  }
+
+  async updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult> {
+    const row: Partial<IeltsResultRow> = {};
+    if (patch.date !== undefined) row.date = patch.date;
+    if (patch.listening !== undefined) row.listening = patch.listening;
+    if (patch.reading !== undefined) row.reading = patch.reading;
+    if (patch.writing !== undefined) row.writing = patch.writing;
+    if (patch.speaking !== undefined) row.speaking = patch.speaking;
+    const { data, error } = await this.client
+      .from('os_ielts_results')
+      .update(row)
+      .eq('id', id)
+      .select('id, date, listening, reading, writing, speaking')
+      .maybeSingle();
+    if (error) throw new Error(`updateIeltsResult failed: ${error.message}`);
+    if (!data) throw new Error(`IELTS result not found: ${id}`);
+    return rowToIeltsResult(data as IeltsResultRow);
+  }
+
+  async deleteIeltsResult(id: string): Promise<void> {
+    const { error } = await this.client.from('os_ielts_results').delete().eq('id', id);
+    if (error) throw new Error(`deleteIeltsResult failed: ${error.message}`);
   }
 }
