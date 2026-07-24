@@ -2,7 +2,7 @@ import { Activity } from 'lucide-react';
 import type { DailyScoreResult } from '../logic/score';
 
 export function ScoreRing({ result }: { result: DailyScoreResult }) {
-  const ringColor = result.isEmpty ? '#272b28' : '#567563';
+  const ringColor = result.isEmpty ? 'hsl(var(--muted))' : 'hsl(var(--primary))';
   const fill = result.isEmpty ? 0 : result.score * 3.6;
 
   return (
@@ -10,7 +10,7 @@ export function ScoreRing({ result }: { result: DailyScoreResult }) {
       <div
         className="relative grid size-28 shrink-0 place-items-center rounded-full"
         style={{
-          background: `conic-gradient(${ringColor} ${fill}deg, #202421 ${fill}deg)`,
+          background: `conic-gradient(${ringColor} ${fill}deg, hsl(var(--muted)) ${fill}deg)`,
         }}
         aria-label={result.isEmpty ? 'Daily score is neutral' : `Daily score ${result.score} out of 100`}
       >

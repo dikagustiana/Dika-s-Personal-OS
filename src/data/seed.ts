@@ -37,9 +37,30 @@ function isoAt(hour: number, minute: number): string {
   return setMinutes(setHours(today, hour), minute).toISOString();
 }
 
+export const WORK_HABIT_ID = '20000000-0000-4000-8000-000000000006';
+export const WORK_PROJECT_ID = '10000000-0000-4000-8000-000000000005';
+
 export const seedProjects: Project[] = [
   {
+    id: WORK_PROJECT_ID,
+    domain: 'work',
+    title: 'SAMB — Finance Ops',
+    type: 'other',
+    status: 'active',
+    targetMetric: 'Close the month with zero open items',
+    order: 1,
+    milestones: [
+      {
+        id: '15000000-0000-4000-8000-000000000001',
+        text: 'Rebuild the WORK project list here',
+        done: false,
+        status: 'not-started',
+      },
+    ],
+  },
+  {
     id: PROJECT_IDS.scholarship,
+    domain: 'growth',
     title: 'Chevening / LPDP',
     type: 'scholarship',
     status: 'active',
@@ -58,6 +79,7 @@ export const seedProjects: Project[] = [
   },
   {
     id: PROJECT_IDS.ielts,
+    domain: 'growth',
     title: 'IELTS',
     type: 'study',
     status: 'active',
@@ -72,6 +94,7 @@ export const seedProjects: Project[] = [
   },
   {
     id: PROJECT_IDS.research,
+    domain: 'growth',
     title: 'Research',
     type: 'research',
     status: 'active',
@@ -85,6 +108,7 @@ export const seedProjects: Project[] = [
   },
   {
     id: PROJECT_IDS.website,
+    domain: 'growth',
     title: 'Website (writing)',
     type: 'build',
     status: 'active',
@@ -101,6 +125,7 @@ export const seedProjects: Project[] = [
 export const seedWeeklyPlans: WeeklyPlan[] = [
   {
     week: currentWeek,
+    domain: 'growth',
     theme: 'Protect the important work',
     goals: [
       {
@@ -125,6 +150,7 @@ export const seedWeeklyPlans: WeeklyPlan[] = [
   },
   {
     week: lastWeek,
+    domain: 'growth',
     theme: 'Build momentum without noise',
     reviewedAt: subDays(today, 5).toISOString(),
     goals: [
@@ -152,8 +178,20 @@ export const seedWeeklyPlans: WeeklyPlan[] = [
 
 export const seedEntries: Entry[] = [
   {
+    id: WORK_HABIT_ID,
+    type: 'habit',
+    domain: 'work',
+    title: 'Zero documents require approval by 15:00',
+    active: true,
+    order: 1,
+    tags: ['work'],
+    createdAt: subDays(today, 10).toISOString(),
+    updatedAt: nowIso,
+  },
+  {
     id: HABIT_IDS.ielts,
     type: 'habit',
+    domain: 'growth',
     title: 'Study IELTS 1h',
     active: true,
     order: 1,
@@ -164,6 +202,7 @@ export const seedEntries: Entry[] = [
   {
     id: HABIT_IDS.exercise,
     type: 'habit',
+    domain: 'growth',
     title: 'Move for 30 min',
     active: true,
     order: 2,
@@ -174,6 +213,7 @@ export const seedEntries: Entry[] = [
   {
     id: HABIT_IDS.reading,
     type: 'habit',
+    domain: 'growth',
     title: 'Read 20 pages',
     active: true,
     order: 3,
@@ -184,6 +224,7 @@ export const seedEntries: Entry[] = [
   {
     id: HABIT_IDS.writing,
     type: 'habit',
+    domain: 'growth',
     title: 'Write 300 words',
     active: true,
     order: 4,
@@ -194,6 +235,7 @@ export const seedEntries: Entry[] = [
   {
     id: HABIT_IDS.reflection,
     type: 'habit',
+    domain: 'growth',
     title: 'Evening reflection',
     active: true,
     order: 5,
@@ -204,6 +246,7 @@ export const seedEntries: Entry[] = [
   {
     id: '40000000-0000-4000-8000-000000000001',
     type: 'task',
+    domain: 'growth',
     title: 'Tighten scholarship essay opening',
     priority: 'urgent',
     done: false,
@@ -217,6 +260,7 @@ export const seedEntries: Entry[] = [
   {
     id: '40000000-0000-4000-8000-000000000002',
     type: 'task',
+    domain: 'growth',
     title: 'IELTS Task 2 timed response',
     priority: 'urgent',
     done: false,
@@ -230,6 +274,7 @@ export const seedEntries: Entry[] = [
   {
     id: '40000000-0000-4000-8000-000000000003',
     type: 'task',
+    domain: 'growth',
     title: 'Review literature matrix',
     priority: 'urgent',
     done: true,
@@ -244,6 +289,7 @@ export const seedEntries: Entry[] = [
   {
     id: '40000000-0000-4000-8000-000000000004',
     type: 'task',
+    domain: 'growth',
     title: 'Outline website essay',
     priority: 'normal',
     done: false,
@@ -255,6 +301,7 @@ export const seedEntries: Entry[] = [
   {
     id: '50000000-0000-4000-8000-000000000001',
     type: 'braindump',
+    domain: 'growth',
     text: 'The essay needs one concrete leadership failure, not another success story.',
     tags: [],
     createdAt: subDays(today, 1).toISOString(),
@@ -263,6 +310,7 @@ export const seedEntries: Entry[] = [
   {
     id: '50000000-0000-4000-8000-000000000002',
     type: 'braindump',
+    domain: 'growth',
     text: 'Ask a former awardee to pressure-test the course choices.',
     tags: [],
     createdAt: subDays(today, 2).toISOString(),
@@ -271,9 +319,10 @@ export const seedEntries: Entry[] = [
   {
     id: '60000000-0000-4000-8000-000000000001',
     type: 'timeblock',
+    domain: 'growth',
     date: todayKey,
-    start: '07:30',
-    end: '08:00',
+    start: '19:00',
+    end: '19:30',
     label: 'Research review',
     taskId: '40000000-0000-4000-8000-000000000003',
     status: 'done',
@@ -284,9 +333,10 @@ export const seedEntries: Entry[] = [
   {
     id: '60000000-0000-4000-8000-000000000002',
     type: 'timeblock',
+    domain: 'growth',
     date: todayKey,
-    start: '09:00',
-    end: '09:30',
+    start: '20:00',
+    end: '20:30',
     label: 'Scholarship essay',
     taskId: '40000000-0000-4000-8000-000000000001',
     status: 'planned',
@@ -297,9 +347,10 @@ export const seedEntries: Entry[] = [
   {
     id: '60000000-0000-4000-8000-000000000003',
     type: 'timeblock',
+    domain: 'growth',
     date: todayKey,
-    start: '14:00',
-    end: '14:30',
+    start: '21:00',
+    end: '21:30',
     label: 'Walk + reset',
     status: 'planned',
     tags: ['health'],
@@ -309,9 +360,10 @@ export const seedEntries: Entry[] = [
   {
     id: '60000000-0000-4000-8000-000000000004',
     type: 'timeblock',
+    domain: 'growth',
     date: todayKey,
-    start: '19:30',
-    end: '20:00',
+    start: '22:00',
+    end: '22:30',
     label: 'IELTS writing',
     taskId: '40000000-0000-4000-8000-000000000002',
     status: 'planned',
@@ -334,6 +386,7 @@ export const seedDailyLogs: DailyLog[] = Array.from({ length: 24 }, (_, index) =
   const completed = Object.values(habits).filter(Boolean).length;
   return {
     date: format(date, 'yyyy-MM-dd'),
+    domain: 'growth' as const,
     habits,
     score: Math.min(96, 38 + completed * 11 + (index % 9)),
   };

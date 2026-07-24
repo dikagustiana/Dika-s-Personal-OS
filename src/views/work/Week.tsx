@@ -38,11 +38,13 @@ function emptyGoals(): WeeklyGoal[] {
 
 export function Week() {
   const repository = useAppStore((state) => state.repository);
+  const domain = useAppStore((state) => state.workspace);
   const now = new Date();
   const currentWeek = getIsoWeekKey(now);
   const [selectedWeek, setSelectedWeek] = useState(currentWeek);
   const [plan, setPlan] = useState<WeeklyPlan>({
     week: currentWeek,
+    domain,
     goals: emptyGoals(),
   });
   const [projects, setProjects] = useState<Project[]>([]);
@@ -61,19 +63,20 @@ export function Week() {
   const load = useCallback(async () => {
     const previousRange = getWeekRange(previousWeek);
     const [selectedPlan, previousPlan, previousLogs, projectData] = await Promise.all([
-      repository.getWeeklyPlan(selectedWeek),
-      repository.getWeeklyPlan(previousWeek),
+      repository.getWeeklyPlan(selectedWeek, domain),
+      repository.getWeeklyPlan(previousWeek, domain),
       repository.listDailyLogs({
         from: previousRange.from,
         to: format(subDays(parseISO(previousRange.to), 1), 'yyyy-MM-dd'),
+        domain,
       }),
-      repository.listProjects(),
+      repository.listProjects(domain),
     ]);
-    setPlan(selectedPlan ?? { week: selectedWeek, goals: emptyGoals() });
+    setPlan(selectedPlan ?? { week: selectedWeek, domain, goals: emptyGoals() });
     setSummary(summarizeWeek(previousLogs, previousPlan));
     setProjects(projectData);
     setSaved(false);
-  }, [previousWeek, repository, selectedWeek]);
+  }, [domain, previousWeek, repository, selectedWeek]);
 
   useEffect(() => {
     void load();
@@ -91,6 +94,7 @@ export function Week() {
     const cleaned: WeeklyPlan = {
       ...plan,
       week: selectedWeek,
+      domain,
       theme: plan.theme?.trim() || undefined,
       goals: plan.goals
         .map((goal) => ({ ...goal, text: goal.text.trim() }))
@@ -141,7 +145,7 @@ export function Week() {
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
         <div>
-          <p className="page-kicker">Work / Week</p>
+          <p className="page-kicker">{domain} / Week</p>
           <h1 className="page-title">Direct the week</h1>
           <p className="mt-3 max-w-xl text-sm leading-6 text-gray-500">
             Choose outcomes, trace them upward, and close the loop before the next week begins.
@@ -171,11 +175,11 @@ export function Week() {
       </header>
 
       {isSundayEvening && selectedWeek === currentWeek && (
-        <div className="mb-5 flex flex-col gap-4 border border-gold/25 bg-gold/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-4 border border-primary/25 bg-primary/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3">
-            <MoonStar className="mt-0.5 size-5 shrink-0 text-gold" />
+            <MoonStar className="mt-0.5 size-5 shrink-0 text-primary" />
             <div>
-              <p className="font-semibold text-gold">Time to plan next week</p>
+              <p className="font-semibold text-primary">Time to plan next week</p>
               <p className="mt-1 text-sm text-gray-500">A quiet ten-minute reset is enough.</p>
             </div>
           </div>

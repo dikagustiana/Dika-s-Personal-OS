@@ -29,32 +29,13 @@ import type {
 } from '../../data/types';
 import { cn } from '../../lib/utils';
 import { calculateDailyScore } from '../../logic/score';
+import { DOMAIN_HOURS, getCurrentSlot, minutesToTime, slotsForDomain } from '../../logic/timebox';
 import { useAppStore } from '../../store/appStore';
-
-function minutesToTime(total: number): string {
-  const hours = Math.floor(total / 60);
-  const minutes = total % 60;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-}
-
-const SLOTS = Array.from({ length: 36 }, (_, index) => {
-  const startMinutes = 5 * 60 + 30 + index * 30;
-  return {
-    start: minutesToTime(startMinutes),
-    end: minutesToTime(startMinutes + 30),
-  };
-});
-
-function getCurrentSlot(now: Date): string | null {
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  const start = 5 * 60 + 30;
-  const end = 23 * 60 + 30;
-  if (currentMinutes < start || currentMinutes >= end) return null;
-  return minutesToTime(start + Math.floor((currentMinutes - start) / 30) * 30);
-}
 
 export function Timebox() {
   const repository = useAppStore((state) => state.repository);
+  const domain = useAppStore((state) => state.workspace);
+  const slots = useMemo(() => slotsForDomain(domain), [domain]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
@@ -62,12 +43,12 @@ export function Timebox() {
   const [now, setNow] = useState(new Date());
   const currentSlotRef = useRef<HTMLDivElement | null>(null);
 
-  const currentSlot = isToday(parseISO(selectedDate)) ? getCurrentSlot(now) : null;
+  const currentSlot = isToday(parseISO(selectedDate)) ? getCurrentSlot(now, domain) : null;
 
   const load = useCallback(async () => {
     const [blockEntries, taskEntries] = await Promise.all([
-      repository.listEntries({ type: 'timeblock', date: selectedDate }),
-      repository.listEntries({ type: 'task' }),
+      repository.listEntries({ type: 'timeblock', date: selectedDate, domain }),
+      repository.listEntries({ type: 'task', domain }),
     ]);
     setBlocks(
       blockEntries
@@ -79,7 +60,7 @@ export function Timebox() {
         .filter((entry): entry is TaskEntry => entry.type === 'task' && !entry.done)
         .sort((a, b) => a.title.localeCompare(b.title)),
     );
-  }, [repository, selectedDate]);
+  }, [domain, repository, selectedDate]);
 
   useEffect(() => {
     void load();
@@ -111,6 +92,7 @@ export function Timebox() {
     setDrafts((current) => ({ ...current, [slot.start]: '' }));
     const input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'timeblock',
+      domain,
       date: selectedDate,
       start: slot.start,
       end: slot.end,
@@ -136,8 +118,8 @@ export function Timebox() {
   const snapshotTodayScore = async (nextBlocks: TimeBlockEntry[]) => {
     if (!isToday(parseISO(selectedDate))) return;
     const [allEntries, currentLog] = await Promise.all([
-      repository.listEntries(),
-      repository.getDailyLog(selectedDate),
+      repository.listEntries({ domain }),
+      repository.getDailyLog(selectedDate, domain),
     ]);
     const habits = allEntries.filter(
       (entry): entry is HabitEntry => entry.type === 'habit' && entry.active,
@@ -148,7 +130,12 @@ export function Timebox() {
         entry.priority === 'urgent' &&
         (!entry.done || Boolean(entry.completedAt?.startsWith(selectedDate))),
     );
-    const log: DailyLog = currentLog ?? { date: selectedDate, habits: {}, score: 0 };
+    const log: DailyLog = currentLog ?? {
+      date: selectedDate,
+      domain,
+      habits: {},
+      score: 0,
+    };
     const score = calculateDailyScore({
       habits: {
         completed: habits.filter((habit) => log.habits[habit.id]).length,
@@ -198,7 +185,7 @@ export function Timebox() {
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
         <div>
-          <p className="page-kicker">Work / Timebox</p>
+          <p className="page-kicker">{domain} / Timebox</p>
           <h1 className="page-title">Shape the day</h1>
           <p className="mt-3 max-w-xl text-sm leading-6 text-gray-500">
             Give attention a place to land. Each block is deliberately short and finishable.
@@ -222,21 +209,22 @@ export function Timebox() {
       <div className="mb-4 grid gap-3 border border-gray-800 bg-card p-4 text-xs text-gray-500 sm:grid-cols-3">
         <div className="flex items-center gap-2">
           <Clock3 className="size-4 text-primary" />
-          05:30–23:30 · 30 min
+          {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
+          {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min
         </div>
         <div className="flex items-center gap-2">
           <Plus className="size-4 text-primary" />
           Type or link a task
         </div>
         <div className="flex items-center gap-2">
-          <Link2 className="size-4 text-gold" />
+          <Link2 className="size-4 text-primary" />
           Linked completion cascades
         </div>
       </div>
 
       <Card className="overflow-hidden">
         <div className="divide-y divide-gray-800">
-          {SLOTS.map((slot) => {
+          {slots.map((slot) => {
             const block = byStart.get(slot.start);
             const isCurrent = currentSlot === slot.start;
             const linkedTask = block?.taskId
@@ -267,7 +255,7 @@ export function Timebox() {
                           {block.label}
                         </p>
                         {block.taskId && (
-                          <span className="inline-flex items-center gap-1 border border-gold/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gold/80">
+                          <span className="inline-flex items-center gap-1 border border-primary/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary/80">
                             <Link2 className="size-2.5" />
                             Task
                           </span>

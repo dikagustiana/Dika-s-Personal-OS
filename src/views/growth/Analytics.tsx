@@ -27,7 +27,13 @@ import type { DailyLog } from '../../data/types';
 import { buildContributionDays } from '../../logic/contribution';
 import { useAppStore } from '../../store/appStore';
 
-const bucketColors = ['#1b1f1c', '#293b31', '#365242', '#476b55', '#668b72'];
+const bucketColors = [
+  'hsl(var(--muted) / 0.55)',
+  'hsl(var(--primary) / 0.25)',
+  'hsl(var(--primary) / 0.45)',
+  'hsl(var(--primary) / 0.7)',
+  'hsl(var(--primary))',
+];
 
 interface TooltipPayload {
   value: number;
@@ -44,7 +50,7 @@ function ScoreTooltip({
   if (!active || !payload?.[0]) return null;
   const item = payload[0].payload;
   return (
-    <div className="border border-gray-700 bg-[#101311] px-3 py-2 text-xs">
+    <div className="border border-gray-700 bg-card px-3 py-2 text-xs">
       <p className="font-semibold text-gray-200">{item.day} · {item.score}</p>
       <p className="mt-1 text-gray-600">{format(parseISO(item.date), 'MMM d')}</p>
     </div>
@@ -53,6 +59,7 @@ function ScoreTooltip({
 
 export function Analytics() {
   const repository = useAppStore((state) => state.repository);
+  const domain = useAppStore((state) => state.workspace);
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const today = new Date();
   const todayKey = format(today, 'yyyy-MM-dd');
@@ -61,9 +68,10 @@ export function Analytics() {
     const data = await repository.listDailyLogs({
       from: format(subDays(today, 29), 'yyyy-MM-dd'),
       to: todayKey,
+      domain,
     });
     setLogs(data);
-  }, [repository, todayKey]);
+  }, [domain, repository, todayKey]);
 
   useEffect(() => {
     void load();
@@ -102,7 +110,7 @@ export function Analytics() {
   return (
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7">
-        <p className="page-kicker">Growth / Analytics</p>
+        <p className="page-kicker">{domain} / Analytics</p>
         <h1 className="page-title">Evidence of effort</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
           A quiet record of consistency—not a leaderboard, and never a verdict.
@@ -111,7 +119,7 @@ export function Analytics() {
 
       <div className="mb-5 grid gap-px overflow-hidden border border-gray-800 bg-gray-800 sm:grid-cols-3">
         <div className="bg-card p-5">
-          <Flame className="size-4 text-gold" />
+          <Flame className="size-4 text-primary" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{activeDays}</p>
           <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">Days with data</p>
         </div>
@@ -200,15 +208,15 @@ export function Analytics() {
             <div className="h-64 min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={weeklyScores} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
-                  <CartesianGrid stroke="#242925" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: '#707772', fontSize: 11 }} />
-                  <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: '#555c57', fontSize: 10 }} />
-                  <Tooltip content={<ScoreTooltip />} cursor={{ fill: '#1c211d' }} />
+                  <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }} />
+                  <YAxis domain={[0, 100]} axisLine={false} tickLine={false} tick={{ fill: 'hsl(var(--muted-foreground) / 0.8)', fontSize: 10 }} />
+                  <Tooltip content={<ScoreTooltip />} cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} />
                   <Bar dataKey="score" radius={0} maxBarSize={38}>
                     {weeklyScores.map((item) => (
                       <Cell
                         key={item.date}
-                        fill={item.hasLog ? '#567563' : '#202421'}
+                        fill={item.hasLog ? 'hsl(var(--primary) / 0.85)' : 'hsl(var(--muted))'}
                       />
                     ))}
                   </Bar>

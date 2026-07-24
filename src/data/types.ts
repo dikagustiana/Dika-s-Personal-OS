@@ -1,8 +1,15 @@
 export type EntryType = 'task' | 'habit' | 'braindump' | 'timeblock';
 
+// The two fully separate worlds: WORK = the day job (SAMB, finance), GROWTH =
+// self-development (university, scholarship, research, website). Every
+// user-owned record carries one, and every query filters by the active one —
+// data never crosses between them.
+export type Domain = 'work' | 'growth';
+
 export interface BaseEntry {
   id: string;
   type: EntryType;
+  domain: Domain;
   createdAt: string;
   updatedAt: string;
   tags: string[];
@@ -45,6 +52,7 @@ export type Entry = TaskEntry | HabitEntry | BrainDumpEntry | TimeBlockEntry;
 
 export interface DailyLog {
   date: string;
+  domain: Domain; // part of the key — two independent daily scores per day
   habits: Record<string, boolean>;
   score: number;
 }
@@ -58,6 +66,7 @@ export interface WeeklyGoal {
 
 export interface WeeklyPlan {
   week: string;
+  domain: Domain; // part of the key — each workspace plans its own week
   theme?: string;
   goals: WeeklyGoal[];
   reviewedAt?: string;
@@ -87,11 +96,12 @@ export interface Milestone {
 
 export interface Project {
   id: string;
+  domain: Domain;
   title: string;
   type: 'scholarship' | 'study' | 'research' | 'build' | 'other';
   status: 'active' | 'paused' | 'done';
   deadline?: string;
   targetMetric?: string;
-  milestones: Milestone[];
+  milestones: Milestone[]; // escalateTo is only meaningful on WORK projects
   order: number;
 }

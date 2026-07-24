@@ -19,6 +19,7 @@ function milestone(overrides: Partial<Milestone> = {}): Milestone {
 function project(overrides: Partial<Project> = {}): Project {
   return {
     id: 'p1',
+    domain: 'work',
     title: 'Project One',
     type: 'other',
     status: 'active',

@@ -12,16 +12,18 @@ export default function App() {
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
 
+  // Both workspaces carry the full view set; Escalations exists in WORK only.
+  const activeView = workspace === 'work' ? workView : growthView;
+
+  // key={workspace} remounts the view when switching worlds so no local
+  // state (drafts, selected dates) leaks from one domain into the other.
   let view: React.ReactNode;
-  if (workspace === 'work') {
-    if (workView === 'timebox') view = <Timebox />;
-    else if (workView === 'week') view = <Week />;
-    else view = <Today />;
-  } else {
-    if (growthView === 'analytics') view = <Analytics />;
-    else if (growthView === 'escalations') view = <Escalations />;
-    else view = <Projects />;
-  }
+  if (activeView === 'timebox') view = <Timebox key={workspace} />;
+  else if (activeView === 'week') view = <Week key={workspace} />;
+  else if (activeView === 'projects') view = <Projects key={workspace} />;
+  else if (activeView === 'analytics') view = <Analytics key={workspace} />;
+  else if (activeView === 'escalations' && workspace === 'work') view = <Escalations key={workspace} />;
+  else view = <Today key={workspace} />;
 
   return <AppShell>{view}</AppShell>;
 }

@@ -1,6 +1,6 @@
 import type { Repository } from './repository';
 import { seedDailyLogs, seedEntries, seedProjects, seedWeeklyPlans } from './seed';
-import type { DailyLog, Entry, Project, WeeklyPlan } from './types';
+import type { DailyLog, Domain, Entry, Project, WeeklyPlan } from './types';
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -10,13 +10,22 @@ function createId(): string {
   return crypto.randomUUID();
 }
 
+// Daily logs are keyed by (date, domain); weekly plans by (week, domain).
+function logKey(date: string, domain: Domain): string {
+  return `${domain}:${date}`;
+}
+
+function planKey(week: string, domain: Domain): string {
+  return `${domain}:${week}`;
+}
+
 export class MockRepository implements Repository {
   private readonly entries = new Map(seedEntries.map((entry) => [entry.id, clone(entry)]));
   private readonly dailyLogs = new Map(
-    seedDailyLogs.map((log) => [log.date, clone(log)]),
+    seedDailyLogs.map((log) => [logKey(log.date, log.domain), clone(log)]),
   );
   private readonly weeklyPlans = new Map(
-    seedWeeklyPlans.map((plan) => [plan.week, clone(plan)]),
+    seedWeeklyPlans.map((plan) => [planKey(plan.week, plan.domain), clone(plan)]),
   );
   private readonly projects = new Map(
     seedProjects.map((project) => [project.id, clone(project)]),
@@ -25,8 +34,10 @@ export class MockRepository implements Repository {
   async listEntries(filter?: {
     type?: Entry['type'];
     date?: string;
+    domain?: Domain;
   }): Promise<Entry[]> {
     const entries = [...this.entries.values()].filter((entry) => {
+      if (filter?.domain && entry.domain !== filter.domain) return false;
       if (filter?.type && entry.type !== filter.type) return false;
       if (!filter?.date) return true;
       if (entry.type === 'timeblock') return entry.date === filter.date;
@@ -74,35 +85,48 @@ export class MockRepository implements Repository {
     this.entries.delete(id);
   }
 
-  async getDailyLog(date: string): Promise<DailyLog | null> {
-    const log = this.dailyLogs.get(date);
+  async getDailyLog(date: string, domain: Domain): Promise<DailyLog | null> {
+    const log = this.dailyLogs.get(logKey(date, domain));
     return log ? clone(log) : null;
   }
 
   async upsertDailyLog(log: DailyLog): Promise<DailyLog> {
-    this.dailyLogs.set(log.date, clone(log));
+    this.dailyLogs.set(logKey(log.date, log.domain), clone(log));
     return clone(log);
   }
 
-  async listDailyLogs(range: { from: string; to: string }): Promise<DailyLog[]> {
+  async listDailyLogs(range: {
+    from: string;
+    to: string;
+    domain: Domain;
+  }): Promise<DailyLog[]> {
     const logs = [...this.dailyLogs.values()]
-      .filter((log) => log.date >= range.from && log.date <= range.to)
+      .filter(
+        (log) =>
+          log.domain === range.domain &&
+          log.date >= range.from &&
+          log.date <= range.to,
+      )
       .sort((a, b) => a.date.localeCompare(b.date));
     return clone(logs);
   }
 
-  async getWeeklyPlan(week: string): Promise<WeeklyPlan | null> {
-    const plan = this.weeklyPlans.get(week);
+  async getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null> {
+    const plan = this.weeklyPlans.get(planKey(week, domain));
     return plan ? clone(plan) : null;
   }
 
   async upsertWeeklyPlan(plan: WeeklyPlan): Promise<WeeklyPlan> {
-    this.weeklyPlans.set(plan.week, clone(plan));
+    this.weeklyPlans.set(planKey(plan.week, plan.domain), clone(plan));
     return clone(plan);
   }
 
-  async listProjects(): Promise<Project[]> {
-    return clone([...this.projects.values()].sort((a, b) => a.order - b.order));
+  async listProjects(domain?: Domain): Promise<Project[]> {
+    return clone(
+      [...this.projects.values()]
+        .filter((project) => !domain || project.domain === domain)
+        .sort((a, b) => a.order - b.order),
+    );
   }
 
   async getProject(id: string): Promise<Project | null> {
