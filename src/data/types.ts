@@ -97,6 +97,16 @@ export interface Milestone {
   escalateTo?: EscalateTo; // flag independent of status; absent means 'none'
 }
 
+// The DDS site sections a Website piece belongs to (Website projects only).
+export type WebsiteCategory =
+  | 'finance'
+  | 'accounting'
+  | 'green-transition'
+  | 'development-finance'
+  | 'critical-thinking'
+  | 'next-big-thing'
+  | 'books';
+
 export interface Project {
   id: string;
   domain: Domain;
@@ -110,6 +120,8 @@ export interface Project {
   order: number;
   recurring?: 'monthly'; // monthly-close cycles (WORK); absent = one-off project
   period?: string; // YYYY-MM period a recurring project belongs to
+  workingTitle?: string; // current piece being worked on (Research, Website)
+  category?: WebsiteCategory; // Website only — which DDS site section
 }
 
 // A single IELTS practice result. The overall band is always DERIVED from the

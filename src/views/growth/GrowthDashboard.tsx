@@ -1,14 +1,16 @@
-import { CalendarCheck2, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, CalendarCheck2, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
+import { IeltsTrendChart } from '../../components/IeltsTrendChart';
 import { ScoreRing } from '../../components/ScoreRing';
 import type {
   DailyLog,
   HabitEntry,
+  IeltsResult,
   Project,
   TaskEntry,
   WeeklyGoal,
@@ -41,12 +43,14 @@ const barColor: Record<Urgency, string> = {
  */
 export function GrowthDashboard() {
   const repository = useAppStore((state) => state.repository);
+  const setGrowthView = useAppStore((state) => state.setGrowthView);
   const [projects, setProjects] = useState<Project[]>([]);
   const [habits, setHabits] = useState<HabitEntry[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [dailyLog, setDailyLog] = useState<DailyLog | null>(null);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [recap, setRecap] = useState({ averageScore: 0, habitConsistency: 0, daysLogged: 0 });
+  const [ieltsResults, setIeltsResults] = useState<IeltsResult[]>([]);
   const [taskTitle, setTaskTitle] = useState('');
   const [goalDraft, setGoalDraft] = useState('');
 
@@ -57,7 +61,7 @@ export function GrowthDashboard() {
   const load = useCallback(async () => {
     const previousWeek = getPreviousWeekKey(week);
     const previousRange = getWeekRange(previousWeek);
-    const [projectData, entries, log, weeklyPlan, previousPlan, previousLogs] =
+    const [projectData, entries, log, weeklyPlan, previousPlan, previousLogs, ielts] =
       await Promise.all([
         repository.listProjects('growth'),
         repository.listEntries({ domain: 'growth' }),
@@ -69,8 +73,10 @@ export function GrowthDashboard() {
           to: format(subDays(parseISO(previousRange.to), 1), 'yyyy-MM-dd'),
           domain: 'growth',
         }),
+        repository.listIeltsResults(),
       ]);
     setProjects(projectData);
+    setIeltsResults(ielts);
     setHabits(
       entries
         .filter((entry): entry is HabitEntry => entry.type === 'habit' && entry.active)
@@ -296,6 +302,31 @@ export function GrowthDashboard() {
             <span className="flex items-center gap-1.5"><span className="size-2.5 bg-escalate/80" /> due soon</span>
             <span className="flex items-center gap-1.5"><span className="size-2.5 bg-destructive/80" /> overdue</span>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* IELTS trend preview — read-only, links to the full tracker */}
+      <Card className="mb-5">
+        <CardHeader>
+          <div>
+            <CardTitle>IELTS trend</CardTitle>
+            <p className="mt-2 text-sm text-gray-600">
+              Four skills + overall vs the 7.0 target.
+            </p>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => setGrowthView('ielts')}>
+            Open tracker
+            <ArrowRight className="size-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {ieltsResults.length > 0 ? (
+            <IeltsTrendChart results={ieltsResults} compact />
+          ) : (
+            <p className="py-8 text-center text-sm text-gray-600">
+              No IELTS results yet. Add your first mock in the tracker.
+            </p>
+          )}
         </CardContent>
       </Card>
 
