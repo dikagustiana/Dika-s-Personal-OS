@@ -8,9 +8,17 @@ import type { Repository } from '../data/repository';
 // main.tsx) verifies the passphrase against the database and swaps in the
 // Supabase repository via setRepository before any view issues a data call.
 
+// Two fully separate worlds, each with its own complete view set. WORK
+// additionally has the Escalations board-review screen; GROWTH does not.
 export type Workspace = 'work' | 'growth';
-export type WorkView = 'today' | 'timebox' | 'week';
-export type GrowthView = 'projects' | 'escalations' | 'analytics';
+export type WorkView =
+  | 'today'
+  | 'timebox'
+  | 'week'
+  | 'projects'
+  | 'analytics'
+  | 'escalations';
+export type GrowthView = 'today' | 'timebox' | 'week' | 'projects' | 'analytics';
 
 interface AppState {
   repository: Repository;
@@ -27,7 +35,7 @@ export const useAppStore = create<AppState>((set) => ({
   repository: mockRepository,
   workspace: 'work',
   workView: 'today',
-  growthView: 'projects',
+  growthView: 'today',
   setRepository: (repository) => set({ repository }),
   setWorkspace: (workspace) => set({ workspace }),
   setWorkView: (workView) => set({ workView }),

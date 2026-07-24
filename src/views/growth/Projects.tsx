@@ -48,20 +48,21 @@ function deadlineText(deadline?: string): string {
 
 export function Projects() {
   const repository = useAppStore((state) => state.repository);
+  const domain = useAppStore((state) => state.workspace);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
 
   const load = useCallback(async () => {
     const [projectData, taskEntries, weeklyPlan] = await Promise.all([
-      repository.listProjects(),
-      repository.listEntries({ type: 'task' }),
-      repository.getWeeklyPlan(getIsoWeekKey(new Date())),
+      repository.listProjects(domain),
+      repository.listEntries({ type: 'task', domain }),
+      repository.getWeeklyPlan(getIsoWeekKey(new Date()), domain),
     ]);
     setProjects(projectData);
     setTasks(taskEntries.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setPlan(weeklyPlan);
-  }, [repository]);
+  }, [domain, repository]);
 
   useEffect(() => {
     void load();
@@ -109,7 +110,7 @@ export function Projects() {
   return (
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7">
-        <p className="page-kicker">Growth / Projects</p>
+        <p className="page-kicker">{domain} / Projects</p>
         <h1 className="page-title">Keep it moving</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
           Long-range commitments, reduced to the milestones and linked activity that prove momentum.
@@ -167,7 +168,7 @@ export function Projects() {
               <CardContent className="pt-5">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="border border-gray-800 bg-black/10 p-3">
-                    <CalendarClock className="size-4 text-gold" />
+                    <CalendarClock className="size-4 text-primary" />
                     <p className="mt-3 text-sm font-semibold text-gray-200">
                       {deadlineText(project.deadline)}
                     </p>
@@ -198,9 +199,9 @@ export function Projects() {
                 </div>
 
                 {project.targetMetric && (
-                  <div className="mt-4 border-l-2 border-gold/50 pl-3">
+                  <div className="mt-4 border-l-2 border-primary/50 pl-3">
                     <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">Target</p>
-                    <p className="mt-1 text-sm text-gold/85">{project.targetMetric}</p>
+                    <p className="mt-1 text-sm text-primary/85">{project.targetMetric}</p>
                   </div>
                 )}
 
@@ -224,9 +225,9 @@ export function Projects() {
                           className={cn(
                             'space-y-2 border-l-2 py-3 pl-3',
                             milestone.status === 'blocked'
-                              ? 'border-l-red-400/60'
+                              ? 'border-l-destructive/60'
                               : escalated
-                                ? 'border-l-gold/60'
+                                ? 'border-l-escalate/60'
                                 : 'border-l-transparent',
                           )}
                         >
@@ -240,10 +241,17 @@ export function Projects() {
                               {milestone.text}
                             </span>
                             {escalated && (
-                              <Megaphone className="size-4 shrink-0 text-gold" aria-label="Escalated" />
+                              <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />
                             )}
                           </div>
-                          <div className="grid gap-2 sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]">
+                          <div
+                            className={cn(
+                              'grid gap-2',
+                              domain === 'work'
+                                ? 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]'
+                                : 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)]',
+                            )}
+                          >
                             <select
                               className="native-select text-xs"
                               value={milestone.status}
@@ -273,24 +281,26 @@ export function Projects() {
                               placeholder="What's left / blocker…"
                               aria-label={`Note for ${milestone.text}`}
                             />
-                            <select
-                              className={cn('native-select text-xs', escalated && 'text-gold')}
-                              value={milestone.escalateTo ?? 'none'}
-                              onChange={(event) =>
-                                void patchMilestone(project, milestone.id, (current) => ({
-                                  ...current,
-                                  escalateTo: event.target.value as EscalateTo,
-                                }))
-                              }
-                              aria-label={`Escalation for ${milestone.text}`}
-                            >
-                              <option value="none">None</option>
-                              {ESCALATION_TARGETS.map((target) => (
-                                <option key={target.value} value={target.value}>
-                                  {target.label}
-                                </option>
-                              ))}
-                            </select>
+                            {domain === 'work' && (
+                              <select
+                                className={cn('native-select text-xs', escalated && 'text-escalate')}
+                                value={milestone.escalateTo ?? 'none'}
+                                onChange={(event) =>
+                                  void patchMilestone(project, milestone.id, (current) => ({
+                                    ...current,
+                                    escalateTo: event.target.value as EscalateTo,
+                                  }))
+                                }
+                                aria-label={`Escalation for ${milestone.text}`}
+                              >
+                                <option value="none">None</option>
+                                {ESCALATION_TARGETS.map((target) => (
+                                  <option key={target.value} value={target.value}>
+                                    {target.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </div>
                         </div>
                       );

@@ -1,6 +1,6 @@
 # Personal OS
 
-A private, single-user command center for focused daily execution and long-term growth. The app defaults to **Work / Today** and includes responsive Today, Timebox, Week, Projects, and Analytics views.
+A private, single-user command center split into two fully separate worlds: **WORK** (the day job — SAMB, finance) and **GROWTH** (self-development — university, scholarship, research, website). Each workspace has its own Today, Timebox, Week, Projects, and Analytics views with independently scoped data and its own daily score; WORK additionally has an Escalations board-review screen. WORK timeboxes 08:30–18:30, GROWTH 18:30–23:30.
 
 **Live:** https://dika-personal-os.vercel.app — enter the app passphrase to unlock. Data persists in Supabase (project `dikagustiana-prod`).
 

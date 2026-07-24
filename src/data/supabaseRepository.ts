@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Repository } from './repository';
 import type {
   DailyLog,
+  Domain,
   Entry,
   EntryType,
   Project,
@@ -51,6 +52,7 @@ export function createSupabaseRepository(appKey: string): Repository {
 interface EntryRow {
   id: string;
   type: EntryType;
+  domain: Domain;
   created_at: string;
   updated_at: string;
   tags: string[];
@@ -60,12 +62,14 @@ interface EntryRow {
 
 interface DailyLogRow {
   date: string;
+  domain: Domain;
   habits: Record<string, boolean>;
   score: number;
 }
 
 interface WeeklyPlanRow {
   week: string;
+  domain: Domain;
   theme: string | null;
   goals: WeeklyPlan['goals'];
   reviewed_at: string | null;
@@ -73,6 +77,7 @@ interface WeeklyPlanRow {
 
 interface ProjectRow {
   id: string;
+  domain: Domain;
   title: string;
   type: Project['type'];
   status: Project['status'];
@@ -96,6 +101,7 @@ function rowToEntry(row: EntryRow): Entry {
     ...row.payload,
     id: row.id,
     type: row.type,
+    domain: row.domain,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
     tags: row.tags,
@@ -123,10 +129,11 @@ function entryDateFor(entry: Entry): string | null {
 // mock's spread-merge semantics where `{ completedAt: undefined }` clears
 // the field.
 function entryToRow(entry: Entry): EntryRow {
-  const { id, type, createdAt, updatedAt, tags, ...payload } = entry;
+  const { id, type, domain, createdAt, updatedAt, tags, ...payload } = entry;
   return {
     id,
     type,
+    domain,
     created_at: createdAt,
     updated_at: updatedAt,
     tags,
@@ -136,11 +143,11 @@ function entryToRow(entry: Entry): EntryRow {
 }
 
 function rowToDailyLog(row: DailyLogRow): DailyLog {
-  return { date: row.date, habits: row.habits, score: row.score };
+  return { date: row.date, domain: row.domain, habits: row.habits, score: row.score };
 }
 
 function rowToWeeklyPlan(row: WeeklyPlanRow): WeeklyPlan {
-  const plan: WeeklyPlan = { week: row.week, goals: row.goals };
+  const plan: WeeklyPlan = { week: row.week, domain: row.domain, goals: row.goals };
   if (row.theme !== null) plan.theme = row.theme;
   if (row.reviewed_at !== null) plan.reviewedAt = toIso(row.reviewed_at);
   return plan;
@@ -149,6 +156,7 @@ function rowToWeeklyPlan(row: WeeklyPlanRow): WeeklyPlan {
 function rowToProject(row: ProjectRow): Project {
   const project: Project = {
     id: row.id,
+    domain: row.domain,
     title: row.title,
     type: row.type,
     status: row.status,
@@ -162,6 +170,7 @@ function rowToProject(row: ProjectRow): Project {
 
 function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   const row: Partial<ProjectRow> = {};
+  if ('domain' in patch && patch.domain !== undefined) row.domain = patch.domain;
   if ('title' in patch && patch.title !== undefined) row.title = patch.title;
   if ('type' in patch && patch.type !== undefined) row.type = patch.type;
   if ('status' in patch && patch.status !== undefined) row.status = patch.status;
@@ -177,8 +186,13 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
 class SupabaseRepository implements Repository {
   constructor(private readonly client: SupabaseClient) {}
 
-  async listEntries(filter?: { type?: EntryType; date?: string }): Promise<Entry[]> {
+  async listEntries(filter?: {
+    type?: EntryType;
+    date?: string;
+    domain?: Domain;
+  }): Promise<Entry[]> {
     let query = this.client.from('os_entries').select('*');
+    if (filter?.domain) query = query.eq('domain', filter.domain);
     if (filter?.type) {
       query = query.eq('type', filter.type);
       // Habits ignore date filters (mock semantics); everything else
@@ -236,6 +250,7 @@ class SupabaseRepository implements Repository {
       .from('os_entries')
       .update({
         type: row.type,
+        domain: row.domain,
         tags: row.tags,
         entry_date: row.entry_date,
         payload: row.payload,
@@ -253,11 +268,12 @@ class SupabaseRepository implements Repository {
     if (error) throw new Error(`deleteEntry failed: ${error.message}`);
   }
 
-  async getDailyLog(date: string): Promise<DailyLog | null> {
+  async getDailyLog(date: string, domain: Domain): Promise<DailyLog | null> {
     const { data, error } = await this.client
       .from('os_daily_logs')
-      .select('date, habits, score')
+      .select('date, domain, habits, score')
       .eq('date', date)
+      .eq('domain', domain)
       .maybeSingle();
     if (error) throw new Error(`getDailyLog failed: ${error.message}`);
     return data ? rowToDailyLog(data as DailyLogRow) : null;
@@ -267,19 +283,24 @@ class SupabaseRepository implements Repository {
     const { data, error } = await this.client
       .from('os_daily_logs')
       .upsert(
-        { date: log.date, habits: log.habits, score: log.score },
-        { onConflict: 'date' },
+        { date: log.date, domain: log.domain, habits: log.habits, score: log.score },
+        { onConflict: 'date,domain' },
       )
-      .select('date, habits, score')
+      .select('date, domain, habits, score')
       .single();
     if (error) throw new Error(`upsertDailyLog failed: ${error.message}`);
     return rowToDailyLog(data as DailyLogRow);
   }
 
-  async listDailyLogs(range: { from: string; to: string }): Promise<DailyLog[]> {
+  async listDailyLogs(range: {
+    from: string;
+    to: string;
+    domain: Domain;
+  }): Promise<DailyLog[]> {
     const { data, error } = await this.client
       .from('os_daily_logs')
-      .select('date, habits, score')
+      .select('date, domain, habits, score')
+      .eq('domain', range.domain)
       .gte('date', range.from)
       .lte('date', range.to)
       .order('date', { ascending: true });
@@ -287,11 +308,12 @@ class SupabaseRepository implements Repository {
     return (data as DailyLogRow[]).map(rowToDailyLog);
   }
 
-  async getWeeklyPlan(week: string): Promise<WeeklyPlan | null> {
+  async getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null> {
     const { data, error } = await this.client
       .from('os_weekly_plans')
-      .select('week, theme, goals, reviewed_at')
+      .select('week, domain, theme, goals, reviewed_at')
       .eq('week', week)
+      .eq('domain', domain)
       .maybeSingle();
     if (error) throw new Error(`getWeeklyPlan failed: ${error.message}`);
     return data ? rowToWeeklyPlan(data as WeeklyPlanRow) : null;
@@ -303,23 +325,23 @@ class SupabaseRepository implements Repository {
       .upsert(
         {
           week: plan.week,
+          domain: plan.domain,
           theme: plan.theme ?? null,
           goals: plan.goals,
           reviewed_at: plan.reviewedAt ?? null,
         },
-        { onConflict: 'week' },
+        { onConflict: 'week,domain' },
       )
-      .select('week, theme, goals, reviewed_at')
+      .select('week, domain, theme, goals, reviewed_at')
       .single();
     if (error) throw new Error(`upsertWeeklyPlan failed: ${error.message}`);
     return rowToWeeklyPlan(data as WeeklyPlanRow);
   }
 
-  async listProjects(): Promise<Project[]> {
-    const { data, error } = await this.client
-      .from('os_projects')
-      .select('*')
-      .order('sort_order', { ascending: true });
+  async listProjects(domain?: Domain): Promise<Project[]> {
+    let query = this.client.from('os_projects').select('*');
+    if (domain) query = query.eq('domain', domain);
+    const { data, error } = await query.order('sort_order', { ascending: true });
     if (error) throw new Error(`listProjects failed: ${error.message}`);
     return (data as ProjectRow[]).map(rowToProject);
   }
@@ -338,6 +360,7 @@ class SupabaseRepository implements Repository {
     const { data, error } = await this.client
       .from('os_projects')
       .insert({
+        domain: input.domain,
         title: input.title,
         type: input.type,
         status: input.status,

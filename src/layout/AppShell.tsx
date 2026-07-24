@@ -26,11 +26,16 @@ const workNav: Array<{ id: WorkView; label: string; icon: typeof Focus }> = [
   { id: 'today', label: 'Today', icon: Focus },
   { id: 'timebox', label: 'Timebox', icon: Clock3 },
   { id: 'week', label: 'Week', icon: CalendarDays },
+  { id: 'projects', label: 'Projects', icon: Target },
+  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+  { id: 'escalations', label: 'Escalations', icon: Megaphone },
 ];
 
 const growthNav: Array<{ id: GrowthView; label: string; icon: typeof Focus }> = [
+  { id: 'today', label: 'Today', icon: Focus },
+  { id: 'timebox', label: 'Timebox', icon: Clock3 },
+  { id: 'week', label: 'Week', icon: CalendarDays },
   { id: 'projects', label: 'Projects', icon: Target },
-  { id: 'escalations', label: 'Escalations', icon: Megaphone },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
 ];
 
@@ -82,7 +87,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-gray-800 bg-[#0d100e] p-5 lg:flex lg:flex-col">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-gray-800 bg-card p-5 lg:flex lg:flex-col">
         <div className="mb-8 flex items-center gap-3">
           <div className="grid size-10 place-items-center border border-primary/50 bg-primary/10">
             <Mountain className="size-5 text-primary" />
@@ -145,7 +150,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       {drawerOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 lg:hidden" onClick={() => setDrawerOpen(false)}>
           <aside
-            className="ml-auto flex h-full w-[min(88vw,360px)] flex-col border-l border-gray-800 bg-[#0d100e] p-5"
+            className="ml-auto flex h-full w-[min(88vw,360px)] flex-col border-l border-gray-800 bg-card p-5"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-6 flex items-center justify-between">
@@ -185,7 +190,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="pb-24 lg:ml-64 lg:pb-0">{children}</main>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-gray-800 bg-[#0d100e]/98 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-gray-800 bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
         style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}
         aria-label={`${workspace} quick navigation`}
       >

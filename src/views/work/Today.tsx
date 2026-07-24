@@ -38,7 +38,9 @@ function isTodayTask(task: TaskEntry, todayKey: string): boolean {
 
 export function Today() {
   const repository = useAppStore((state) => state.repository);
+  const domain = useAppStore((state) => state.workspace);
   const setWorkView = useAppStore((state) => state.setWorkView);
+  const setGrowthView = useAppStore((state) => state.setGrowthView);
   const [now, setNow] = useState(new Date());
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [habits, setHabits] = useState<HabitEntry[]>([]);
@@ -57,9 +59,9 @@ export function Today() {
   // data loads on mount and again only when the calendar date rolls over.
   const loadToday = useCallback(async () => {
     const [entryData, logData, planData] = await Promise.all([
-      repository.listEntries(),
-      repository.getDailyLog(todayKey),
-      repository.getWeeklyPlan(getIsoWeekKey(parseISO(todayKey))),
+      repository.listEntries({ domain }),
+      repository.getDailyLog(todayKey, domain),
+      repository.getWeeklyPlan(getIsoWeekKey(parseISO(todayKey)), domain),
     ]);
     setTasks(entryData.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setHabits(
@@ -83,7 +85,7 @@ export function Today() {
     setDailyLog(logData);
     setPlan(planData);
     setIsLoading(false);
-  }, [repository, todayKey]);
+  }, [domain, repository, todayKey]);
 
   useEffect(() => {
     void loadToday();
@@ -146,6 +148,7 @@ export function Today() {
     setTaskTitle('');
     const input: Omit<TaskEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'task',
+      domain,
       title,
       priority: 'urgent',
       done: false,
@@ -164,7 +167,12 @@ export function Today() {
     })) as TaskEntry;
     const nextTasks = urgentTasks.map((item) => (item.id === task.id ? updated : item));
     setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)));
-    const currentLog: DailyLog = dailyLog ?? { date: todayKey, habits: {}, score: 0 };
+    const currentLog: DailyLog = dailyLog ?? {
+      date: todayKey,
+      domain,
+      habits: {},
+      score: 0,
+    };
     const saved = await persistTodayScore(currentLog, nextTasks);
     setDailyLog(saved);
   };
@@ -177,6 +185,7 @@ export function Today() {
   const toggleHabit = async (habit: HabitEntry) => {
     const currentLog: DailyLog = dailyLog ?? {
       date: todayKey,
+      domain,
       habits: {},
       score: 0,
     };
@@ -199,6 +208,7 @@ export function Today() {
     setDumpText('');
     const input: Omit<BrainDumpEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'braindump',
+      domain,
       text,
       tags: [],
     };
@@ -214,7 +224,7 @@ export function Today() {
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7 md:mb-9 md:flex md:items-end md:justify-between">
         <div>
-          <p className="page-kicker">Work / Today</p>
+          <p className="page-kicker">{domain} / Today</p>
           <h1 className="page-title">{format(now, 'EEEE')}</h1>
           <p className="mt-3 text-sm text-gray-500 md:text-base">
             {format(now, 'MMMM d, yyyy')} <span className="mx-2 text-gray-700">/</span>
@@ -237,7 +247,7 @@ export function Today() {
                 <CardTitle>Daily score</CardTitle>
                 <p className="mt-2 text-sm text-gray-600">Execution quality, recalculated live.</p>
               </div>
-              <Sparkles className="size-4 text-gold" />
+              <Sparkles className="size-4 text-primary" />
             </CardHeader>
             <CardContent>
               <ScoreRing result={score} />
@@ -311,7 +321,7 @@ export function Today() {
                       <p className={task.done ? 'text-gray-600 line-through' : 'text-sm text-gray-200'}>
                         {task.title}
                       </p>
-                      {task.projectId && <span className="text-[10px] uppercase tracking-wider text-gold/70">Linked work</span>}
+                      {task.projectId && <span className="text-[10px] uppercase tracking-wider text-primary/70">Linked work</span>}
                     </div>
                     <Button
                       variant="danger"
@@ -338,7 +348,7 @@ export function Today() {
               <span className="text-[10px] uppercase tracking-widest text-primary">{plan?.week}</span>
             </CardHeader>
             <CardContent>
-              {plan?.theme && <p className="mb-4 text-sm italic text-gold/80">“{plan.theme}”</p>}
+              {plan?.theme && <p className="mb-4 text-sm italic text-primary/80">“{plan.theme}”</p>}
               <ol className="space-y-3">
                 {plan?.goals.map((goal, index) => (
                   <li key={goal.id} className="flex gap-3 text-sm leading-5">
@@ -391,7 +401,13 @@ export function Today() {
                   <p className="text-sm text-gray-600">No planned blocks remain today.</p>
                 )}
               </div>
-              <Button variant="secondary" className="mt-5 w-full" onClick={() => setWorkView('timebox')}>
+              <Button
+                variant="secondary"
+                className="mt-5 w-full"
+                onClick={() =>
+                  domain === 'work' ? setWorkView('timebox') : setGrowthView('timebox')
+                }
+              >
                 Open timebox
                 <ArrowRight className="size-4" />
               </Button>

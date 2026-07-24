@@ -15,7 +15,7 @@ function StatusChip({ status }: { status: MilestoneStatus }) {
     <span
       className={cn(
         'shrink-0 border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
-        status === 'blocked' && 'border-red-400/40 text-red-400',
+        status === 'blocked' && 'border-destructive/40 text-destructive',
         status === 'done' && 'border-primary/40 text-primary',
         status === 'in-progress' && 'border-gray-600 text-gray-300',
         status === 'not-started' && 'border-gray-700 text-gray-500',
@@ -32,7 +32,7 @@ export function Escalations() {
   const [isLoading, setIsLoading] = useState(true);
 
   const load = useCallback(async () => {
-    setProjects(await repository.listProjects());
+    setProjects(await repository.listProjects('work'));
     setIsLoading(false);
   }, [repository]);
 
@@ -46,12 +46,12 @@ export function Escalations() {
   return (
     <div className="page-shell">
       <header className="mb-7 border-b border-gray-800 pb-7">
-        <p className="page-kicker">Growth / Escalations</p>
+        <p className="page-kicker">Work / Escalations</p>
         <h1 className="page-title">Raise it early</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
           Every milestone flagged for leadership, grouped by who needs to hear it.
           {total > 0 && (
-            <span className="ml-2 text-gold">
+            <span className="ml-2 text-escalate">
               {total} item{total === 1 ? '' : 's'} waiting.
             </span>
           )}
@@ -64,7 +64,7 @@ export function Escalations() {
             <CheckCircle2 className="mx-auto size-6 text-gray-700" />
             <p className="mt-3 font-semibold text-gray-400">Nothing to escalate right now.</p>
             <p className="mt-1 text-sm text-gray-600">
-              Flag a milestone from Projects when it needs leadership attention.
+              Flag a WORK milestone from Projects when it needs leadership attention.
             </p>
           </div>
         </div>
@@ -75,8 +75,8 @@ export function Escalations() {
           <Card key={group.target}>
             <CardHeader className="border-b border-gray-800">
               <div className="flex items-center gap-3">
-                <div className="grid size-10 shrink-0 place-items-center border border-gold/40 bg-gold/10">
-                  <Megaphone className="size-4 text-gold" />
+                <div className="grid size-10 shrink-0 place-items-center border border-escalate/40 bg-escalate/10">
+                  <Megaphone className="size-4 text-escalate" />
                 </div>
                 <CardTitle className="normal-case tracking-normal text-gray-100">
                   {group.label}

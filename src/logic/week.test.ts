@@ -30,11 +30,12 @@ describe('ISO week helpers', () => {
 describe('summarizeWeek', () => {
   it('summarizes scores, habits, and goal outcomes', () => {
     const logs: DailyLog[] = [
-      { date: '2026-07-20', score: 60, habits: { a: true, b: false } },
-      { date: '2026-07-21', score: 80, habits: { a: true, b: true } },
+      { date: '2026-07-20', domain: 'work', score: 60, habits: { a: true, b: false } },
+      { date: '2026-07-21', domain: 'work', score: 80, habits: { a: true, b: true } },
     ];
     const plan: WeeklyPlan = {
       week: '2026-W30',
+      domain: 'work',
       goals: [
         { id: 'a', text: 'Ship draft', done: true },
         { id: 'b', text: 'Book exam', done: false },
