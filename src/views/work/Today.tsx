@@ -13,7 +13,7 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import { format, isSameDay } from 'date-fns';
+import { format, isSameDay, parseISO } from 'date-fns';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
@@ -52,11 +52,14 @@ export function Today() {
 
   const todayKey = format(now, 'yyyy-MM-dd');
 
+  // Depends on todayKey (a date string), not the ticking `now` Date, so the
+  // 60s clock interval below no longer triggers a full refetch each minute —
+  // data loads on mount and again only when the calendar date rolls over.
   const loadToday = useCallback(async () => {
     const [entryData, logData, planData] = await Promise.all([
       repository.listEntries(),
       repository.getDailyLog(todayKey),
-      repository.getWeeklyPlan(getIsoWeekKey(now)),
+      repository.getWeeklyPlan(getIsoWeekKey(parseISO(todayKey))),
     ]);
     setTasks(entryData.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setHabits(
@@ -80,7 +83,7 @@ export function Today() {
     setDailyLog(logData);
     setPlan(planData);
     setIsLoading(false);
-  }, [now, repository, todayKey]);
+  }, [repository, todayKey]);
 
   useEffect(() => {
     void loadToday();
@@ -161,10 +164,9 @@ export function Today() {
     })) as TaskEntry;
     const nextTasks = urgentTasks.map((item) => (item.id === task.id ? updated : item));
     setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)));
-    if (dailyLog) {
-      const saved = await persistTodayScore(dailyLog, nextTasks);
-      setDailyLog(saved);
-    }
+    const currentLog: DailyLog = dailyLog ?? { date: todayKey, habits: {}, score: 0 };
+    const saved = await persistTodayScore(currentLog, nextTasks);
+    setDailyLog(saved);
   };
 
   const deleteTask = async (id: string) => {
