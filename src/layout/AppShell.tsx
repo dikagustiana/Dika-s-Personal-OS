@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
+import { isSupabaseConfigured } from '../data/supabaseRepository';
 import { cn } from '../lib/utils';
 import {
   useAppStore,
@@ -114,9 +115,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="mt-auto border-t border-gray-800 pt-5 text-xs leading-5 text-gray-600">
           <p className="flex items-center gap-2 text-gray-400">
             <LayoutDashboard className="size-3.5" />
-            Local prototype
+            {isSupabaseConfigured ? 'Live (Supabase)' : 'Local prototype'}
           </p>
-          <p className="mt-1">Private by design. Mock data only.</p>
+          <p className="mt-1">
+            {isSupabaseConfigured
+              ? 'Private by design. Synced to cloud.'
+              : 'Private by design. Mock data only.'}
+          </p>
         </div>
       </aside>
 
