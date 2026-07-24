@@ -63,11 +63,26 @@ export interface WeeklyPlan {
   reviewedAt?: string;
 }
 
+export type MilestoneStatus = 'not-started' | 'in-progress' | 'blocked' | 'done';
+
+// Escalation targets. 'pak-jo-bu-lenny' = board level (both names shown
+// together). 'other' = other departments — the milestone `note` carries the
+// specific department name; there is deliberately no separate field for it.
+export type EscalateTo =
+  | 'none'
+  | 'pak-jo-bu-lenny'
+  | 'mbak-muti'
+  | 'pak-teddy'
+  | 'other';
+
 export interface Milestone {
   id: string;
   text: string;
-  done: boolean;
+  done: boolean; // kept for backward compatibility; always === (status === 'done')
   dueDate?: string;
+  status: MilestoneStatus;
+  note?: string; // what's left / the blocker / which "other" department
+  escalateTo?: EscalateTo; // flag independent of status; absent means 'none'
 }
 
 export interface Project {
