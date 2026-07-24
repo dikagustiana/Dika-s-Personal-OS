@@ -1,29 +1,39 @@
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
-import { Analytics } from './views/growth/Analytics';
-import { Escalations } from './views/growth/Escalations';
-import { Projects } from './views/growth/Projects';
-import { Timebox } from './views/work/Timebox';
+import { Dashboard } from './views/work/Dashboard';
 import { Today } from './views/work/Today';
 import { Week } from './views/work/Week';
+import { Projects } from './views/growth/Projects';
+import { MonthlyClose } from './views/work/MonthlyClose';
+import { Escalations } from './views/growth/Escalations';
+import { GrowthDashboard } from './views/growth/GrowthDashboard';
+import { Ielts } from './views/growth/Ielts';
+import { Initiative } from './views/growth/Initiative';
 
 export default function App() {
   const workspace = useAppStore((state) => state.workspace);
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
 
-  // Both workspaces carry the full view set; Escalations exists in WORK only.
-  const activeView = workspace === 'work' ? workView : growthView;
-
-  // key={workspace} remounts the view when switching worlds so no local
-  // state (drafts, selected dates) leaks from one domain into the other.
+  // key={workspace} remounts the view when switching worlds so no local state
+  // (drafts, selected dates) leaks from one domain into the other.
   let view: React.ReactNode;
-  if (activeView === 'timebox') view = <Timebox key={workspace} />;
-  else if (activeView === 'week') view = <Week key={workspace} />;
-  else if (activeView === 'projects') view = <Projects key={workspace} />;
-  else if (activeView === 'analytics') view = <Analytics key={workspace} />;
-  else if (activeView === 'escalations' && workspace === 'work') view = <Escalations key={workspace} />;
-  else view = <Today key={workspace} />;
+  if (workspace === 'work') {
+    if (workView === 'today') view = <Today key="work" />;
+    else if (workView === 'week') view = <Week key="work" />;
+    else if (workView === 'projects') view = <Projects key="work" />;
+    else if (workView === 'monthly-close') view = <MonthlyClose />;
+    else if (workView === 'escalations') view = <Escalations />;
+    else view = <Dashboard />;
+  } else {
+    if (growthView === 'ielts') view = <Ielts />;
+    else if (growthView === 'uni') view = <Initiative key="uni" initiative="uni" />;
+    else if (growthView === 'chevening') view = <Initiative key="chevening" initiative="chevening" />;
+    else if (growthView === 'lpdp') view = <Initiative key="lpdp" initiative="lpdp" />;
+    else if (growthView === 'research') view = <Initiative key="research" initiative="research" />;
+    else if (growthView === 'website') view = <Initiative key="website" initiative="website" />;
+    else view = <GrowthDashboard />;
+  }
 
   return <AppShell>{view}</AppShell>;
 }

@@ -1,6 +1,19 @@
 import type { Repository } from './repository';
-import { seedDailyLogs, seedEntries, seedProjects, seedWeeklyPlans } from './seed';
-import type { DailyLog, Domain, Entry, Project, WeeklyPlan } from './types';
+import {
+  seedDailyLogs,
+  seedEntries,
+  seedIeltsResults,
+  seedProjects,
+  seedWeeklyPlans,
+} from './seed';
+import type {
+  DailyLog,
+  Domain,
+  Entry,
+  IeltsResult,
+  Project,
+  WeeklyPlan,
+} from './types';
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -29,6 +42,9 @@ export class MockRepository implements Repository {
   );
   private readonly projects = new Map(
     seedProjects.map((project) => [project.id, clone(project)]),
+  );
+  private readonly ieltsResults = new Map(
+    seedIeltsResults.map((result) => [result.id, clone(result)]),
   );
 
   async listEntries(filter?: {
@@ -150,6 +166,30 @@ export class MockRepository implements Repository {
 
   async deleteProject(id: string): Promise<void> {
     this.projects.delete(id);
+  }
+
+  async listIeltsResults(): Promise<IeltsResult[]> {
+    return clone(
+      [...this.ieltsResults.values()].sort((a, b) => a.date.localeCompare(b.date)),
+    );
+  }
+
+  async createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult> {
+    const result: IeltsResult = { ...input, id: createId() };
+    this.ieltsResults.set(result.id, clone(result));
+    return clone(result);
+  }
+
+  async updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult> {
+    const current = this.ieltsResults.get(id);
+    if (!current) throw new Error(`IELTS result not found: ${id}`);
+    const updated: IeltsResult = { ...current, ...patch, id: current.id };
+    this.ieltsResults.set(id, clone(updated));
+    return clone(updated);
+  }
+
+  async deleteIeltsResult(id: string): Promise<void> {
+    this.ieltsResults.delete(id);
   }
 }
 

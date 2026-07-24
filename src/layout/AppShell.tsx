@@ -1,14 +1,19 @@
 import {
-  BarChart3,
+  BookOpen,
   CalendarDays,
   ChevronRight,
-  Clock3,
+  FileText,
+  FlaskConical,
   Focus,
+  Globe,
+  GraduationCap,
   LayoutDashboard,
   Megaphone,
   Menu,
   Mountain,
+  RefreshCw,
   Target,
+  Trophy,
   X,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -22,21 +27,24 @@ import {
 } from '../store/appStore';
 import { Button } from '../components/ui/Button';
 
-const workNav: Array<{ id: WorkView; label: string; icon: typeof Focus }> = [
-  { id: 'today', label: 'Today', icon: Focus },
-  { id: 'timebox', label: 'Timebox', icon: Clock3 },
-  { id: 'week', label: 'Week', icon: CalendarDays },
-  { id: 'projects', label: 'Projects', icon: Target },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-  { id: 'escalations', label: 'Escalations', icon: Megaphone },
+// `short` is the compact label used in the mobile bottom strip.
+const workNav: Array<{ id: WorkView; label: string; short: string; icon: typeof Focus }> = [
+  { id: 'dashboard', label: 'Dashboard', short: 'Home', icon: LayoutDashboard },
+  { id: 'today', label: 'Today', short: 'Today', icon: Focus },
+  { id: 'week', label: 'Week', short: 'Week', icon: CalendarDays },
+  { id: 'projects', label: 'Projects', short: 'Projects', icon: Target },
+  { id: 'monthly-close', label: 'Monthly Close', short: 'Close', icon: RefreshCw },
+  { id: 'escalations', label: 'Escalations', short: 'Escalate', icon: Megaphone },
 ];
 
-const growthNav: Array<{ id: GrowthView; label: string; icon: typeof Focus }> = [
-  { id: 'today', label: 'Today', icon: Focus },
-  { id: 'timebox', label: 'Timebox', icon: Clock3 },
-  { id: 'week', label: 'Week', icon: CalendarDays },
-  { id: 'projects', label: 'Projects', icon: Target },
-  { id: 'analytics', label: 'Analytics', icon: BarChart3 },
+const growthNav: Array<{ id: GrowthView; label: string; short: string; icon: typeof Focus }> = [
+  { id: 'dashboard', label: 'Growth Dashboard', short: 'Home', icon: LayoutDashboard },
+  { id: 'ielts', label: 'IELTS', short: 'IELTS', icon: BookOpen },
+  { id: 'uni', label: 'Uni Applications', short: 'Uni', icon: GraduationCap },
+  { id: 'chevening', label: 'Chevening', short: 'Chevening', icon: Trophy },
+  { id: 'lpdp', label: 'LPDP', short: 'LPDP', icon: FileText },
+  { id: 'research', label: 'Research', short: 'Research', icon: FlaskConical },
+  { id: 'website', label: 'Website', short: 'Website', icon: Globe },
 ];
 
 function WorkspaceSwitch({
@@ -190,8 +198,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <main className="pb-24 lg:ml-64 lg:pb-0">{children}</main>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid border-t border-gray-800 bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
-        style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}
+        className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-gray-800 bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
         aria-label={`${workspace} quick navigation`}
       >
         {nav.map((item) => {
@@ -201,12 +208,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               key={item.id}
               onClick={() => selectNav(item.id)}
               className={cn(
-                'flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-sm text-[11px] font-semibold',
+                'flex min-h-[56px] min-w-[4.25rem] flex-1 flex-col items-center justify-center gap-1 rounded-sm px-1 text-[11px] font-semibold',
                 activeView === item.id ? 'bg-primary/15 text-white' : 'text-gray-500',
               )}
             >
               <Icon className={cn('size-5', activeView === item.id && 'text-primary')} />
-              {item.label}
+              {item.short}
             </button>
           );
         })}

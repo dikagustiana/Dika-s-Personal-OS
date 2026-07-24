@@ -19,6 +19,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Ca
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
 import { ScoreRing } from '../../components/ScoreRing';
+import { TimeboxSection } from '../../components/TimeboxSection';
+import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
 import type {
   BrainDumpEntry,
   DailyLog,
@@ -39,8 +41,6 @@ function isTodayTask(task: TaskEntry, todayKey: string): boolean {
 export function Today() {
   const repository = useAppStore((state) => state.repository);
   const domain = useAppStore((state) => state.workspace);
-  const setWorkView = useAppStore((state) => state.setWorkView);
-  const setGrowthView = useAppStore((state) => state.setGrowthView);
   const [now, setNow] = useState(new Date());
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [habits, setHabits] = useState<HabitEntry[]>([]);
@@ -123,6 +123,7 @@ export function Today() {
   const persistTodayScore = async (
     nextLog: DailyLog,
     nextTasks = urgentTasks,
+    nextBlocks = blocks,
   ): Promise<DailyLog> => {
     const nextScore = calculateDailyScore({
       habits: {
@@ -134,8 +135,8 @@ export function Today() {
         total: nextTasks.length,
       },
       timeblocks: {
-        completed: blocks.filter((block) => block.status === 'done').length,
-        total: blocks.length,
+        completed: nextBlocks.filter((block) => block.status === 'done').length,
+        total: nextBlocks.length,
       },
     }).score;
     return repository.upsertDailyLog({ ...nextLog, score: nextScore });
@@ -216,9 +217,53 @@ export function Today() {
     setDumps((current) => [created, ...current]);
   };
 
-  const upcomingBlocks = blocks
-    .filter((block) => block.end >= format(now, 'HH:mm') && block.status === 'planned')
-    .slice(0, 3);
+  const persistWithBlocks = async (nextBlocks: TimeBlockEntry[]) => {
+    const currentLog: DailyLog = dailyLog ?? {
+      date: todayKey,
+      domain,
+      habits: {},
+      score: 0,
+    };
+    const saved = await persistTodayScore(currentLog, urgentTasks, nextBlocks);
+    setDailyLog(saved);
+  };
+
+  const createBlock = async (
+    input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'>,
+  ) => {
+    const created = (await repository.createEntry(input)) as TimeBlockEntry;
+    const nextBlocks = [...blocks, created].sort((a, b) => a.start.localeCompare(b.start));
+    setBlocks(nextBlocks);
+    await persistWithBlocks(nextBlocks);
+  };
+
+  const setBlockStatus = async (
+    block: TimeBlockEntry,
+    status: TimeBlockEntry['status'],
+  ) => {
+    const updated = (await repository.updateEntry(block.id, { status })) as TimeBlockEntry;
+    const nextBlocks = blocks.map((item) => (item.id === block.id ? updated : item));
+    setBlocks(nextBlocks);
+    if (status === 'done' && block.taskId) {
+      const completed = (await repository.updateEntry(block.taskId, {
+        done: true,
+        completedAt: new Date().toISOString(),
+      })) as TaskEntry;
+      setTasks((current) =>
+        current.map((item) => (item.id === completed.id ? completed : item)),
+      );
+    }
+    await persistWithBlocks(nextBlocks);
+  };
+
+  const deleteBlock = async (block: TimeBlockEntry) => {
+    await repository.deleteEntry(block.id);
+    const nextBlocks = blocks.filter((item) => item.id !== block.id);
+    setBlocks(nextBlocks);
+    await persistWithBlocks(nextBlocks);
+  };
+
+  const openTasks = tasks.filter((task) => !task.done);
 
   return (
     <div className="page-shell">
@@ -384,37 +429,32 @@ export function Today() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Next blocks</CardTitle>
-              <Clock3 className="size-4 text-gray-600" />
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {upcomingBlocks.map((block) => (
-                  <div key={block.id} className="grid grid-cols-[3.5rem_1fr] gap-3 border-l border-primary/50 pl-3">
-                    <span className="font-mono text-xs text-gray-500">{block.start}</span>
-                    <span className="text-sm text-gray-300">{block.label}</span>
-                  </div>
-                ))}
-                {upcomingBlocks.length === 0 && (
-                  <p className="text-sm text-gray-600">No planned blocks remain today.</p>
-                )}
-              </div>
-              <Button
-                variant="secondary"
-                className="mt-5 w-full"
-                onClick={() =>
-                  domain === 'work' ? setWorkView('timebox') : setGrowthView('timebox')
-                }
-              >
-                Open timebox
-                <ArrowRight className="size-4" />
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       </div>
+
+      <section className="mt-5">
+        <div className="mb-3 flex items-end justify-between">
+          <div>
+            <p className="surface-label">Timebox</p>
+            <p className="mt-1 text-xs text-gray-600">
+              {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
+              {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min ·{' '}
+              {blocks.filter((block) => block.status === 'done').length}/{blocks.length} done
+            </p>
+          </div>
+          <Clock3 className="size-4 text-gray-600" />
+        </div>
+        <TimeboxSection
+          domain={domain}
+          date={todayKey}
+          now={now}
+          blocks={blocks}
+          tasks={openTasks}
+          onCreate={createBlock}
+          onSetStatus={setBlockStatus}
+          onDelete={deleteBlock}
+        />
+      </section>
     </div>
   );
 }

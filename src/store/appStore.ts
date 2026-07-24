@@ -8,17 +8,29 @@ import type { Repository } from '../data/repository';
 // main.tsx) verifies the passphrase against the database and swaps in the
 // Supabase repository via setRepository before any view issues a data call.
 
-// Two fully separate worlds, each with its own complete view set. WORK
-// additionally has the Escalations board-review screen; GROWTH does not.
+// Two fully separate worlds with asymmetric navigation. WORK is a
+// finance-ops cockpit (Dashboard landing, Today with an in-page Timebox, Week,
+// Projects, Monthly Close, Escalations). GROWTH is a self-development campaign
+// (a combined Dashboard landing with a Gantt, then IELTS and the five
+// initiative pages). Timebox and Analytics have no standalone WORK nav item —
+// Timebox lives inside Today, Analytics is folded into Dashboard.
 export type Workspace = 'work' | 'growth';
 export type WorkView =
+  | 'dashboard'
   | 'today'
   | 'timebox'
   | 'week'
   | 'projects'
-  | 'analytics'
+  | 'monthly-close'
   | 'escalations';
-export type GrowthView = 'today' | 'timebox' | 'week' | 'projects' | 'analytics';
+export type GrowthView =
+  | 'dashboard'
+  | 'ielts'
+  | 'uni'
+  | 'chevening'
+  | 'lpdp'
+  | 'research'
+  | 'website';
 
 interface AppState {
   repository: Repository;
@@ -34,8 +46,8 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   repository: mockRepository,
   workspace: 'work',
-  workView: 'today',
-  growthView: 'today',
+  workView: 'dashboard',
+  growthView: 'dashboard',
   setRepository: (repository) => set({ repository }),
   setWorkspace: (workspace) => set({ workspace }),
   setWorkView: (workView) => set({ workView }),

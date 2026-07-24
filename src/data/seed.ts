@@ -8,17 +8,19 @@ import {
   subDays,
 } from 'date-fns';
 import { getIsoWeekKey, getPreviousWeekKey } from '../logic/week';
-import type { DailyLog, Entry, Project, WeeklyPlan } from './types';
+import type { DailyLog, Entry, IeltsResult, Project, WeeklyPlan } from './types';
 
 const today = new Date();
 const todayKey = format(today, 'yyyy-MM-dd');
 const nowIso = today.toISOString();
 
 export const PROJECT_IDS = {
-  scholarship: '10000000-0000-4000-8000-000000000001',
+  scholarship: '10000000-0000-4000-8000-000000000001', // Chevening
   ielts: '10000000-0000-4000-8000-000000000002',
   research: '10000000-0000-4000-8000-000000000003',
   website: '10000000-0000-4000-8000-000000000004',
+  uni: '10000000-0000-4000-8000-000000000006',
+  lpdp: '10000000-0000-4000-8000-000000000007',
 } as const;
 
 export const HABIT_IDS = {
@@ -61,9 +63,10 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.scholarship,
     domain: 'growth',
-    title: 'Chevening / LPDP',
+    title: 'Chevening',
     type: 'scholarship',
     status: 'active',
+    startDate: format(subDays(today, 45), 'yyyy-MM-dd'),
     deadline: `${scholarshipYear}-11-01`,
     targetMetric: 'Submit a distinctive, evidence-led application',
     order: 1,
@@ -78,11 +81,42 @@ export const seedProjects: Project[] = [
     ],
   },
   {
+    id: PROJECT_IDS.lpdp,
+    domain: 'growth',
+    title: 'LPDP',
+    type: 'scholarship',
+    status: 'active',
+    startDate: format(subDays(today, 20), 'yyyy-MM-dd'),
+    deadline: format(addDays(today, 150), 'yyyy-MM-dd'),
+    targetMetric: 'Submit a complete LPDP application',
+    order: 6,
+    milestones: [
+      { id: '16000000-0000-4000-8000-000000000001', text: 'Study the current LPDP requirements', done: false, status: 'not-started' },
+      { id: '16000000-0000-4000-8000-000000000002', text: 'Draft the study plan essay', done: false, status: 'not-started' },
+    ],
+  },
+  {
+    id: PROJECT_IDS.uni,
+    domain: 'growth',
+    title: 'Uni Applications',
+    type: 'study',
+    status: 'active',
+    startDate: format(subDays(today, 10), 'yyyy-MM-dd'),
+    deadline: format(addDays(today, 120), 'yyyy-MM-dd'),
+    targetMetric: 'Three complete applications submitted',
+    order: 7,
+    milestones: [
+      { id: '17000000-0000-4000-8000-000000000001', text: 'Shortlist target programmes', done: false, status: 'not-started' },
+      { id: '17000000-0000-4000-8000-000000000002', text: 'Request reference letters', done: false, status: 'not-started' },
+    ],
+  },
+  {
     id: PROJECT_IDS.ielts,
     domain: 'growth',
     title: 'IELTS',
     type: 'study',
     status: 'active',
+    startDate: format(subDays(today, 30), 'yyyy-MM-dd'),
     deadline: format(addDays(today, 84), 'yyyy-MM-dd'),
     targetMetric: 'IELTS Overall 7.0',
     order: 2,
@@ -340,6 +374,7 @@ export const seedEntries: Entry[] = [
     label: 'Scholarship essay',
     taskId: '40000000-0000-4000-8000-000000000001',
     status: 'planned',
+    category: 'deep-work',
     tags: ['deep-work'],
     createdAt: subDays(today, 1).toISOString(),
     updatedAt: nowIso,
@@ -353,6 +388,7 @@ export const seedEntries: Entry[] = [
     end: '21:30',
     label: 'Walk + reset',
     status: 'planned',
+    category: 'break',
     tags: ['health'],
     createdAt: subDays(today, 1).toISOString(),
     updatedAt: nowIso,
@@ -370,6 +406,33 @@ export const seedEntries: Entry[] = [
     tags: ['study'],
     createdAt: subDays(today, 1).toISOString(),
     updatedAt: nowIso,
+  },
+];
+
+export const seedIeltsResults: IeltsResult[] = [
+  {
+    id: '70000000-0000-4000-8000-000000000001',
+    date: format(subDays(today, 21), 'yyyy-MM-dd'),
+    listening: 6.5,
+    reading: 6.0,
+    writing: 5.5,
+    speaking: 6.0,
+  },
+  {
+    id: '70000000-0000-4000-8000-000000000002',
+    date: format(subDays(today, 10), 'yyyy-MM-dd'),
+    listening: 7.0,
+    reading: 6.5,
+    writing: 6.0,
+    speaking: 6.0,
+  },
+  {
+    id: '70000000-0000-4000-8000-000000000003',
+    date: format(subDays(today, 3), 'yyyy-MM-dd'),
+    listening: 7.0,
+    reading: 7.0,
+    writing: 6.0,
+    speaking: 6.5,
   },
 ];
 
