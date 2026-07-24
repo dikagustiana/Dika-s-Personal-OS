@@ -137,3 +137,26 @@ Residual risks accepted for a single-user personal tool: passphrase in
 limiting, no audit log. If any of these become unacceptable, the next step up
 is real Supabase email+password auth with a single pre-created user — the
 gate component and RLS policies are the only things that would change.
+
+## Deployment (verified 2026-07-24)
+
+- **Live URL:** https://dika-personal-os.vercel.app (Vercel project
+  `dika-personal-os`). The team-scoped aliases
+  (`dika-personal-os-*-projects.vercel.app`) are behind Vercel's standard
+  deployment protection (SSO) — use the production domain above.
+- **Supabase project:** `dikagustiana-prod` (`ascbthsgborseynmmthm`,
+  ap-southeast-1) — an existing empty project created the day before this
+  work, used instead of creating a duplicate. All four migrations applied;
+  passphrase hash set outside version control.
+- The Vercel MCP tooling used for deployment cannot set project env vars, so
+  the deployment builds via a `build.sh` shim that clones this repo's branch
+  and passes the two public `VITE_` values inline. Recommended follow-up:
+  connect the GitHub repo to the Vercel project and move the two values into
+  dashboard env vars (Settings → Environment Variables), then delete the shim.
+- **End-to-end verification against production** (Playwright, Chromium,
+  desktop 1440px + mobile 390px): passphrase gate blocks before any data
+  call; wrong passphrase rejected; create task, toggle habit (writes
+  `os_daily_logs`), save weekly plan with goals, toggle project milestone —
+  all four persisted across reload; mobile viewport renders with bottom
+  navigation working. 14/14 checks passed. Test residue was cleaned; the
+  database holds only the seeded habits and projects.
