@@ -10,7 +10,7 @@ import type { Repository } from '../data/repository';
 
 export type Workspace = 'work' | 'growth';
 export type WorkView = 'today' | 'timebox' | 'week';
-export type GrowthView = 'projects' | 'analytics';
+export type GrowthView = 'projects' | 'escalations' | 'analytics';
 
 interface AppState {
   repository: Repository;

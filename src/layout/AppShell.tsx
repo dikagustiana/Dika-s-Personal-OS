@@ -5,6 +5,7 @@ import {
   Clock3,
   Focus,
   LayoutDashboard,
+  Megaphone,
   Menu,
   Mountain,
   Target,
@@ -29,6 +30,7 @@ const workNav: Array<{ id: WorkView; label: string; icon: typeof Focus }> = [
 
 const growthNav: Array<{ id: GrowthView; label: string; icon: typeof Focus }> = [
   { id: 'projects', label: 'Projects', icon: Target },
+  { id: 'escalations', label: 'Escalations', icon: Megaphone },
   { id: 'analytics', label: 'Analytics', icon: BarChart3 },
 ];
 

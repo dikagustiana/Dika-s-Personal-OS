@@ -47,13 +47,13 @@ export const seedProjects: Project[] = [
     targetMetric: 'Submit a distinctive, evidence-led application',
     order: 1,
     milestones: [
-      { id: '11000000-0000-4000-8000-000000000001', text: 'Leadership essay', done: true },
-      { id: '11000000-0000-4000-8000-000000000002', text: 'Networking essay', done: false },
-      { id: '11000000-0000-4000-8000-000000000003', text: 'Study in the UK essay', done: false },
-      { id: '11000000-0000-4000-8000-000000000004', text: 'Career plan essay', done: false },
-      { id: '11000000-0000-4000-8000-000000000005', text: 'Choose UK course 1', done: true },
-      { id: '11000000-0000-4000-8000-000000000006', text: 'Choose UK course 2', done: false },
-      { id: '11000000-0000-4000-8000-000000000007', text: 'Choose UK course 3', done: false },
+      { id: '11000000-0000-4000-8000-000000000001', text: 'Leadership essay', done: true, status: 'done' },
+      { id: '11000000-0000-4000-8000-000000000002', text: 'Networking essay', done: false, status: 'not-started' },
+      { id: '11000000-0000-4000-8000-000000000003', text: 'Study in the UK essay', done: false, status: 'not-started' },
+      { id: '11000000-0000-4000-8000-000000000004', text: 'Career plan essay', done: false, status: 'not-started' },
+      { id: '11000000-0000-4000-8000-000000000005', text: 'Choose UK course 1', done: true, status: 'done' },
+      { id: '11000000-0000-4000-8000-000000000006', text: 'Choose UK course 2', done: false, status: 'not-started' },
+      { id: '11000000-0000-4000-8000-000000000007', text: 'Choose UK course 3', done: false, status: 'not-started' },
     ],
   },
   {
@@ -65,9 +65,9 @@ export const seedProjects: Project[] = [
     targetMetric: 'IELTS Overall 7.0',
     order: 2,
     milestones: [
-      { id: '12000000-0000-4000-8000-000000000001', text: 'Complete diagnostic test', done: true },
-      { id: '12000000-0000-4000-8000-000000000002', text: 'Reach Writing band 6.5', done: false },
-      { id: '12000000-0000-4000-8000-000000000003', text: 'Book official test', done: false },
+      { id: '12000000-0000-4000-8000-000000000001', text: 'Complete diagnostic test', done: true, status: 'done' },
+      { id: '12000000-0000-4000-8000-000000000002', text: 'Reach Writing band 6.5', done: false, status: 'not-started' },
+      { id: '12000000-0000-4000-8000-000000000003', text: 'Book official test', done: false, status: 'not-started' },
     ],
   },
   {
@@ -78,9 +78,9 @@ export const seedProjects: Project[] = [
     targetMetric: 'Complete a defensible working paper',
     order: 3,
     milestones: [
-      { id: '13000000-0000-4000-8000-000000000001', text: 'Lock research question', done: true },
-      { id: '13000000-0000-4000-8000-000000000002', text: 'Literature map', done: false },
-      { id: '13000000-0000-4000-8000-000000000003', text: 'Methods outline', done: false },
+      { id: '13000000-0000-4000-8000-000000000001', text: 'Lock research question', done: true, status: 'done' },
+      { id: '13000000-0000-4000-8000-000000000002', text: 'Literature map', done: false, status: 'not-started' },
+      { id: '13000000-0000-4000-8000-000000000003', text: 'Methods outline', done: false, status: 'not-started' },
     ],
   },
   {
@@ -91,9 +91,9 @@ export const seedProjects: Project[] = [
     targetMetric: 'Publish consistently in my own voice',
     order: 4,
     milestones: [
-      { id: '14000000-0000-4000-8000-000000000001', text: 'Define three writing pillars', done: true },
-      { id: '14000000-0000-4000-8000-000000000002', text: 'Draft cornerstone essay', done: false },
-      { id: '14000000-0000-4000-8000-000000000003', text: 'Manual publish checklist', done: false },
+      { id: '14000000-0000-4000-8000-000000000001', text: 'Define three writing pillars', done: true, status: 'done' },
+      { id: '14000000-0000-4000-8000-000000000002', text: 'Draft cornerstone essay', done: false, status: 'not-started' },
+      { id: '14000000-0000-4000-8000-000000000003', text: 'Manual publish checklist', done: false, status: 'not-started' },
     ],
   },
 ];

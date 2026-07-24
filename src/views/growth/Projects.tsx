@@ -1,21 +1,31 @@
 import {
   CalendarClock,
-  CheckCircle2,
-  Circle,
   FlaskConical,
   GraduationCap,
   Hammer,
   Link2,
-  Pause,
+  Megaphone,
   Target,
   Trophy,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { differenceInCalendarDays, format, parseISO } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { Checkbox } from '../../components/ui/Checkbox';
+import { Input } from '../../components/ui/Input';
 import { Progress } from '../../components/ui/Progress';
-import type { Project, TaskEntry, WeeklyPlan } from '../../data/types';
+import type {
+  EscalateTo,
+  Milestone,
+  MilestoneStatus,
+  Project,
+  TaskEntry,
+  WeeklyPlan,
+} from '../../data/types';
+import {
+  ESCALATION_TARGETS,
+  MILESTONE_STATUSES,
+  withMilestoneStatus,
+} from '../../logic/milestones';
 import { getIsoWeekKey } from '../../logic/week';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/appStore';
@@ -62,14 +72,31 @@ export function Projects() {
     [plan],
   );
 
-  const toggleMilestone = async (project: Project, milestoneId: string) => {
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+
+  const patchMilestone = async (
+    project: Project,
+    milestoneId: string,
+    mutate: (milestone: Milestone) => Milestone,
+  ) => {
     const milestones = project.milestones.map((milestone) =>
-      milestone.id === milestoneId ? { ...milestone, done: !milestone.done } : milestone,
+      milestone.id === milestoneId ? mutate(milestone) : milestone,
     );
     const updated = await repository.updateProject(project.id, { milestones });
     setProjects((current) =>
       current.map((item) => (item.id === project.id ? updated : item)),
     );
+  };
+
+  const saveNote = async (project: Project, milestone: Milestone) => {
+    const draft = noteDrafts[milestone.id];
+    if (draft === undefined) return;
+    const note = draft.trim();
+    if (note === (milestone.note ?? '')) return;
+    await patchMilestone(project, milestone.id, (current) => ({
+      ...current,
+      note: note || undefined,
+    }));
   };
 
   const setStatus = async (project: Project, status: Project['status']) => {
@@ -189,33 +216,85 @@ export function Projects() {
                   </div>
                   <Progress value={progress} />
                   <div className="mt-3 divide-y divide-gray-800">
-                    {project.milestones.map((milestone) => (
-                      <label
-                        key={milestone.id}
-                        className="flex min-h-14 cursor-pointer items-center gap-3 py-1"
-                      >
-                        <Checkbox
-                          checked={milestone.done}
-                          onCheckedChange={() => void toggleMilestone(project, milestone.id)}
-                          aria-label={`Toggle ${milestone.text}`}
-                        />
-                        <span
+                    {project.milestones.map((milestone) => {
+                      const escalated = (milestone.escalateTo ?? 'none') !== 'none';
+                      return (
+                        <div
+                          key={milestone.id}
                           className={cn(
-                            'min-w-0 flex-1 text-sm text-gray-300',
-                            milestone.done && 'text-gray-600 line-through',
+                            'space-y-2 border-l-2 py-3 pl-3',
+                            milestone.status === 'blocked'
+                              ? 'border-l-red-400/60'
+                              : escalated
+                                ? 'border-l-gold/60'
+                                : 'border-l-transparent',
                           )}
                         >
-                          {milestone.text}
-                        </span>
-                        {milestone.done ? (
-                          <CheckCircle2 className="size-4 shrink-0 text-primary" />
-                        ) : project.status === 'paused' ? (
-                          <Pause className="size-4 shrink-0 text-gray-700" />
-                        ) : (
-                          <Circle className="size-4 shrink-0 text-gray-700" />
-                        )}
-                      </label>
-                    ))}
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={cn(
+                                'min-w-0 flex-1 text-sm text-gray-300',
+                                milestone.done && 'text-gray-600 line-through',
+                              )}
+                            >
+                              {milestone.text}
+                            </span>
+                            {escalated && (
+                              <Megaphone className="size-4 shrink-0 text-gold" aria-label="Escalated" />
+                            )}
+                          </div>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]">
+                            <select
+                              className="native-select text-xs"
+                              value={milestone.status}
+                              onChange={(event) =>
+                                void patchMilestone(project, milestone.id, (current) =>
+                                  withMilestoneStatus(current, event.target.value as MilestoneStatus),
+                                )
+                              }
+                              aria-label={`Status for ${milestone.text}`}
+                            >
+                              {MILESTONE_STATUSES.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <Input
+                              className="h-11 text-sm"
+                              value={noteDrafts[milestone.id] ?? milestone.note ?? ''}
+                              onChange={(event) =>
+                                setNoteDrafts((current) => ({
+                                  ...current,
+                                  [milestone.id]: event.target.value,
+                                }))
+                              }
+                              onBlur={() => void saveNote(project, milestone)}
+                              placeholder="What's left / blocker…"
+                              aria-label={`Note for ${milestone.text}`}
+                            />
+                            <select
+                              className={cn('native-select text-xs', escalated && 'text-gold')}
+                              value={milestone.escalateTo ?? 'none'}
+                              onChange={(event) =>
+                                void patchMilestone(project, milestone.id, (current) => ({
+                                  ...current,
+                                  escalateTo: event.target.value as EscalateTo,
+                                }))
+                              }
+                              aria-label={`Escalation for ${milestone.text}`}
+                            >
+                              <option value="none">None</option>
+                              {ESCALATION_TARGETS.map((target) => (
+                                <option key={target.value} value={target.value}>
+                                  {target.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </CardContent>

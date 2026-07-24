@@ -1,6 +1,7 @@
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
 import { Analytics } from './views/growth/Analytics';
+import { Escalations } from './views/growth/Escalations';
 import { Projects } from './views/growth/Projects';
 import { Timebox } from './views/work/Timebox';
 import { Today } from './views/work/Today';
@@ -17,7 +18,9 @@ export default function App() {
     else if (workView === 'week') view = <Week />;
     else view = <Today />;
   } else {
-    view = growthView === 'analytics' ? <Analytics /> : <Projects />;
+    if (growthView === 'analytics') view = <Analytics />;
+    else if (growthView === 'escalations') view = <Escalations />;
+    else view = <Projects />;
   }
 
   return <AppShell>{view}</AppShell>;
