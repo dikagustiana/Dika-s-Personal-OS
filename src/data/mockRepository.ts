@@ -1,3 +1,4 @@
+import { MockResearchRepository } from './researchRepository';
 import type { Repository } from './repository';
 import {
   seedDailyLogs,
@@ -33,6 +34,9 @@ function planKey(week: string, domain: Domain): string {
 }
 
 export class MockRepository implements Repository {
+  /** Research lives behind its own seam; a bare clone still gets a working one. */
+  readonly research = new MockResearchRepository();
+
   private readonly entries = new Map(seedEntries.map((entry) => [entry.id, clone(entry)]));
   private readonly dailyLogs = new Map(
     seedDailyLogs.map((log) => [logKey(log.date, log.domain), clone(log)]),

@@ -1,3 +1,4 @@
+import type { ResearchRepository } from './researchRepository';
 import type {
   DailyLog,
   Domain,
@@ -33,6 +34,13 @@ export interface Repository {
   createProject(input: Omit<Project, 'id'>): Promise<Project>;
   updateProject(id: string, patch: Partial<Project>): Promise<Project>;
   deleteProject(id: string): Promise<void>;
+
+  /**
+   * The research subsystem's own seam. Separate interface rather than thirty
+   * more methods here — see researchRepository.ts, which also holds the
+   * append-only and write-origin invariants.
+   */
+  readonly research: ResearchRepository;
 
   // IELTS practice results (GROWTH). Sorted by date ascending.
   listIeltsResults(): Promise<IeltsResult[]>;
