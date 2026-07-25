@@ -28,11 +28,13 @@ import { buildContributionDays } from '../../logic/contribution';
 import { useAppStore } from '../../store/appStore';
 
 const bucketColors = [
-  'hsl(var(--muted) / 0.55)',
-  'hsl(var(--primary) / 0.25)',
-  'hsl(var(--primary) / 0.45)',
-  'hsl(var(--primary) / 0.7)',
-  'hsl(var(--primary))',
+  // Habit consistency is a positive metric, so the ramp climbs through
+  // `success`, not the action colour. The empty bucket is a flat neutral.
+  'hsl(var(--surface-3))',
+  'hsl(var(--success) / 0.25)',
+  'hsl(var(--success) / 0.45)',
+  'hsl(var(--success) / 0.7)',
+  'hsl(var(--success))',
 ];
 
 interface TooltipPayload {
@@ -164,7 +166,7 @@ export function Analytics() {
                     {contributions.map((day) => (
                       <div
                         key={day.date}
-                        className="size-7 rounded-sm border border-black/20 sm:size-8"
+                        className="size-7 rounded-sm border border-border-subtle sm:size-8"
                         style={{ backgroundColor: bucketColors[day.bucket] }}
                         title={`${format(parseISO(day.date), 'MMM d')}: ${
                           day.consistency === null
@@ -185,7 +187,7 @@ export function Analytics() {
                   {bucketColors.map((color) => (
                     <span
                       key={color}
-                      className="size-3 border border-black/20"
+                      className="size-3 border border-border-subtle"
                       style={{ backgroundColor: color }}
                     />
                   ))}
@@ -216,7 +218,7 @@ export function Analytics() {
                     {weeklyScores.map((item) => (
                       <Cell
                         key={item.date}
-                        fill={item.hasLog ? 'hsl(var(--primary) / 0.85)' : 'hsl(var(--muted))'}
+                        fill={item.hasLog ? 'hsl(var(--success) / 0.85)' : 'hsl(var(--surface-3))'}
                       />
                     ))}
                   </Bar>

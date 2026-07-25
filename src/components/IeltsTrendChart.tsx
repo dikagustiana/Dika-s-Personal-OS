@@ -13,12 +13,24 @@ import { IELTS_SKILLS, IELTS_TARGET, overallBand } from '../logic/ielts';
 
 // The one place multiple line hues are allowed, for legibility. Shared by the
 // full IELTS view and the dashboard preview so both read identically. The
-// values live in index.css (--chart-1…4, Imperial secondary-palette hues).
+// values live in index.css (--chart-1…4).
 export const IELTS_SKILL_COLORS: Record<string, string> = {
   listening: 'hsl(var(--chart-1))',
   reading: 'hsl(var(--chart-2))',
   writing: 'hsl(var(--chart-3))',
   speaking: 'hsl(var(--chart-4))',
+};
+
+// Colour alone is not enough here. On white, --chart-3 (#9A5200) and
+// --chart-4 (#00728F) are only 1.06:1 apart in luminance — near-identical
+// brightness — so anyone who cannot separate those two hues gets two lines
+// that look the same. Every skill therefore also carries its own dash
+// pattern, and the four are distinguishable in greyscale.
+export const IELTS_SKILL_DASH: Record<string, string | undefined> = {
+  listening: undefined, // solid
+  reading: '6 3', // long dash
+  writing: '2 3', // dotted
+  speaking: '9 3 2 3', // dash-dot
 };
 
 /**
@@ -81,6 +93,7 @@ export function IeltsTrendChart({
               name={skill.label}
               stroke={IELTS_SKILL_COLORS[skill.key]}
               strokeWidth={1.5}
+              strokeDasharray={IELTS_SKILL_DASH[skill.key]}
               dot={false}
               isAnimationActive={false}
             />
@@ -89,7 +102,7 @@ export function IeltsTrendChart({
             type="monotone"
             dataKey="overall"
             name="Overall"
-            stroke="hsl(var(--primary))"
+            stroke="hsl(var(--success))"
             strokeWidth={3}
             dot={false}
             isAnimationActive={false}

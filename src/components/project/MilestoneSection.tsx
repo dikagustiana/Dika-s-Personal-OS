@@ -92,7 +92,7 @@ function StatusToggle({
       <span
         className={cn(
           'grid size-4 place-items-center rounded-sm border',
-          milestone.status === 'done' && 'border-primary bg-primary text-primary-foreground',
+          milestone.status === 'done' && 'border-success bg-success text-success-foreground',
           milestone.status === 'blocked' && 'border-destructive',
           milestone.status === 'in-progress' && 'border-primary',
           milestone.status === 'not-started' && 'border-border',
@@ -180,7 +180,7 @@ export function MilestoneSection({
         <span className="ml-auto text-xs tabular-nums text-foreground-muted">
           {done} of {milestones.length} complete
         </span>
-        <span className="font-mono text-xs tabular-nums text-primary">{progress}%</span>
+        <span className="font-mono text-xs tabular-nums text-success">{progress}%</span>
       </button>
       <Progress value={progress} className="mt-2" />
       {rollup && rollup.childCount > 0 && (

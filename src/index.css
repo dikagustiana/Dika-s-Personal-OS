@@ -21,60 +21,102 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens — dark ramp derived from Imperial College London's brand
-   palette (core: Navy #002147, Imperial Blue #003E74; supporting set incl.
-   Kermit Green #66A40A, Tangerine #EB7300, Red #DD2501, Pool Blue #00A0C8,
-   Violet #960078, Lime #BBCE00). Imperial is a light-background brand, so
-   official hexes are hue anchors, not surface values: the ramp keeps the
-   Navy hue (~213°) and builds its own value scale — base darker than the
-   brand navy, then three surface steps and two border steps above it.
+/* Design tokens — Imperial College London LIGHT theme.
+   ---------------------------------------------------------------------------
+   PROVENANCE OF THE TWO IMPERIAL ANCHORS — read before changing either.
 
-   The positive/done colour is deliberately NOT blue (a blue "done" would
-   merge into the navy ground): it takes Kermit Green's hue. Amber duties
-   (due-soon / escalation / TBC) take Tangerine's hue; blocked/overdue takes
-   Imperial Red's. All colours in the app resolve through these variables —
-   no component carries its own hex. */
-:root,
-.dark {
-  /* Surfaces — a deliberate three-step lift: 8% → 13% → 18% lightness. */
-  --background: 213 55% 8%;
-  --surface-1: 213 45% 13%;
-  --surface-2: 212 38% 18%;
-  --surface-3: 211 32% 23%;
-  --border-subtle: 212 35% 21%;
-  --border: 211 28% 30%;
+   Navy           #002147   -> --foreground
+   Imperial Blue  #003E74   -> --primary, --chart-1
 
-  /* Text — three tiers; secondary clears AA (9.0:1 on surface-1),
-     muted is for timestamps and counts only (6.4:1 on surface-1). */
-  --foreground: 210 36% 96%;
-  --foreground-secondary: 212 22% 76%;
-  --foreground-muted: 213 14% 64%;
+   These were checked against Imperial's published brand pages
+   (imperial.ac.uk/brand-style-guide/visual-identity/brand-colours/) and both
+   matched; Imperial Blue was corroborated in a second colour space
+   (CMYK 100.61.0.45, PMS 541, RGB 0.62.116). Confidence is high but not
+   absolute: the page could only be read through a search intermediary rather
+   than opened directly, and repeated reads of it returned inconsistent
+   name->hex pairings for the SUPPORTING colours. So treat the two anchors
+   above as verified and everything below marked "Imperial accent" as
+   unconfirmed — in particular --chart-2 (#960078, claimed "Violet"): the
+   official page returns "Purple #653098" instead, and that discrepancy has
+   never been resolved.
 
-  /* Kermit Green hue — done / positive / one primary action per screen. */
-  --primary: 80 78% 44%;
-  --primary-dim: 80 42% 24%;
-  --primary-foreground: 213 55% 8%;
+   Blast radius if an anchor turns out to be wrong: only --foreground,
+   --primary and the --chart-* set need revisiting. Every other value here is
+   a neutral or a derived semantic colour and is independent of them.
+   ---------------------------------------------------------------------------
+   Imperial is a light-background brand — white and light grey with navy as
+   the anchor — so this theme puts the brand on its own ground instead of
+   inverting it. There is deliberately NO dark mode and no theme toggle: this
+   is a replacement, not an option.
 
-  /* Imperial Red hue — blocked / overdue. */
-  --destructive: 10 85% 58%;
-  --destructive-foreground: 213 55% 8%;
+   THE ELEVATION MODEL INVERTS from the old dark ramp. White is now the
+   HIGHEST surface, so an input inside a white card steps slightly DOWN into
+   grey rather than up into light. Card/canvas separation is only 1.09:1 by
+   luminance, which is normal for a light theme and is carried by a 1px
+   border plus one navy-tinted shadow — not by widening the lightness gap,
+   which would only make the canvas look dirty.
 
-  /* Tangerine hue — due soon / escalation / TBC. */
-  --escalate: 29 92% 55%;
-  --escalate-foreground: 213 55% 8%;
+   All colours in the app resolve through these variables — no component
+   carries its own hex. Every hex below is written as its exact HSL triplet;
+   each one round-trips back to the stated hex with no drift. */
+:root {
+  /* Surfaces — white is the top of the stack, canvas is the floor. */
+  --background: 204 23.8% 95.9%; /* #F2F5F7 — page canvas, faint navy tint */
+  --surface-1: 0 0% 100%; /* #FFFFFF — cards */
+  --surface-2: 200 23.1% 97.5%; /* #F7F9FA — inputs / raised rows INSIDE a card */
+  --surface-3: 206.7 25.7% 93.1%; /* #E9EEF2 — hover */
+  --border-subtle: 207.3 24.4% 91.2%; /* #E3E9EE — internal dividers */
+  --border: 208.4 21.3% 82.5%; /* #C9D3DC — card edges, input outlines */
 
-  /* Chart series (IELTS skills) — Pool Blue, Violet, Tangerine, Lime hues. */
-  --chart-1: 197 85% 58%;
-  --chart-2: 322 65% 68%;
-  --chart-3: 29 92% 60%;
-  --chart-4: 74 70% 55%;
+  /* Text — three tiers. Ratios are card / canvas.
+     muted clears AA on the canvas by only 0.09; do not darken the canvas or
+     lighten this token without recomputing both figures. */
+  --foreground: 212.1 100% 13.9%; /* #002147 Imperial Navy — 16.05 / 14.66 */
+  --foreground-secondary: 209.3 25.4% 34.7%; /* #42596F — 7.27 / 6.64 */
+  --foreground-muted: 210.8 17.2% 44.5%; /* #5E7185 — 5.03 / 4.59 */
+
+  /* Imperial Blue — ACTIONS, active nav, links. One primary action per
+     screen. This is NOT the done colour; see --success. */
+  --primary: 207.9 100% 22.7%; /* #003E74 — 10.82 / 9.88 */
+  --primary-foreground: 0 0% 100%; /* #FFFFFF — 10.82 on primary */
+  --primary-dim: 208.6 42.9% 90.4%; /* #DCE7F1 — active nav bg; navy on it 12.80 */
+
+  /* DONE / completed / positive delta. Never a warning.
+     DELIBERATELY DARKER THAN IMPERIAL'S PUBLISHED HEX — do not "correct" it.
+     Imperial accent, unconfirmed: Kermit Green #66A40A is only 3.05:1 on
+     white, so it fails body text AND fails as a fill under white text. This
+     keeps the hue family at a value that passes both. */
+  --success: 82.6 100% 23.9%; /* #4C7A00 — 5.13 / 4.69 */
+  --success-foreground: 0 0% 100%; /* #FFFFFF — 5.13 on success */
+
+  /* Blocked / overdue. Imperial accent (Red #DD2501), unconfirmed. */
+  --destructive: 10.4 100% 38.4%; /* #C42200 — 5.87 / 5.36 */
+  --destructive-foreground: 0 0% 100%; /* #FFFFFF — 5.87 on destructive */
+
+  /* Due soon / escalation / TBC. Same deliberate darkening as --success:
+     Imperial's Tangerine #EB7300 is 3.01:1 on white. Do not "correct" it. */
+  --escalate: 31.9 100% 30.2%; /* #9A5200 — 5.86 / 5.36 */
+  --escalate-foreground: 0 0% 100%; /* #FFFFFF — 5.86 on escalate */
+
+  /* Chart series (IELTS skills). All clear 3:1 on white comfortably, but
+     --chart-3 and --chart-4 sit 1.06:1 apart in LUMINANCE — nearly identical
+     brightness. They must therefore also differ by dash pattern or point
+     marker, never by colour alone. See IeltsTrendChart. */
+  --chart-1: 207.9 100% 22.7%; /* #003E74 Imperial Blue — 10.82 */
+  --chart-2: 312 100% 29.4%; /* #960078 — 8.18 (see provenance note) */
+  --chart-3: 31.9 100% 30.2%; /* #9A5200 — 5.86 */
+  --chart-4: 192.2 100% 28%; /* #00728F — 5.52 */
 
   --radius: 0.5rem;
+
+  /* Card lift: one shadow, tinted with the Navy rather than pure black so it
+     stays inside the palette. No gradients, no glows, no stacks. */
+  --shadow-card: 0 1px 2px hsl(212.1 100% 13.9% / 0.06);
 
   /* Legacy aliases — older class names resolve into the ramp. */
   --card: var(--surface-1);
   --card-foreground: var(--foreground);
-  --popover: var(--surface-2);
+  --popover: var(--surface-1);
   --popover-foreground: var(--foreground);
   --secondary: var(--surface-2);
   --secondary-foreground: var(--foreground-secondary);
@@ -87,7 +129,7 @@
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
   font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 16px;
   background: hsl(var(--background));
@@ -139,8 +181,11 @@ button {
   background: hsl(var(--background));
 }
 
+/* On the dark ramp the thumb was surface-3, a step ABOVE the track. Light
+   inverts that: surface-3 on the canvas is 1.07:1 and effectively invisible,
+   so the thumb steps down to the border tone instead. */
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--surface-3));
+  background: hsl(var(--border));
   border: 2px solid hsl(var(--background));
 }
 

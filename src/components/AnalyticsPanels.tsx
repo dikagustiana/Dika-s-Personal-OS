@@ -13,11 +13,13 @@ import type { DailyLog } from '../data/types';
 import { buildContributionDays } from '../logic/contribution';
 
 const bucketColors = [
-  'hsl(var(--muted) / 0.55)',
-  'hsl(var(--primary) / 0.25)',
-  'hsl(var(--primary) / 0.45)',
-  'hsl(var(--primary) / 0.7)',
-  'hsl(var(--primary))',
+  // Habit consistency is a positive metric, so the ramp climbs through
+  // `success`, not the action colour. The empty bucket is a flat neutral.
+  'hsl(var(--surface-3))',
+  'hsl(var(--success) / 0.25)',
+  'hsl(var(--success) / 0.45)',
+  'hsl(var(--success) / 0.7)',
+  'hsl(var(--success))',
 ];
 
 /** 30-day habit-consistency grid, one cell per day. */
@@ -34,7 +36,7 @@ export function ContributionGraph({ logs, today }: { logs: DailyLog[]; today: Da
           {contributions.map((day) => (
             <div
               key={day.date}
-              className="size-7 rounded-sm border border-black/20 sm:size-8"
+              className="size-7 rounded-sm border border-border-subtle sm:size-8"
               style={{ backgroundColor: bucketColors[day.bucket] }}
               title={`${format(parseISO(day.date), 'MMM d')}: ${
                 day.consistency === null
@@ -53,7 +55,7 @@ export function ContributionGraph({ logs, today }: { logs: DailyLog[]; today: Da
       <div className="mt-4 flex items-center justify-end gap-2 text-[10px] text-foreground-muted">
         <span>Less</span>
         {bucketColors.map((color) => (
-          <span key={color} className="size-3 border border-black/20" style={{ backgroundColor: color }} />
+          <span key={color} className="size-3 border border-border-subtle" style={{ backgroundColor: color }} />
         ))}
         <span>More</span>
       </div>
@@ -113,7 +115,7 @@ export function WeeklyScoreChart({ logs, today }: { logs: DailyLog[]; today: Dat
             {weeklyScores.map((item) => (
               <Cell
                 key={item.date}
-                fill={item.hasLog ? 'hsl(var(--primary) / 0.85)' : 'hsl(var(--muted))'}
+                fill={item.hasLog ? 'hsl(var(--success) / 0.85)' : 'hsl(var(--surface-3))'}
               />
             ))}
           </Bar>

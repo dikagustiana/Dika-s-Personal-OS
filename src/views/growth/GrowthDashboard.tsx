@@ -38,13 +38,13 @@ import { useAppStore } from '../../store/appStore';
 const urgencyText: Record<Urgency, string> = {
   overdue: 'text-destructive',
   'due-soon': 'text-escalate',
-  'on-track': 'text-primary',
+  'on-track': 'text-success',
 };
 
 const barColor: Record<Urgency, string> = {
   overdue: 'bg-destructive/80',
   'due-soon': 'bg-escalate/80',
-  'on-track': 'bg-primary/80',
+  'on-track': 'bg-success/80',
 };
 
 /**
@@ -310,7 +310,7 @@ export function GrowthDashboard() {
                       <span className="truncate">{row.project.title}</span>
                       {estimated && <TbcChip />}
                     </span>
-                    <div className="relative h-6 rounded-sm bg-black/20">
+                    <div className="relative h-6 rounded-sm bg-surface-3">
                       {row.hasDates ? (
                         <div
                           className={cn(

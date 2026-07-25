@@ -16,7 +16,7 @@ function StatusChip({ status }: { status: MilestoneStatus }) {
       className={cn(
         'shrink-0 border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
         status === 'blocked' && 'border-destructive/40 text-destructive',
-        status === 'done' && 'border-primary/40 text-primary',
+        status === 'done' && 'border-success/40 text-success',
         status === 'in-progress' && 'border-border text-foreground-secondary',
         status === 'not-started' && 'border-border text-foreground-muted',
       )}
