@@ -1,6 +1,5 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns';
 import type { Milestone, Project, TaskEntry, WeeklyGoal } from '../data/types';
-import { buildProjectTree, findNode, rollupMilestones } from './hierarchy';
 import { milestoneEnd } from './milestones';
 import {
   CLOSE_SERIES,
@@ -14,9 +13,9 @@ import {
  * Derivations for the WORK dashboard.
  *
  * Nothing here recomputes something that already exists: milestone dates come
- * from `milestoneEnd`, project progress from `rollupMilestones`, close series
- * from `seriesOf`. A second derivation is a second thing that can disagree
- * with the project card.
+ * from `milestoneEnd`, close series from `seriesOf`, project progress from
+ * `rollupMilestones` in the card itself. A second derivation is a second thing
+ * that can disagree with the project card.
  */
 
 // ---------------------------------------------------------------------------
@@ -39,7 +38,50 @@ export interface NeedsActionRow {
   alsoBlocked: boolean;
 }
 
+export interface NeedsActionBreakdown {
+  overdue: number;
+  today: number;
+  blocked: number;
+}
+
 const STATE_ORDER: Record<NeedsActionState, number> = { overdue: 0, today: 1, blocked: 2 };
+
+/**
+ * Row order for the needs-action list.
+ *
+ * Load-bearing rather than cosmetic. Blocked milestones usually carry no date
+ * at all, so they qualify on status alone and there are far more of them than
+ * of everything else combined; in source order they fill every visible slot
+ * and push a genuinely overdue milestone behind the collapse control — the one
+ * row the section exists to surface. So: all overdue first, most overdue at
+ * the top, then due today, then blocked. Project title breaks what is left,
+ * only so the order is stable between renders.
+ */
+export function compareNeedsAction(a: NeedsActionRow, b: NeedsActionRow): number {
+  return (
+    STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
+    b.daysOverdue - a.daysOverdue ||
+    a.project.title.localeCompare(b.project.title)
+  );
+}
+
+/** `compareNeedsAction` over a copy, so a caller's own array is left alone. */
+export function sortNeedsAction(rows: NeedsActionRow[]): NeedsActionRow[] {
+  return [...rows].sort(compareNeedsAction);
+}
+
+/**
+ * Counts for the composition line the section shows above the list.
+ *
+ * Keyed on `state` — the lead badge — so the three numbers add up to
+ * `rows.length`: a row that is overdue AND blocked is counted once, as
+ * overdue, exactly as it renders.
+ */
+export function needsActionBreakdown(rows: NeedsActionRow[]): NeedsActionBreakdown {
+  const breakdown: NeedsActionBreakdown = { overdue: 0, today: 0, blocked: 0 };
+  for (const row of rows) breakdown[row.state] += 1;
+  return breakdown;
+}
 
 /**
  * Milestones that need a decision today, across every WORK project including
@@ -77,12 +119,9 @@ export function collectNeedsAction(projects: Project[], today: Date): NeedsActio
     }
   }
 
-  return rows.sort(
-    (a, b) =>
-      STATE_ORDER[a.state] - STATE_ORDER[b.state] ||
-      b.daysOverdue - a.daysOverdue ||
-      a.project.title.localeCompare(b.project.title),
-  );
+  // Sorted here rather than at the call site so no consumer can render the
+  // unsorted list by forgetting to.
+  return sortNeedsAction(rows);
 }
 
 /** `Morgan` -> `MO`, `Alex Kim` -> `AK`. Two letters, upper case, or null. */
@@ -118,48 +157,33 @@ export interface CloseCycleSummary {
   deadline?: string;
 }
 
-function periodOffset(period: string, months: number): string {
-  const year = Number(period.slice(0, 4));
-  const month = Number(period.slice(5, 7));
-  return format(new Date(year, month - 1 + months, 1), 'yyyy-MM');
-}
-
 function cycleFor(projects: Project[], period: string): Project[] {
   return projects.filter(
     (project) => project.recurring === 'monthly' && project.period === period,
   );
 }
 
-function hasUnfinished(cycle: Project[]): boolean {
-  return cycle.some((project) => project.milestones.some((milestone) => !milestone.done));
-}
-
 /**
- * The close cycle to show, or null when there is nothing left to close.
+ * The close cycle for the period the calendar is on, or null when that period
+ * has no cycle at all.
  *
- * Gated on unfinished work rather than on a date window. The cycle runs from
- * the 22nd to roughly the 12th — about 70% of every month — so a date
- * condition would barely be a condition. When the current and previous
- * periods are both fully closed this returns null and the card disappears,
- * making the page shorter.
+ * Deliberately NOT gated on the checklist. A fully-ticked cycle is still the
+ * cycle in flight: what ends a period is answering the card's question, which
+ * sets the six projects' status — so hiding an all-done cycle here would take
+ * the question away with it and strand the period at 0 closed entities with
+ * nothing left that could ever close it.
+ *
+ * The period is `targetPeriod`, the same one `closeEntityCount` reads, so the
+ * card and the tile cannot end up describing different months.
  */
 export function summarizeCloseCycle(
   projects: Project[],
   today: Date,
 ): CloseCycleSummary | null {
-  const current = targetPeriod(today);
-  const previous = periodOffset(current, -1);
-
-  // Prefer the current period; fall back to the previous one when only that
-  // still has work outstanding, so the card never shows an all-done cycle.
-  const period = hasUnfinished(cycleFor(projects, current))
-    ? current
-    : hasUnfinished(cycleFor(projects, previous))
-      ? previous
-      : null;
-  if (!period) return null;
-
+  const period = targetPeriod(today);
   const cycle = cycleFor(projects, period);
+  if (cycle.length === 0) return null;
+
   const bySeries = new Map<CloseSeries, Project[]>();
   for (const project of cycle) {
     const series = seriesOf(project);
@@ -197,7 +221,16 @@ export function summarizeCloseCycle(
   return summary;
 }
 
-/** Entity counts for the tile, independent of whether the card is showing. */
+/**
+ * Entity counts for the tile, independent of whether the card is showing.
+ *
+ * Done is the project's own `status`, not its checklist. Closing out a period
+ * marks the six projects done and deliberately leaves their milestones
+ * unticked — nobody ticks 40-odd boxes to record a fact they already know — so
+ * a milestone-derived count would read "0 of 6" on the same screen where the
+ * card has just been dismissed as complete. The tile has to answer the same
+ * question the card does.
+ */
 export function closeEntityCount(
   projects: Project[],
   today: Date,
@@ -205,11 +238,7 @@ export function closeEntityCount(
   const period = targetPeriod(today);
   const cycle = cycleFor(projects, period);
   return {
-    done: cycle.filter(
-      (project) =>
-        project.milestones.length > 0 &&
-        project.milestones.every((milestone) => milestone.done),
-    ).length,
+    done: cycle.filter((project) => project.status === 'done').length,
     total: cycle.length,
     label: periodLabel(period),
   };
@@ -255,51 +284,13 @@ export function goalProgress(goal: WeeklyGoal, tasks: TaskEntry[]): GoalProgress
 // Section 4 — pinned projects
 // ---------------------------------------------------------------------------
 
-export interface PinnedProjectRow {
-  project: Project;
-  done: number;
-  total: number;
-  /** Earliest end date among unfinished milestones. */
-  nextDate?: string;
-  blocked: boolean;
-  overdue: boolean;
-}
-
-/** Close cycles are never pinnable — Section 2 owns them completely. */
+/**
+ * Close cycles are never pinnable — Section 2 owns them completely.
+ *
+ * The pinned set itself is not summarised here: the dashboard renders the real
+ * project card, so the counts come from `rollupMilestones` at the one place
+ * every other view already reads them.
+ */
 export function isPinnable(project: Project): boolean {
   return project.recurring !== 'monthly';
-}
-
-/**
- * Summary rows for the pinned set, using the same counts the project card
- * shows: `rollupMilestones` over the same tree, and `milestoneEnd` for dates.
- */
-export function pinnedProjectRows(projects: Project[], today: Date): PinnedProjectRow[] {
-  const pinnable = projects.filter(isPinnable);
-  const tree = buildProjectTree(pinnable);
-  const todayKey = format(today, 'yyyy-MM-dd');
-
-  return pinnable
-    .filter((project) => project.dashboardPinned)
-    .map((project) => {
-      const node = findNode(tree, project.id);
-      const rollup = node
-        ? rollupMilestones(node)
-        : { done: 0, total: 0, ownDone: 0, ownTotal: 0, childCount: 0 };
-      const open = project.milestones.filter((milestone) => !milestone.done);
-      const dates = open
-        .map((milestone) => milestoneEnd(milestone))
-        .filter((date): date is string => Boolean(date))
-        .sort();
-      const row: PinnedProjectRow = {
-        project,
-        done: rollup.done,
-        total: rollup.total,
-        blocked: open.some((milestone) => milestone.status === 'blocked'),
-        overdue: dates.length > 0 && (dates[0] as string) < todayKey,
-      };
-      if (dates.length > 0) row.nextDate = dates[0];
-      return row;
-    })
-    .sort((a, b) => a.project.order - b.project.order);
 }
