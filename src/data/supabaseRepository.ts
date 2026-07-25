@@ -128,6 +128,9 @@ interface ProjectRow {
   linked_projects?: LinkedProject[] | null;
   entity_tag?: string | null;
   documents?: ProjectDocument[] | null;
+  // Added by migration 20260724000014, same possibly-absent treatment: the
+  // app must still render against a database that has not run it yet.
+  dashboard_pinned?: boolean | null;
 }
 
 interface IeltsResultRow {
@@ -234,6 +237,9 @@ function rowToProject(row: ProjectRow): Project {
   if (Array.isArray(row.documents) && row.documents.length > 0) {
     project.documents = row.documents;
   }
+  // Absent (migration not applied) and false both mean "not pinned", so the
+  // dashboard renders an empty pinned set instead of erroring.
+  if (row.dashboard_pinned) project.dashboardPinned = true;
   return project;
 }
 
@@ -268,6 +274,7 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('linkedProjects' in patch) row.linked_projects = patch.linkedProjects ?? [];
   if ('entityTag' in patch) row.entity_tag = patch.entityTag ?? null;
   if ('documents' in patch) row.documents = patch.documents ?? [];
+  if ('dashboardPinned' in patch) row.dashboard_pinned = patch.dashboardPinned ?? false;
   return row;
 }
 
@@ -471,6 +478,7 @@ class SupabaseRepository implements Repository {
         ...(input.entityTag ? { entity_tag: input.entityTag } : {}),
         ...(input.linkedProjects?.length ? { linked_projects: input.linkedProjects } : {}),
         ...(input.documents?.length ? { documents: input.documents } : {}),
+        ...(input.dashboardPinned ? { dashboard_pinned: true } : {}),
       })
       .select()
       .single();
