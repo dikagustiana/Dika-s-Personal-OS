@@ -18,7 +18,6 @@ import {
   Trophy,
   X,
 } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isSupabaseConfigured } from '../data/supabaseRepository';
 import { lockApp } from '../components/PassphraseGate';
@@ -83,12 +82,10 @@ function WorkspaceSwitch({
 }
 
 function BuildStamp() {
-  let built = __BUILD_TIME__;
-  try {
-    built = format(parseISO(__BUILD_TIME__), 'd MMM yyyy HH:mm');
-  } catch {
-    /* keep the raw string */
-  }
+  // __BUILD_TIME__ is an ISO-8601 UTC instant. Take its fields verbatim
+  // rather than formatting through a Date, which would silently convert to
+  // the browser's timezone while the label still said UTC.
+  const built = __BUILD_TIME__.slice(0, 16).replace('T', ' ');
   return (
     <p className="mt-2 font-mono text-[10px] tabular-nums text-foreground-muted">
       {__BUILD_SHA__} · {built} UTC

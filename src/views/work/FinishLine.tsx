@@ -100,8 +100,11 @@ export function FinishLine() {
         </div>
         <button
           className="bg-card p-5 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={() => setWorkView('escalations')}
-          aria-label="Open escalations"
+          // Projects, not Escalations: the Escalations view deliberately shows
+          // only milestones that already have a target, so silent blockers
+          // would vanish on click. The escalation selector lives in Projects.
+          onClick={() => setWorkView('projects')}
+          aria-label="Open projects to assign an escalation target"
         >
           <Megaphone className="size-4 text-foreground-muted" />
           <p className="metric-hero mt-4">{silentTotal}</p>
