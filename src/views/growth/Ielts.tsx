@@ -24,6 +24,7 @@ import {
   type IeltsSkill,
 } from '../../logic/ielts';
 import { cn } from '../../lib/utils';
+import { useMutation } from '../../hooks/useMutation';
 import { useAppStore } from '../../store/appStore';
 
 // The one place multiple line hues are allowed, for legibility. Overall uses
@@ -42,6 +43,7 @@ function delta(current: number, previous: number | undefined): string | null {
 
 export function Ielts() {
   const repository = useAppStore((state) => state.repository);
+  const { run } = useMutation();
   const [results, setResults] = useState<IeltsResult[]>([]);
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [error, setError] = useState<string | null>(null);
@@ -92,20 +94,28 @@ export function Ielts() {
       return;
     }
     setError(null);
-    const created = await repository.createIeltsResult({
-      date: form.date,
-      listening: nums[0],
-      reading: nums[1],
-      writing: nums[2],
-      speaking: nums[3],
-    });
+    const created = await run('Add IELTS result', () =>
+      repository.createIeltsResult({
+        date: form.date,
+        listening: nums[0],
+        reading: nums[1],
+        writing: nums[2],
+        speaking: nums[3],
+      }),
+    );
+    // Four bands are tedious to retype — only clear them once they are saved.
+    if (!created) return;
     setResults((current) => [...current, created]);
     setForm({ ...emptyForm, date: form.date });
   };
 
   const remove = async (id: string) => {
-    await repository.deleteIeltsResult(id);
-    setResults((current) => current.filter((result) => result.id !== id));
+    const result = await run('Delete IELTS result', async () => {
+      await repository.deleteIeltsResult(id);
+      return true as const;
+    });
+    if (!result) return;
+    setResults((current) => current.filter((item) => item.id !== id));
   };
 
   const overall = latest ? overallBand(latest) : null;

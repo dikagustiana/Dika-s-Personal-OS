@@ -83,3 +83,16 @@ export function formatWeekLabel(weekKey: string): string {
   const monday = dateFromIsoWeekKey(weekKey);
   return `Week ${getISOWeek(parseISO(format(monday, 'yyyy-MM-dd')))} · ${format(monday, 'MMM d')}`;
 }
+
+/**
+ * The week a Sunday review is actually closing out.
+ *
+ * The review card summarizes the week *before* the one being planned, so its
+ * `reviewedAt` belongs on that week's plan. Writing it to the plan on screen
+ * marked the week you are about to start as reviewed while the week you just
+ * reviewed stayed open — and on a Sunday, when planning has moved on to the
+ * next week, it landed two weeks away from the data being read.
+ */
+export function getReviewTargetWeek(selectedWeek: string): string {
+  return getPreviousWeekKey(selectedWeek);
+}

@@ -22,10 +22,12 @@ import {
   getIsoWeekKey,
   getNextWeekKey,
   getPreviousWeekKey,
+  getReviewTargetWeek,
   getWeekRange,
   summarizeWeek,
   type WeekSummary,
 } from '../../logic/week';
+import { useMutation } from '../../hooks/useMutation';
 import { useAppStore } from '../../store/appStore';
 
 function emptyGoals(): WeeklyGoal[] {
@@ -38,6 +40,7 @@ function emptyGoals(): WeeklyGoal[] {
 
 export function Week() {
   const repository = useAppStore((state) => state.repository);
+  const { run, isPending } = useMutation();
   const domain = useAppStore((state) => state.workspace);
   const now = new Date();
   const currentWeek = getIsoWeekKey(now);
@@ -47,6 +50,7 @@ export function Week() {
     domain,
     goals: emptyGoals(),
   });
+  const [reviewedPlan, setReviewedPlan] = useState<WeeklyPlan | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [summary, setSummary] = useState<WeekSummary>({
     averageScore: 0,
@@ -58,7 +62,9 @@ export function Week() {
   const [saved, setSaved] = useState(false);
 
   const isSundayEvening = getDay(now) === 0 && getHours(now) >= 18;
-  const previousWeek = getPreviousWeekKey(selectedWeek);
+  // The week the review card summarizes — and the week its `reviewedAt`
+  // belongs to. Never the week being planned on screen.
+  const previousWeek = getReviewTargetWeek(selectedWeek);
 
   const load = useCallback(async () => {
     const previousRange = getWeekRange(previousWeek);
@@ -73,6 +79,7 @@ export function Week() {
       repository.listProjects(domain),
     ]);
     setPlan(selectedPlan ?? { week: selectedWeek, domain, goals: emptyGoals() });
+    setReviewedPlan(previousPlan);
     setSummary(summarizeWeek(previousLogs, previousPlan));
     setProjects(projectData);
     setSaved(false);
@@ -90,7 +97,7 @@ export function Week() {
     setSaved(false);
   };
 
-  const savePlan = async (reviewedAt = plan.reviewedAt) => {
+  const savePlan = async () => {
     const cleaned: WeeklyPlan = {
       ...plan,
       week: selectedWeek,
@@ -99,9 +106,11 @@ export function Week() {
       goals: plan.goals
         .map((goal) => ({ ...goal, text: goal.text.trim() }))
         .filter((goal) => goal.text.length > 0),
-      reviewedAt,
     };
-    const savedPlan = await repository.upsertWeeklyPlan(cleaned);
+    const savedPlan = await run('Save weekly plan', () =>
+      repository.upsertWeeklyPlan(cleaned),
+    );
+    if (!savedPlan) return;
     setPlan(savedPlan);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
@@ -126,10 +135,24 @@ export function Week() {
     }));
   };
 
+  /**
+   * Closes out `previousWeek` — the week the summary above describes. It is
+   * deliberately independent of the plan being edited on screen: the two are
+   * different weeks, and conflating them is what let the current week show as
+   * reviewed while the reviewed week stayed open.
+   */
   const completeReview = async () => {
     const reviewedAt = new Date().toISOString();
-    setPlan((current) => ({ ...current, reviewedAt }));
-    await savePlan(reviewedAt);
+    const target: WeeklyPlan = reviewedPlan ?? {
+      week: previousWeek,
+      domain,
+      goals: [],
+    };
+    const savedPlan = await run('Complete review', () =>
+      repository.upsertWeeklyPlan({ ...target, week: previousWeek, domain, reviewedAt }),
+    );
+    if (!savedPlan) return;
+    setReviewedPlan(savedPlan);
   };
 
   const completion = useMemo(() => {
@@ -286,7 +309,7 @@ export function Week() {
               <CardTitle>Sunday review</CardTitle>
               <p className="mt-2 text-xs text-gray-600">{previousWeek} summary</p>
             </div>
-            {plan.reviewedAt ? (
+            {reviewedPlan?.reviewedAt ? (
               <CheckCircle2 className="size-5 text-primary" />
             ) : (
               <Circle className="size-5 text-gray-700" />
@@ -337,12 +360,12 @@ export function Week() {
 
             <Button
               className="mt-6 w-full"
-              variant={plan.reviewedAt ? 'secondary' : 'default'}
+              variant={reviewedPlan?.reviewedAt ? 'secondary' : 'default'}
               onClick={() => void completeReview()}
-              disabled={!canSave}
+              disabled={isPending}
             >
               <CalendarCheck2 className="size-4" />
-              {plan.reviewedAt ? 'Review completed' : 'Complete review'}
+              {reviewedPlan?.reviewedAt ? 'Review completed' : 'Complete review'}
             </Button>
           </CardContent>
         </Card>

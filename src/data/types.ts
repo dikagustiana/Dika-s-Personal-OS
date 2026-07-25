@@ -77,6 +77,21 @@ export interface WeeklyPlan {
 
 export type MilestoneStatus = 'not-started' | 'in-progress' | 'blocked' | 'done';
 
+/**
+ * How much a date can be trusted.
+ *
+ * Most 2027 scholarship dates are placeholders, and rendering an exact
+ * countdown against an invented deadline invites confident action on a date
+ * nobody published. `confirmed` dates count down and can turn overdue-red;
+ * `estimated` dates render with a `~`; `unknown` renders "TBC" and never
+ * counts down at all.
+ *
+ * An absent value means `confirmed`, so real WORK deadlines (monthly-close
+ * cycles) keep behaving exactly as they always have — only dates explicitly
+ * marked otherwise soften.
+ */
+export type DateConfidence = 'confirmed' | 'estimated' | 'unknown';
+
 // Escalation targets. 'pak-jo-bu-lenny' = board level (both names shown
 // together). 'other' = other departments — the milestone `note` carries the
 // specific department name; there is deliberately no separate field for it.
@@ -92,6 +107,7 @@ export interface Milestone {
   text: string;
   done: boolean; // kept for backward compatibility; always === (status === 'done')
   dueDate?: string;
+  dateConfidence?: DateConfidence; // absent means 'confirmed'
   status: MilestoneStatus;
   note?: string; // what's left / the blocker / which "other" department
   escalateTo?: EscalateTo; // flag independent of status; absent means 'none'
@@ -115,6 +131,7 @@ export interface Project {
   status: 'active' | 'paused' | 'done';
   startDate?: string; // YYYY-MM-DD — Gantt bar start (project-level)
   deadline?: string;
+  dateConfidence?: DateConfidence; // covers startDate + deadline; absent = 'confirmed'
   targetMetric?: string;
   milestones: Milestone[]; // escalateTo is only meaningful on WORK projects
   order: number;

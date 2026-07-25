@@ -2,6 +2,8 @@ import {
   ArrowRight,
   Brain,
   Clock3,
+  Inbox,
+  Pin,
   Plus,
   Sparkles,
   Trash2,
@@ -23,19 +25,26 @@ import { TimeboxSection } from '../../components/TimeboxSection';
 import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
 import type {
   BrainDumpEntry,
-  DailyLog,
   HabitEntry,
   TaskEntry,
   TimeBlockEntry,
   WeeklyPlan,
 } from '../../data/types';
 import { calculateDailyScore } from '../../logic/score';
+import { scoredTasks } from '../../logic/dailyLog';
 import { getIsoWeekKey } from '../../logic/week';
+import { useDailyLog } from '../../hooks/useDailyLog';
+import { useMutation } from '../../hooks/useMutation';
 import { useAppStore } from '../../store/appStore';
 
-function isTodayTask(task: TaskEntry, todayKey: string): boolean {
-  if (!task.done) return true;
-  return Boolean(task.completedAt?.startsWith(todayKey));
+/**
+ * An Inbox task is one that has been captured but not triaged: not urgent and
+ * not pinned to a day. Capture is meant to be frictionless, so nothing typed
+ * into the quick-add box lands on Today — or in the score — until it is
+ * deliberately pinned there.
+ */
+function isInboxTask(task: TaskEntry): boolean {
+  return !task.done && task.priority !== 'urgent' && !task.dueDate;
 }
 
 export function Today() {
@@ -46,13 +55,19 @@ export function Today() {
   const [habits, setHabits] = useState<HabitEntry[]>([]);
   const [dumps, setDumps] = useState<BrainDumpEntry[]>([]);
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
-  const [dailyLog, setDailyLog] = useState<DailyLog | null>(null);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [dumpText, setDumpText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
   const todayKey = format(now, 'yyyy-MM-dd');
+  const { run, isPending } = useMutation();
+  const {
+    log: dailyLog,
+    setLog,
+    syncInputs,
+    recomputeAndPersistDailyLog,
+  } = useDailyLog(todayKey, domain);
 
   // Depends on todayKey (a date string), not the ticking `now` Date, so the
   // 60s clock interval below no longer triggers a full refetch each minute —
@@ -82,10 +97,10 @@ export function Today() {
         )
         .sort((a, b) => a.start.localeCompare(b.start)),
     );
-    setDailyLog(logData);
+    setLog(logData);
     setPlan(planData);
     setIsLoading(false);
-  }, [domain, repository, todayKey]);
+  }, [domain, repository, setLog, todayKey]);
 
   useEffect(() => {
     void loadToday();
@@ -96,10 +111,15 @@ export function Today() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const urgentTasks = useMemo(
-    () => tasks.filter((task) => task.priority === 'urgent' && isTodayTask(task, todayKey)),
-    [tasks, todayKey],
-  );
+  const urgentTasks = useMemo(() => scoredTasks(tasks, todayKey), [tasks, todayKey]);
+  const inboxTasks = useMemo(() => tasks.filter(isInboxTask), [tasks]);
+
+  // Keep the score inputs mirrored for the write path. Mutations additionally
+  // pass what they just produced, because this effect has not run yet at that
+  // point — see useDailyLog.
+  useEffect(() => {
+    syncInputs({ habits, tasks: urgentTasks, blocks });
+  }, [blocks, habits, syncInputs, urgentTasks]);
 
   const score = useMemo(
     () =>
@@ -120,147 +140,150 @@ export function Today() {
     [blocks, dailyLog, habits, urgentTasks],
   );
 
-  const persistTodayScore = async (
-    nextLog: DailyLog,
-    nextTasks = urgentTasks,
-    nextBlocks = blocks,
-  ): Promise<DailyLog> => {
-    const nextScore = calculateDailyScore({
-      habits: {
-        completed: habits.filter((habit) => nextLog.habits[habit.id]).length,
-        total: habits.length,
-      },
-      tasks: {
-        completed: nextTasks.filter((task) => task.done).length,
-        total: nextTasks.length,
-      },
-      timeblocks: {
-        completed: nextBlocks.filter((block) => block.status === 'done').length,
-        total: nextBlocks.length,
-      },
-    }).score;
-    return repository.upsertDailyLog({ ...nextLog, score: nextScore });
-  };
-
+  /**
+   * Adds to the Inbox, not to Today. The draft is only cleared once the write
+   * has come back, so a failed save leaves the text on screen to retry.
+   */
   const addTask = async (event: FormEvent) => {
     event.preventDefault();
     const title = taskTitle.trim();
     if (!title) return;
-    setTaskTitle('');
     const input: Omit<TaskEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'task',
       domain,
       title,
-      priority: 'urgent',
+      priority: 'normal',
       done: false,
-      dueDate: todayKey,
       tags: [],
     };
-    const created = (await repository.createEntry(input)) as TaskEntry;
-    setTasks((current) => [created, ...current]);
+    const created = await run('Add task', () => repository.createEntry(input));
+    if (!created) return;
+    setTaskTitle('');
+    setTasks((current) => [created as TaskEntry, ...current]);
+  };
+
+  /** The deliberate act of putting an Inbox task on today's list. */
+  const pinToToday = async (task: TaskEntry) => {
+    const updated = await run('Pin task to Today', () =>
+      repository.updateEntry(task.id, { priority: 'urgent', dueDate: todayKey }),
+    );
+    if (!updated) return;
+    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
+    setTasks(nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
   };
 
   const toggleTask = async (task: TaskEntry) => {
     const done = !task.done;
-    const updated = (await repository.updateEntry(task.id, {
-      done,
-      completedAt: done ? new Date().toISOString() : undefined,
-    })) as TaskEntry;
-    const nextTasks = urgentTasks.map((item) => (item.id === task.id ? updated : item));
-    setTasks((current) => current.map((item) => (item.id === task.id ? updated : item)));
-    const currentLog: DailyLog = dailyLog ?? {
-      date: todayKey,
-      domain,
-      habits: {},
-      score: 0,
-    };
-    const saved = await persistTodayScore(currentLog, nextTasks);
-    setDailyLog(saved);
+    const updated = await run(done ? 'Complete task' : 'Reopen task', () =>
+      repository.updateEntry(task.id, {
+        done,
+        completedAt: done ? new Date().toISOString() : undefined,
+      }),
+    );
+    if (!updated) return;
+    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
+    setTasks(nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
   };
 
   const deleteTask = async (id: string) => {
-    await repository.deleteEntry(id);
-    setTasks((current) => current.filter((task) => task.id !== id));
+    const result = await run('Delete task', async () => {
+      await repository.deleteEntry(id);
+      return true as const;
+    });
+    if (!result) return;
+    const nextTasks = tasks.filter((task) => task.id !== id);
+    setTasks(nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
   };
 
   const toggleHabit = async (habit: HabitEntry) => {
-    const currentLog: DailyLog = dailyLog ?? {
-      date: todayKey,
-      domain,
-      habits: {},
-      score: 0,
-    };
-    const nextLog: DailyLog = {
-      ...currentLog,
-      habits: {
-        ...currentLog.habits,
-        [habit.id]: !currentLog.habits[habit.id],
-      },
-    };
-    setDailyLog(nextLog);
-    const saved = await persistTodayScore(nextLog);
-    setDailyLog(saved);
+    const previous = dailyLog;
+    const currentHabits = dailyLog?.habits ?? {};
+    const nextHabits = { ...currentHabits, [habit.id]: !currentHabits[habit.id] };
+    // Optimistic: the checkbox must feel instant. Reverted if the write fails.
+    setLog({ ...(dailyLog ?? { date: todayKey, domain, habits: {}, score: 0 }), habits: nextHabits });
+    const saved = await run('Save habit', () =>
+      recomputeAndPersistDailyLog({ habitState: nextHabits }),
+    );
+    if (!saved) setLog(previous);
   };
 
   const captureDump = async (event: FormEvent) => {
     event.preventDefault();
     const text = dumpText.trim();
     if (!text) return;
-    setDumpText('');
     const input: Omit<BrainDumpEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'braindump',
       domain,
       text,
       tags: [],
     };
-    const created = (await repository.createEntry(input)) as BrainDumpEntry;
-    setDumps((current) => [created, ...current]);
-  };
-
-  const persistWithBlocks = async (nextBlocks: TimeBlockEntry[]) => {
-    const currentLog: DailyLog = dailyLog ?? {
-      date: todayKey,
-      domain,
-      habits: {},
-      score: 0,
-    };
-    const saved = await persistTodayScore(currentLog, urgentTasks, nextBlocks);
-    setDailyLog(saved);
+    const created = await run('Save brain dump', () => repository.createEntry(input));
+    if (!created) return;
+    setDumpText('');
+    setDumps((current) => [created as BrainDumpEntry, ...current]);
   };
 
   const createBlock = async (
     input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'>,
   ) => {
-    const created = (await repository.createEntry(input)) as TimeBlockEntry;
-    const nextBlocks = [...blocks, created].sort((a, b) => a.start.localeCompare(b.start));
+    const created = await run('Add timeblock', () => repository.createEntry(input));
+    if (!created) return;
+    const nextBlocks = [...blocks, created as TimeBlockEntry].sort((a, b) =>
+      a.start.localeCompare(b.start),
+    );
     setBlocks(nextBlocks);
-    await persistWithBlocks(nextBlocks);
+    await recomputeAndPersistDailyLog({ blocks: nextBlocks });
   };
 
   const setBlockStatus = async (
     block: TimeBlockEntry,
     status: TimeBlockEntry['status'],
   ) => {
-    const updated = (await repository.updateEntry(block.id, { status })) as TimeBlockEntry;
-    const nextBlocks = blocks.map((item) => (item.id === block.id ? updated : item));
+    const updated = await run('Update timeblock', () =>
+      repository.updateEntry(block.id, { status }),
+    );
+    if (!updated) return;
+    const nextBlocks = blocks.map((item) =>
+      item.id === block.id ? (updated as TimeBlockEntry) : item,
+    );
     setBlocks(nextBlocks);
+
+    // Completing a block completes its linked task, so the task set the score
+    // is computed from changes too. Scoring against the pre-completion tasks
+    // here was the stale-closure bug.
+    let nextTasks = tasks;
     if (status === 'done' && block.taskId) {
-      const completed = (await repository.updateEntry(block.taskId, {
-        done: true,
-        completedAt: new Date().toISOString(),
-      })) as TaskEntry;
-      setTasks((current) =>
-        current.map((item) => (item.id === completed.id ? completed : item)),
+      const completed = await run('Complete linked task', () =>
+        repository.updateEntry(block.taskId as string, {
+          done: true,
+          completedAt: new Date().toISOString(),
+        }),
       );
+      if (completed) {
+        nextTasks = tasks.map((item) =>
+          item.id === (completed as TaskEntry).id ? (completed as TaskEntry) : item,
+        );
+        setTasks(nextTasks);
+      }
     }
-    await persistWithBlocks(nextBlocks);
+    await recomputeAndPersistDailyLog({
+      blocks: nextBlocks,
+      tasks: scoredTasks(nextTasks, todayKey),
+    });
   };
 
   const deleteBlock = async (block: TimeBlockEntry) => {
-    await repository.deleteEntry(block.id);
+    const result = await run('Delete timeblock', async () => {
+      await repository.deleteEntry(block.id);
+      return true as const;
+    });
+    if (!result) return;
     const nextBlocks = blocks.filter((item) => item.id !== block.id);
     setBlocks(nextBlocks);
-    await persistWithBlocks(nextBlocks);
+    await recomputeAndPersistDailyLog({ blocks: nextBlocks });
   };
 
   const openTasks = tasks.filter((task) => !task.done);
@@ -343,17 +366,6 @@ export function Today() {
               </span>
             </CardHeader>
             <CardContent>
-              <form onSubmit={addTask} className="mb-3 flex gap-2">
-                <Input
-                  value={taskTitle}
-                  onChange={(event) => setTaskTitle(event.target.value)}
-                  placeholder="Add today’s urgent task"
-                  aria-label="New urgent task"
-                />
-                <Button type="submit" size="icon" className="shrink-0" aria-label="Add task">
-                  <Plus className="size-5" />
-                </Button>
-              </form>
               <div className="divide-y divide-gray-800">
                 {urgentTasks.map((task) => (
                   <div key={task.id} className="flex min-h-16 items-center gap-3 py-2">
@@ -379,7 +391,64 @@ export function Today() {
                   </div>
                 ))}
                 {!isLoading && urgentTasks.length === 0 && (
-                  <p className="py-8 text-center text-sm text-gray-600">Clear runway. Add only what truly matters.</p>
+                  <p className="py-8 text-center text-sm text-gray-600">Clear runway. Pin only what truly matters.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Inbox</CardTitle>
+                <p className="mt-2 text-sm text-gray-500">
+                  Captured, not yet triaged. Pin one to put it on Today.
+                </p>
+              </div>
+              <Inbox className="size-4 text-primary" />
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={addTask} className="mb-3 flex gap-2">
+                <Input
+                  value={taskTitle}
+                  onChange={(event) => setTaskTitle(event.target.value)}
+                  placeholder="Capture a task"
+                  aria-label="Capture a task to the inbox"
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={isPending}
+                  aria-label="Add task to inbox"
+                >
+                  <Plus className="size-5" />
+                </Button>
+              </form>
+              <div className="divide-y divide-gray-800">
+                {inboxTasks.map((task) => (
+                  <div key={task.id} className="flex min-h-14 items-center gap-3 py-2">
+                    <span className="min-w-0 flex-1 text-sm text-gray-300">{task.title}</span>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => void pinToToday(task)}
+                      aria-label={`Pin ${task.title} to Today`}
+                    >
+                      <Pin className="size-4" />
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="icon"
+                      onClick={() => void deleteTask(task.id)}
+                      aria-label={`Delete ${task.title}`}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  </div>
+                ))}
+                {!isLoading && inboxTasks.length === 0 && (
+                  <p className="py-8 text-center text-sm text-gray-600">Inbox empty.</p>
                 )}
               </div>
             </CardContent>

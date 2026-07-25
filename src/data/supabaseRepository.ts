@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Repository } from './repository';
 import type {
   DailyLog,
+  DateConfidence,
   Domain,
   Entry,
   EntryType,
@@ -32,12 +33,37 @@ function requireConfig(): { url: string; anonKey: string } {
  * SELECTs return empty rather than erroring, so the gate needs an explicit
  * yes/no.
  */
-export async function verifyAppKey(candidate: string): Promise<boolean> {
+export interface VerifyResult {
+  valid: boolean;
+  /** Set while the caller is in a temporary lockout. */
+  lockedOut?: boolean;
+  /** Seconds until the lockout lifts. */
+  retryAfter?: number;
+  attemptsRemaining?: number;
+}
+
+/**
+ * Verification goes through the `verify-passphrase` Edge Function, which rate
+ * limits it. The database RPC is no longer callable with the anon key — see
+ * supabase/migrations/20260724000011_auth_rate_limit.sql.
+ */
+export async function verifyAppKey(candidate: string): Promise<VerifyResult> {
   const { url, anonKey } = requireConfig();
-  const client = createClient(url, anonKey, { auth: { persistSession: false } });
-  const { data, error } = await client.rpc('os_verify_key', { candidate });
-  if (error) throw new Error(`Passphrase check failed: ${error.message}`);
-  return data === true;
+  const response = await fetch(`${url}/functions/v1/verify-passphrase`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
+    body: JSON.stringify({ candidate }),
+  });
+  if (response.status === 429) {
+    const body = (await response.json()) as VerifyResult;
+    return { valid: false, lockedOut: true, retryAfter: body.retryAfter };
+  }
+  if (!response.ok) throw new Error(`Passphrase check failed (${response.status}).`);
+  return (await response.json()) as VerifyResult;
 }
 
 export function createSupabaseRepository(appKey: string): Repository {
@@ -92,6 +118,7 @@ interface ProjectRow {
   period: string | null;
   working_title: string | null;
   category: WebsiteCategory | null;
+  date_confidence: DateConfidence | null;
 }
 
 interface IeltsResultRow {
@@ -186,6 +213,7 @@ function rowToProject(row: ProjectRow): Project {
   if (row.period !== null) project.period = row.period;
   if (row.working_title !== null) project.workingTitle = row.working_title;
   if (row.category !== null) project.category = row.category;
+  if (row.date_confidence !== null) project.dateConfidence = row.date_confidence;
   return project;
 }
 
@@ -215,6 +243,7 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('period' in patch) row.period = patch.period ?? null;
   if ('workingTitle' in patch) row.working_title = patch.workingTitle ?? null;
   if ('category' in patch) row.category = patch.category ?? null;
+  if ('dateConfidence' in patch) row.date_confidence = patch.dateConfidence ?? null;
   return row;
 }
 

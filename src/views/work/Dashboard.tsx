@@ -11,8 +11,14 @@ import { format, subDays } from 'date-fns';
 import { ContributionGraph, WeeklyScoreChart } from '../../components/AnalyticsPanels';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import type { DailyLog, Project } from '../../data/types';
-import { daysLeft, daysLeftLabel, urgencyFor, type Urgency } from '../../logic/deadlines';
+import type { DailyLog, DateConfidence, Project } from '../../data/types';
+import {
+  daysLeft,
+  daysLeftLabelFor,
+  formatDateFor,
+  urgencyForConfident,
+  type Urgency,
+} from '../../logic/deadlines';
 import { collectEscalations } from '../../logic/milestones';
 import { periodLabel, targetPeriod } from '../../logic/monthlyClose';
 import { cn } from '../../lib/utils';
@@ -29,6 +35,7 @@ interface Countdown {
   date: string;
   days: number;
   urgency: Urgency;
+  confidence?: DateConfidence;
 }
 
 /**
@@ -68,7 +75,8 @@ export function Dashboard() {
         title: project.title,
         date: project.deadline as string,
         days: daysLeft(project.deadline as string, today),
-        urgency: urgencyFor(project.deadline as string, today, 7),
+        urgency: urgencyForConfident(project.deadline as string, today, 7, project.dateConfidence),
+        confidence: project.dateConfidence,
       }))
       .sort((a, b) => a.days - b.days)
       .slice(0, 5);
@@ -85,7 +93,7 @@ export function Dashboard() {
       .map((project) => {
         const blocked = project.milestones.some((m) => m.status === 'blocked');
         const urgency = project.deadline
-          ? urgencyFor(project.deadline, today, 7)
+          ? urgencyForConfident(project.deadline, today, 7, project.dateConfidence)
           : ('on-track' as Urgency);
         return { project, blocked, urgency };
       })
@@ -168,9 +176,11 @@ export function Dashboard() {
               {countdowns.map((item) => (
                 <div key={`${item.title}-${item.date}`} className="flex min-h-12 items-center gap-3 py-2">
                   <span className="min-w-0 flex-1 truncate text-sm text-gray-300">{item.title}</span>
-                  <span className="font-mono text-xs text-gray-600">{item.date}</span>
+                  <span className="font-mono text-xs text-gray-600">
+                    {formatDateFor(item.date, item.confidence)}
+                  </span>
                   <span className={cn('w-24 text-right text-sm font-bold tabular-nums', urgencyText[item.urgency])}>
-                    {daysLeftLabel(item.days)}
+                    {daysLeftLabelFor(item.days, item.confidence)}
                   </span>
                 </div>
               ))}
@@ -214,7 +224,10 @@ export function Dashboard() {
                           : 'border-escalate/40 text-escalate',
                       )}
                     >
-                      {daysLeftLabel(daysLeft(project.deadline, today))}
+                      {daysLeftLabelFor(
+                        daysLeft(project.deadline, today),
+                        project.dateConfidence,
+                      )}
                     </span>
                   )}
                 </button>
