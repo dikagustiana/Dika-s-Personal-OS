@@ -166,7 +166,12 @@ export interface Project {
   domain: Domain;
   title: string;
   type: 'scholarship' | 'study' | 'research' | 'build' | 'other';
-  status: 'active' | 'paused' | 'done';
+  /**
+   * 'parked' exists for research: a parked project keeps its gates, register
+   * and decision log intact, which is the expensive thing to lose when coming
+   * back to work abandoned for months. See migration 20260724000016.
+   */
+  status: 'active' | 'paused' | 'parked' | 'done';
   startDate?: string; // YYYY-MM-DD — Gantt bar start (project-level)
   deadline?: string;
   dateConfidence?: DateConfidence; // covers startDate + deadline; absent = 'confirmed'
@@ -181,6 +186,12 @@ export interface Project {
   parentId?: string;
   /** Soft, non-blocking pointers to related projects. Absent means none. */
   linkedProjects?: LinkedProject[];
+  /** Research portfolio ordering (1 = highest). Absent on other projects. */
+  priority?: number;
+  /** Research parent only: max concurrently active children. Absent = default. */
+  wipLimit?: number;
+  /** Research parent only: months before a verified item goes stale. */
+  staleMonths?: number;
   /** Free text (an entity, a client, a theme) — grouping/filtering only. */
   entityTag?: string;
   /** Project-level reference links, distinct from a milestone's own. */
@@ -192,6 +203,131 @@ export interface Project {
    */
   dashboardPinned?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Research pipeline
+//
+// A research project is an ordinary Project parented to the Research project,
+// so it inherits nesting, the Gantt, countdowns, pinning and documents. These
+// types carry only what a Project cannot: the gate matrix, the evidence
+// register, the claims ledger, the review-cycle history and the decision log.
+// ---------------------------------------------------------------------------
+
+/** What a register item is, which decides whether it counts toward citations. */
+export type ResearchItemType =
+  | 'parameter'
+  | 'dataset'
+  | 'dokumen'
+  | 'paper'
+  | 'wawancara'
+  | 'baseline';
+
+/** IND = indeterminate, V = verified, NA = established as unavailable. */
+export type ResearchItemStatus = 'IND' | 'V' | 'NA';
+
+/** (a) baseline in use · (b) verified with source · (c) hypothesis/inference. */
+export type ClaimLayer = 'a' | 'b' | 'c';
+
+export type CycleVerdict = 'clean' | 'rework';
+
+export interface ResearchMeta {
+  projectId: string;
+  template: string;
+  question: string;
+  output: string;
+  audience: string;
+  /**
+   * Outer index = stage, inner = criterion, both positional against the
+   * template. Never store criterion text alongside it — the text lives in the
+   * template so an edit propagates, and copying it here would freeze it.
+   */
+  gates: boolean[][];
+}
+
+export interface ResearchItem {
+  id: string;
+  projectId: string;
+  name: string;
+  unit: string;
+  type: ResearchItemType;
+  /** Critical items block stage 00's gate while still IND. */
+  crit: boolean;
+  status: ResearchItemStatus;
+  value: string;
+  source: string;
+  /** Free-form reference period ("2024", "Q3 2025") — deliberately not a date. */
+  asof: string;
+  note: string;
+  order: number;
+}
+
+export interface ResearchClaim {
+  id: string;
+  projectId: string;
+  text: string;
+  layer: ClaimLayer;
+  /** The evidence attached to the claim; empty is itself a citation finding. */
+  ev: string;
+  order: number;
+}
+
+/**
+ * One recorded review cycle. APPEND-ONLY — there is deliberately no update or
+ * delete in the repository. itemCount and citeCount are snapshots taken when
+ * the cycle ran, which is how loopDue detects work added since; they cannot be
+ * recomputed after the fact.
+ */
+export interface ResearchCycle {
+  id: string;
+  projectId: string;
+  loop: string;
+  n: number;
+  date: string; // YYYY-MM-DD
+  verdict: CycleVerdict;
+  findings: string;
+  itemCount: number;
+  citeCount: number;
+  invalidated: number;
+  backLabel: string;
+}
+
+/** APPEND-ONLY, same reasoning as ResearchCycle. */
+export interface ResearchLogEntry {
+  id: string;
+  projectId: string;
+  date: string; // YYYY-MM-DD
+  text: string;
+}
+
+/** A verified fact promoted for reuse across projects. Not project-scoped. */
+export interface FactLibraryEntry {
+  id: string;
+  name: string;
+  unit: string;
+  value: string;
+  source: string;
+  asof: string;
+  /** Name, not an id: provenance must survive deleting the source project. */
+  fromProject: string;
+}
+
+/** Everything the pipeline logic needs about one research project at once. */
+export interface ResearchProject {
+  project: Project;
+  meta: ResearchMeta;
+  items: ResearchItem[];
+  claims: ResearchClaim[];
+  cycles: ResearchCycle[];
+  log: ResearchLogEntry[];
+}
+
+/** Portfolio settings, read from the Research parent row. */
+export interface ResearchSettings {
+  wipLimit: number;
+  staleMonths: number;
+}
+
+export const RESEARCH_DEFAULTS: ResearchSettings = { wipLimit: 2, staleMonths: 12 };
 
 // A single IELTS practice result. The overall band is always DERIVED from the
 // four skills (mean rounded to the nearest 0.5) and never stored.
