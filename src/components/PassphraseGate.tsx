@@ -10,6 +10,50 @@ import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 
 const STORAGE_KEY = 'personal-os-app-key';
+const EXPIRY_KEY = 'personal-os-app-key-expires';
+/** How long an unlocked session lasts before the passphrase is asked for again. */
+const SESSION_HOURS = 12;
+
+/**
+ * The credential lives in sessionStorage, not localStorage: it dies with the
+ * tab, and expires on its own inside a long-lived one. It cannot be dropped
+ * entirely — RLS validates the passphrase on the `x-app-key` header of every
+ * request, so the value has to survive as long as the session does.
+ */
+function readStoredKey(): string | null {
+  const key = window.sessionStorage.getItem(STORAGE_KEY);
+  const expires = Number(window.sessionStorage.getItem(EXPIRY_KEY) ?? 0);
+  if (!key || !expires || Date.now() > expires) {
+    clearStoredKey();
+    return null;
+  }
+  return key;
+}
+
+function storeKey(key: string) {
+  window.sessionStorage.setItem(STORAGE_KEY, key);
+  window.sessionStorage.setItem(
+    EXPIRY_KEY,
+    String(Date.now() + SESSION_HOURS * 60 * 60 * 1000),
+  );
+}
+
+/**
+ * Explicit lock. Reloading is the point as much as clearing the key: it drops
+ * the in-memory repository holding the credential along with everything
+ * rendered from it.
+ */
+export function lockApp() {
+  clearStoredKey();
+  window.location.reload();
+}
+
+export function clearStoredKey() {
+  window.sessionStorage.removeItem(STORAGE_KEY);
+  window.sessionStorage.removeItem(EXPIRY_KEY);
+  // Older builds kept the raw passphrase here forever.
+  window.localStorage.removeItem(STORAGE_KEY);
+}
 
 type GateState = 'checking' | 'locked' | 'unlocked';
 
@@ -32,19 +76,19 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
+    const stored = readStoredKey();
     if (!stored) {
       setState('locked');
       return;
     }
     verifyAppKey(stored)
-      .then((valid) => {
+      .then((result) => {
         if (cancelled) return;
-        if (valid) {
+        if (result.valid) {
           setRepository(createSupabaseRepository(stored));
           setState('unlocked');
         } else {
-          window.localStorage.removeItem(STORAGE_KEY);
+          clearStoredKey();
           setState('locked');
         }
       })
@@ -65,11 +109,19 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     setIsSubmitting(true);
     setError(null);
     try {
-      const valid = await verifyAppKey(candidate);
-      if (valid) {
-        window.localStorage.setItem(STORAGE_KEY, candidate);
+      const result = await verifyAppKey(candidate);
+      if (result.valid) {
+        storeKey(candidate);
+        setPassphrase('');
         setRepository(createSupabaseRepository(candidate));
         setState('unlocked');
+      } else if (result.lockedOut) {
+        const minutes = Math.ceil((result.retryAfter ?? 900) / 60);
+        setError(`Too many attempts. Locked for about ${minutes} minute(s).`);
+      } else if (result.attemptsRemaining !== undefined && result.attemptsRemaining <= 3) {
+        setError(
+          `That passphrase is not correct. ${result.attemptsRemaining} attempt(s) before lockout.`,
+        );
       } else {
         setError('That passphrase is not correct.');
       }

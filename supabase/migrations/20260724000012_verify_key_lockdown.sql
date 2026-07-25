@@ -1,0 +1,26 @@
+-- v5 B6, part 2 of 2: close the unrated verification endpoint.
+--
+-- ORDERING MATTERS. This migration breaks any client that still calls
+-- `os_verify_key` directly — which every build before v5 does. Apply it only
+-- once the v5 bundle (which verifies through the `verify-passphrase` Edge
+-- Function) is live in production. Applying it early locks the owner out of
+-- their own app until the deploy catches up.
+--
+-- Why it exists: `os_verify_key` was executable by anon on a public URL, with
+-- no rate limit. Guesses were free and unlimited, and each one forced a bcrypt
+-- hash server-side, so the endpoint doubled as a cheap way to burn database
+-- CPU. The Edge Function now applies an escalating delay and a temporary
+-- lockout, and this withdraws the direct route.
+--
+-- Deliberately unchanged: the RLS model, the bcrypt storage of the secret, and
+-- the `os_key_valid()` header check that every policy calls. `os_key_valid()`
+-- keeps its anon grant — RLS cannot work without it.
+--
+-- Known limitation, stated plainly: this rate-limits the *verification*
+-- endpoint, not the database. Because RLS authorizes on the `x-app-key`
+-- header, an attacker can still test candidate passphrases by making ordinary
+-- PostgREST requests and watching whether rows come back. Closing that would
+-- mean changing the RLS model, which is out of scope here. The mitigation that
+-- matters most is a high-entropy secret.
+
+revoke execute on function public.os_verify_key(text) from anon, authenticated;

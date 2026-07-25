@@ -9,6 +9,7 @@ import {
   GraduationCap,
   LayoutDashboard,
   Megaphone,
+  Lock,
   Menu,
   Mountain,
   RefreshCw,
@@ -18,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isSupabaseConfigured } from '../data/supabaseRepository';
+import { lockApp } from '../components/PassphraseGate';
 import { cn } from '../lib/utils';
 import {
   useAppStore,
@@ -137,6 +139,12 @@ export function AppShell({ children }: { children: ReactNode }) {
               ? 'Private by design. Synced to cloud.'
               : 'Private by design. Mock data only.'}
           </p>
+          {isSupabaseConfigured && (
+            <Button variant="secondary" className="mt-3 w-full" onClick={lockApp}>
+              <Lock className="size-4" />
+              Lock
+            </Button>
+          )}
         </div>
       </aside>
 
