@@ -1,45 +1,32 @@
 import {
-  CalendarClock,
   Check,
   FlaskConical,
   GraduationCap,
   Hammer,
-  Link2,
-  Megaphone,
   Pencil,
   Target,
   Trash2,
   Trophy,
   X,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
-import { Input } from './ui/Input';
-import { Progress } from './ui/Progress';
 import type {
-  DateConfidence,
   Domain,
-  EscalateTo,
   Milestone,
-  MilestoneStatus,
   Project,
+  ProjectDocument,
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
+import { appendDocument, removeDocumentAt } from '../logic/documents';
 import {
-  daysLeft,
-  daysLeftLabelFor,
-  formatDateFor,
-  resolveConfidence,
-  urgencyForConfident,
-} from '../logic/deadlines';
-import { TbcChip } from './ui/TbcChip';
-import {
-  ESCALATION_TARGETS,
-  MILESTONE_STATUSES,
-  withMilestoneStatus,
-} from '../logic/milestones';
+  buildProjectTree,
+  findNode,
+  rollupMilestones,
+  type MilestoneRollup,
+} from '../logic/hierarchy';
 import {
   MilestoneEditorRows,
   ProjectFields,
@@ -47,6 +34,11 @@ import {
   projectToDraft,
   type ProjectDraft,
 } from './ProjectEditor';
+import { DocumentLinks, DocumentUpload } from './project/DocumentSection';
+import { LinkedSection } from './project/LinkedSection';
+import { MetricTiles } from './project/MetricTiles';
+import { MilestoneSection } from './project/MilestoneSection';
+import { WeekStripSection } from './project/WeekStripSection';
 import { useMutation } from '../hooks/useMutation';
 import { cn } from '../lib/utils';
 
@@ -58,32 +50,16 @@ const typeIcons = {
   other: Target,
 } as const;
 
-function deadlineText(deadline?: string, confidence?: DateConfidence): string {
-  if (!deadline) return 'No deadline';
-  return daysLeftLabelFor(daysLeft(deadline, new Date()), confidence);
-}
-
-function MilestoneDueChip({
-  dueDate,
-  confidence,
-}: {
-  dueDate: string;
-  confidence?: DateConfidence;
-}) {
-  const days = daysLeft(dueDate, new Date());
-  const urgency = urgencyForConfident(dueDate, new Date(), 7, confidence);
-  return (
-    <span
-      className={cn(
-        'shrink-0 border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider tabular-nums',
-        urgency === 'overdue' && 'border-destructive/40 text-destructive',
-        urgency === 'due-soon' && 'border-escalate/40 text-escalate',
-        urgency === 'on-track' && 'border-border text-foreground-muted',
-      )}
-    >
-      {daysLeftLabelFor(days, confidence)}
-    </span>
-  );
+/** Own counts only — the fallback when the card has no tree context. */
+function ownRollup(project: Project): MilestoneRollup {
+  const done = project.milestones.filter((milestone) => milestone.done).length;
+  return {
+    ownDone: done,
+    ownTotal: project.milestones.length,
+    done,
+    total: project.milestones.length,
+    childCount: 0,
+  };
 }
 
 export interface ProjectCardProps {
@@ -91,24 +67,39 @@ export interface ProjectCardProps {
   domain: Domain;
   /** Tasks in the project's domain, for the "linked this week" tile. */
   tasks?: TaskEntry[];
-  /** This week's goals, for the linked-goals tile. */
+  /** This week's goals, used to resolve goal-linked tasks. */
   goals?: WeeklyGoal[];
   onChange: (updated: Project) => void;
   updateProject: (id: string, patch: Partial<Project>) => Promise<Project>;
-  /** Hide the deadline/tasks/goals tile strip for compact contexts. */
+  /** Hide the dashboard strip (tiles, week, linked, documents) — Monthly Close. */
   compact?: boolean;
   /**
    * Supplied by views that own the project list. Its presence is what turns
    * on the delete control — a card embedded in a read-only context has none.
    */
   onDelete?: (id: string) => Promise<void>;
+  /**
+   * The domain's project list. Powers the parent/link pickers, resolves link
+   * chip titles live, and supplies the child milestone rollup.
+   */
+  projects?: Project[];
+  /** Milestone rollup including children; computed from `projects` if absent. */
+  rollup?: MilestoneRollup;
+  /** Navigates to a linked project. Absent means chips render as plain text. */
+  onNavigateToProject?: (projectId: string) => void;
+  /** Fixed "now" so every countdown on a screen agrees. Defaults to render time. */
+  today?: Date;
 }
 
 /**
- * One project with its milestone editor: status select, note (saved on blur),
- * and — WORK only — the escalation selector. Blocked rows carry a red edge,
- * escalated rows an amber edge + megaphone. Milestones with a dueDate show a
- * days-left chip.
+ * One project, top to bottom:
+ *
+ *   title + entity tag · metric tiles · target · this-week strip ·
+ *   MILESTONES (collapsible) · linked · documents
+ *
+ * Only the milestone list collapses. The tiles, target, week strip, linked
+ * chips and document list are the project's permanent dashboard — they do not
+ * move, hide, or reflow when the milestone list opens or closes.
  */
 export function ProjectCard({
   project,
@@ -119,12 +110,17 @@ export function ProjectCard({
   updateProject,
   compact = false,
   onDelete,
+  projects,
+  rollup,
+  onNavigateToProject,
+  today,
 }: ProjectCardProps) {
-  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(() => projectToDraft(project));
   const [milestoneDraft, setMilestoneDraft] = useState<Milestone[]>(project.milestones);
   const { run, isPending } = useMutation();
+
+  const now = today ?? new Date();
 
   const openEditor = () => {
     setDraft(projectToDraft(project));
@@ -144,7 +140,11 @@ export function ProjectCard({
       updateProject(project.id, {
         ...draftToPatch(draft),
         milestones: milestoneDraft
-          .map((milestone) => ({ ...milestone, text: milestone.text.trim() }))
+          .map((milestone) => ({
+            ...milestone,
+            text: milestone.text.trim(),
+            pic: milestone.pic?.trim() || undefined,
+          }))
           .filter((milestone) => milestone.text.length > 0),
       }),
     );
@@ -162,10 +162,23 @@ export function ProjectCard({
   };
 
   const Icon = typeIcons[project.type];
-  const doneMilestones = project.milestones.filter((milestone) => milestone.done).length;
-  const progress = project.milestones.length
-    ? Math.round((100 * doneMilestones) / project.milestones.length)
-    : 0;
+
+  const projectsById = useMemo(
+    () => new Map((projects ?? []).map((item) => [item.id, item])),
+    [projects],
+  );
+
+  // Rollup: use what the list view computed, otherwise derive it from the
+  // project list, otherwise fall back to this project's own milestones.
+  const counts = useMemo<MilestoneRollup>(() => {
+    if (rollup) return rollup;
+    if (!projects) return ownRollup(project);
+    // Searched across the whole forest, not just the roots: a child project
+    // shown on its own page still needs the rollup of its own subtree.
+    const node = findNode(buildProjectTree(projects), project.id);
+    return node ? rollupMilestones(node) : ownRollup(project);
+  }, [project, projects, rollup]);
+
   const linkedGoals = goals.filter((goal) => goal.projectId === project.id);
   const linkedGoalIds = new Set(linkedGoals.map((goal) => goal.id));
   const linkedTasks = tasks.filter(
@@ -184,32 +197,41 @@ export function ProjectCard({
     onChange(await updateProject(project.id, { milestones }));
   };
 
-  const saveNote = async (milestone: Milestone) => {
-    const draft = noteDrafts[milestone.id];
-    if (draft === undefined) return;
-    const note = draft.trim();
-    if (note === (milestone.note ?? '')) return;
-    await patchMilestone(milestone.id, (current) => ({
-      ...current,
-      note: note || undefined,
-    }));
-  };
-
   const setStatus = async (status: Project['status']) => {
     onChange(await updateProject(project.id, { status }));
   };
 
+  const setDocuments = async (documents: ProjectDocument[]) => {
+    onChange(
+      await updateProject(project.id, {
+        documents: documents.length > 0 ? documents : [],
+      }),
+    );
+  };
+
+  const documents = project.documents ?? [];
+
   return (
-    <Card className={cn('min-w-0', project.status !== 'active' && 'opacity-70')}>
+    <Card
+      id={`project-card-${project.id}`}
+      className={cn('min-w-0 scroll-mt-24', project.status !== 'active' && 'opacity-70')}
+    >
       <CardHeader className="flex-col border-b border-border-subtle sm:flex-row">
         <div className="flex min-w-0 items-center gap-3">
           <div className="grid size-10 shrink-0 place-items-center rounded-md border border-border bg-surface-2">
             <Icon className="size-5 text-foreground-secondary" />
           </div>
           <div className="min-w-0">
-            <CardTitle className="truncate text-base normal-case tracking-normal text-foreground">
-              {project.title}
-            </CardTitle>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <CardTitle className="truncate text-base normal-case tracking-normal text-foreground">
+                {project.title}
+              </CardTitle>
+              {project.entityTag && (
+                <span className="shrink-0 rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted">
+                  {project.entityTag}
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-foreground-muted">
               {project.recurring === 'monthly' ? 'monthly close' : project.type}
             </p>
@@ -236,10 +258,16 @@ export function ProjectCard({
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="pt-5">
+      <CardContent className="space-y-5 pt-5">
         {editing && (
-          <div className="mb-5 rounded-md border border-border bg-surface-2/50 p-4">
-            <ProjectFields draft={draft} onChange={setDraft} idPrefix={project.title} />
+          <div className="rounded-md border border-border bg-surface-2/50 p-4">
+            <ProjectFields
+              draft={draft}
+              onChange={setDraft}
+              idPrefix={project.title}
+              projects={projects}
+              self={project}
+            />
             <div className="mt-5">
               <p className="surface-label mb-2">Milestones</p>
               <MilestoneEditorRows milestones={milestoneDraft} onChange={setMilestoneDraft} />
@@ -268,162 +296,64 @@ export function ProjectCard({
         )}
 
         {!compact && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="border border-border-subtle bg-black/10 p-3">
-              <CalendarClock className="size-4 text-foreground-muted" />
-              <p className="mt-3 text-sm font-semibold text-foreground">
-                {deadlineText(project.deadline, project.dateConfidence)}
-              </p>
-              <p className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-foreground-muted">
-                {project.deadline
-                  ? formatDateFor(project.deadline, project.dateConfidence)
-                  : 'Open horizon'}
-                {project.deadline && resolveConfidence(project.dateConfidence) !== 'confirmed' && (
-                  <TbcChip />
-                )}
-              </p>
-            </div>
-            <div className="border border-border-subtle bg-black/10 p-3">
-              <Link2 className="size-4 text-foreground-muted" />
-              <p className="mt-3 text-sm font-semibold text-foreground">
-                {linkedTasks.filter((task) => task.done).length}/{linkedTasks.length} tasks
-              </p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">
-                Linked this week
-              </p>
-            </div>
-            <div className="border border-border-subtle bg-black/10 p-3">
-              <Target className="size-4 text-foreground-muted" />
-              <p className="mt-3 text-sm font-semibold text-foreground">
-                {linkedGoals.filter((goal) => goal.done).length}/{linkedGoals.length} goals
-              </p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">
-                Weekly outcomes
-              </p>
-            </div>
-          </div>
+          <MetricTiles
+            project={project}
+            linkedTasksDone={linkedTasks.filter((task) => task.done).length}
+            linkedTasksTotal={linkedTasks.length}
+            rollup={counts}
+          />
         )}
 
         {project.targetMetric && (
-          <div className={cn('border-l-2 border-border pl-3', compact ? '' : 'mt-4')}>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Target</p>
+          <div className="border-l-2 border-border pl-3">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+              Target
+            </p>
             <p className="mt-1 text-sm text-foreground-secondary">{project.targetMetric}</p>
           </div>
         )}
 
-        <div className="mt-6">
-          <div className="mb-2 flex items-end justify-between">
-            <div>
-              <p className="surface-label">Milestones</p>
-              <p className="mt-1 text-xs text-foreground-muted">
-                {doneMilestones} of {project.milestones.length} complete
-              </p>
-            </div>
-            <span className="font-mono text-sm text-primary">{progress}%</span>
-          </div>
-          <Progress value={progress} />
-          <div className="mt-3 divide-y divide-border-subtle">
-            {project.milestones.map((milestone) => {
-              const escalated = (milestone.escalateTo ?? 'none') !== 'none';
-              return (
-                <div
-                  key={milestone.id}
-                  className={cn(
-                    'space-y-2 border-l-2 py-3 pl-3',
-                    milestone.status === 'blocked'
-                      ? 'border-l-destructive/60'
-                      : escalated
-                        ? 'border-l-escalate/60'
-                        : 'border-l-transparent',
-                  )}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={cn(
-                        'min-w-0 flex-1 text-sm text-foreground-secondary',
-                        milestone.done && 'text-foreground-muted line-through',
-                      )}
-                    >
-                      {milestone.text}
-                    </span>
-                    {milestone.dueDate && !milestone.done && (
-                      <>
-                        <MilestoneDueChip
-                          dueDate={milestone.dueDate}
-                          confidence={milestone.dateConfidence}
-                        />
-                        {resolveConfidence(milestone.dateConfidence) !== 'confirmed' && (
-                          <TbcChip />
-                        )}
-                      </>
-                    )}
-                    {escalated && (
-                      <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />
-                    )}
-                  </div>
-                  <div
-                    className={cn(
-                      'grid gap-2',
-                      domain === 'work'
-                        ? 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]'
-                        : 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)]',
-                    )}
-                  >
-                    <select
-                      className="native-select text-xs"
-                      value={milestone.status}
-                      onChange={(event) =>
-                        void patchMilestone(milestone.id, (current) =>
-                          withMilestoneStatus(current, event.target.value as MilestoneStatus),
-                        )
-                      }
-                      aria-label={`Status for ${milestone.text}`}
-                    >
-                      {MILESTONE_STATUSES.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <Input
-                      className="h-11 text-sm"
-                      value={noteDrafts[milestone.id] ?? milestone.note ?? ''}
-                      onChange={(event) =>
-                        setNoteDrafts((current) => ({
-                          ...current,
-                          [milestone.id]: event.target.value,
-                        }))
-                      }
-                      onBlur={() => void saveNote(milestone)}
-                      placeholder="What's left / blocker…"
-                      aria-label={`Note for ${milestone.text}`}
-                    />
-                    {domain === 'work' && (
-                      <select
-                        className={cn('native-select text-xs', escalated && 'text-escalate')}
-                        value={milestone.escalateTo ?? 'none'}
-                        onChange={(event) =>
-                          void patchMilestone(milestone.id, (current) => ({
-                            ...current,
-                            escalateTo: event.target.value as EscalateTo,
-                          }))
-                        }
-                        aria-label={`Escalation for ${milestone.text}`}
-                      >
-                        <option value="none">None</option>
-                        {ESCALATION_TARGETS.map((target) => (
-                          <option key={target.value} value={target.value}>
-                            {target.label}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        {!compact && <WeekStripSection milestones={project.milestones} today={now} />}
+
+        <MilestoneSection
+          milestones={project.milestones}
+          domain={domain}
+          projectTitle={project.title}
+          today={now}
+          onPatch={patchMilestone}
+          rollup={counts}
+          // Monthly-close cards are worked as checklists, not read as
+          // dashboards, so they open expanded. Everywhere else, collapsed.
+          defaultOpen={compact}
+        />
+
+        {!compact && (
+          <>
+            <LinkedSection
+              links={project.linkedProjects ?? []}
+              projectsById={projectsById}
+              onNavigate={onNavigateToProject}
+            />
+
+            <section aria-label={`Documents for ${project.title}`}>
+              <p className="surface-label">Documents</p>
+              {documents.length === 0 ? (
+                <p className="mt-1.5 text-xs text-foreground-muted">No documents yet</p>
+              ) : (
+                <DocumentLinks
+                  className="mt-1.5"
+                  documents={documents}
+                  ariaContext={project.title}
+                  onRemove={(index) => void setDocuments(removeDocumentAt(documents, index))}
+                />
+              )}
+              <DocumentUpload
+                ariaContext={project.title}
+                onAdd={(document) => setDocuments(appendDocument(documents, document))}
+              />
+            </section>
+          </>
+        )}
       </CardContent>
     </Card>
   );

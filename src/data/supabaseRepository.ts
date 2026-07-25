@@ -7,7 +7,9 @@ import type {
   Entry,
   EntryType,
   IeltsResult,
+  LinkedProject,
   Project,
+  ProjectDocument,
   WeeklyPlan,
   WebsiteCategory,
 } from './types';
@@ -119,6 +121,13 @@ interface ProjectRow {
   working_title: string | null;
   category: WebsiteCategory | null;
   date_confidence: DateConfidence | null;
+  // Added by migration 20260724000013. Typed as possibly-absent, not just
+  // possibly-null: `select *` against a database where that migration has not
+  // been applied yet simply omits these keys, and the reader must survive it.
+  parent_id?: string | null;
+  linked_projects?: LinkedProject[] | null;
+  entity_tag?: string | null;
+  documents?: ProjectDocument[] | null;
 }
 
 interface IeltsResultRow {
@@ -214,6 +223,17 @@ function rowToProject(row: ProjectRow): Project {
   if (row.working_title !== null) project.workingTitle = row.working_title;
   if (row.category !== null) project.category = row.category;
   if (row.date_confidence !== null) project.dateConfidence = row.date_confidence;
+  // Empty arrays are dropped rather than carried, matching how every other
+  // absent value is handled here: the domain shape stays free of noise and
+  // readers coalesce with `?? []`.
+  if (row.parent_id) project.parentId = row.parent_id;
+  if (Array.isArray(row.linked_projects) && row.linked_projects.length > 0) {
+    project.linkedProjects = row.linked_projects;
+  }
+  if (row.entity_tag) project.entityTag = row.entity_tag;
+  if (Array.isArray(row.documents) && row.documents.length > 0) {
+    project.documents = row.documents;
+  }
   return project;
 }
 
@@ -244,6 +264,10 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('workingTitle' in patch) row.working_title = patch.workingTitle ?? null;
   if ('category' in patch) row.category = patch.category ?? null;
   if ('dateConfidence' in patch) row.date_confidence = patch.dateConfidence ?? null;
+  if ('parentId' in patch) row.parent_id = patch.parentId ?? null;
+  if ('linkedProjects' in patch) row.linked_projects = patch.linkedProjects ?? [];
+  if ('entityTag' in patch) row.entity_tag = patch.entityTag ?? null;
+  if ('documents' in patch) row.documents = patch.documents ?? [];
   return row;
 }
 
@@ -439,6 +463,14 @@ class SupabaseRepository implements Repository {
         period: input.period ?? null,
         working_title: input.workingTitle ?? null,
         category: input.category ?? null,
+        // The hierarchy columns are named only when the caller supplied a
+        // value. Naming them unconditionally would make every project
+        // creation fail against a database that has not yet run migration
+        // 20260724000013 — the columns simply would not exist.
+        ...(input.parentId ? { parent_id: input.parentId } : {}),
+        ...(input.entityTag ? { entity_tag: input.entityTag } : {}),
+        ...(input.linkedProjects?.length ? { linked_projects: input.linkedProjects } : {}),
+        ...(input.documents?.length ? { documents: input.documents } : {}),
       })
       .select()
       .single();

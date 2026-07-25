@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Milestone, Project } from '../data/types';
 import {
   collectEscalations,
+  milestoneEnd,
+  milestoneRange,
   withMilestoneDone,
   withMilestoneStatus,
 } from './milestones';
@@ -124,5 +126,51 @@ describe('collectEscalations', () => {
     const groups = collectEscalations(projects);
     expect(groups).toHaveLength(1);
     expect(groups[0].target).toBe('mbak-muti');
+  });
+});
+
+describe('milestoneEnd', () => {
+  it('reads endDate when it is set', () => {
+    expect(milestoneEnd(milestone({ endDate: '2026-08-01' }))).toBe('2026-08-01');
+  });
+
+  it('falls back to the legacy dueDate so old milestones keep counting down', () => {
+    expect(milestoneEnd(milestone({ dueDate: '2026-08-01' }))).toBe('2026-08-01');
+  });
+
+  it('prefers endDate over a dueDate left behind on the same milestone', () => {
+    expect(
+      milestoneEnd(milestone({ dueDate: '2026-08-01', endDate: '2026-08-09' })),
+    ).toBe('2026-08-09');
+  });
+
+  it('is undefined when the milestone has no date at all', () => {
+    expect(milestoneEnd(milestone())).toBeUndefined();
+  });
+});
+
+describe('milestoneRange', () => {
+  it('is null without an end date, whatever the start says', () => {
+    expect(milestoneRange(milestone())).toBeNull();
+    expect(milestoneRange(milestone({ startDate: '2026-08-01' }))).toBeNull();
+  });
+
+  it('treats an end date alone as a single day', () => {
+    expect(milestoneRange(milestone({ endDate: '2026-08-01' }))).toEqual({
+      start: '2026-08-01',
+      end: '2026-08-01',
+    });
+  });
+
+  it('keeps a real span', () => {
+    expect(
+      milestoneRange(milestone({ startDate: '2026-07-28', endDate: '2026-08-01' })),
+    ).toEqual({ start: '2026-07-28', end: '2026-08-01' });
+  });
+
+  it('collapses a start later than the end rather than inverting the bar', () => {
+    expect(
+      milestoneRange(milestone({ startDate: '2026-08-09', endDate: '2026-08-01' })),
+    ).toEqual({ start: '2026-08-01', end: '2026-08-01' });
   });
 });

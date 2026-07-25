@@ -27,6 +27,9 @@ const WEBSITE_CATEGORIES: Array<{ value: WebsiteCategory; label: string }> = [
 export function Initiative({ initiative }: { initiative: InitiativeKey }) {
   const repository = useAppStore((state) => state.repository);
   const [project, setProject] = useState<Project | null>(null);
+  // The whole GROWTH list is kept so linked-project chips can resolve their
+  // titles live and the parent/link pickers have candidates.
+  const [allProjects, setAllProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -42,6 +45,7 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
       repository.listEntries({ type: 'task', domain: 'growth' }),
       repository.getWeeklyPlan(getIsoWeekKey(new Date()), 'growth'),
     ]);
+    setAllProjects(projects);
     setProject(projects.find((item) => item.id === meta?.projectId) ?? null);
     setTasks(entries.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setPlan(weeklyPlan);
@@ -130,8 +134,14 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
             domain="growth"
             tasks={tasks}
             goals={plan?.goals ?? []}
+            projects={allProjects}
             updateProject={(id, patch) => repository.updateProject(id, patch)}
-            onChange={setProject}
+            onChange={(updated) => {
+              setProject(updated);
+              setAllProjects((current) =>
+                current.map((item) => (item.id === updated.id ? updated : item)),
+              );
+            }}
           />
         </div>
       ) : (

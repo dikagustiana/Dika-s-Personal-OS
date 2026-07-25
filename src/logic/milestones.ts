@@ -12,6 +12,33 @@ export const MILESTONE_STATUSES: Array<{ value: MilestoneStatus; label: string }
   { value: 'done', label: 'Done' },
 ];
 
+/**
+ * The date a milestone is actually tracked to.
+ *
+ * `endDate` is what new and edited milestones write. `dueDate` is the field
+ * every milestone written before this existed carries, and it is never
+ * rewritten in place — so every read goes through here and old rows keep
+ * counting down exactly as they always did.
+ */
+export function milestoneEnd(milestone: Milestone): string | undefined {
+  return milestone.endDate ?? milestone.dueDate;
+}
+
+/**
+ * The inclusive span a milestone occupies, or null when it has no dates at
+ * all. A milestone with only an end date is a single day — a target, not a
+ * stretch of work. A start later than the end is bad data, not a backwards
+ * bar: it collapses to the end date rather than rendering inverted.
+ */
+export function milestoneRange(
+  milestone: Milestone,
+): { start: string; end: string } | null {
+  const end = milestoneEnd(milestone);
+  if (!end) return null;
+  const start = milestone.startDate ?? end;
+  return { start: start > end ? end : start, end };
+}
+
 export type EscalationTarget = Exclude<EscalateTo, 'none'>;
 
 // Fixed board-review order; also the group order on the Escalations view.

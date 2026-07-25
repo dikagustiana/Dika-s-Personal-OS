@@ -102,15 +102,53 @@ export type EscalateTo =
   | 'pak-teddy'
   | 'other';
 
+/**
+ * A reference link, on a project or on a single milestone.
+ *
+ * A link, never a file. The app stores no binaries and uploads nothing: the
+ * "upload document" affordance takes a label and a URL (typically a Drive
+ * link) and appends one of these. `addedAt` is an ISO timestamp.
+ */
+export interface ProjectDocument {
+  label: string;
+  url: string;
+  addedAt: string;
+}
+
+/**
+ * A soft pointer from one project to another.
+ *
+ * Informational only, by an explicit decision: nothing reads this to decide
+ * whether a milestone or project may be marked done, and nothing ever should.
+ * Personal OS is not a project-management tool — a link is a note plus a way
+ * to get there, not a dependency.
+ */
+export interface LinkedProject {
+  projectId: string;
+  note?: string;
+}
+
 export interface Milestone {
   id: string;
   text: string;
   done: boolean; // kept for backward compatibility; always === (status === 'done')
+  /**
+   * Legacy single date. Superseded by `endDate`, but never rewritten in
+   * place: milestones that only ever had a dueDate keep it and still render
+   * and count down correctly. Read through `milestoneEnd()`, never directly.
+   */
   dueDate?: string;
   dateConfidence?: DateConfidence; // absent means 'confirmed'
   status: MilestoneStatus;
   note?: string; // what's left / the blocker / which "other" department
   escalateTo?: EscalateTo; // flag independent of status; absent means 'none'
+  /** Free text, per milestone — deliberately not an enum, not a project field. */
+  pic?: string;
+  startDate?: string; // YYYY-MM-DD
+  endDate?: string; // YYYY-MM-DD — the tracked finish date; replaces dueDate
+  documents?: ProjectDocument[]; // milestone-level links, separate from the project's
+  // "Days left" is never stored anywhere. It is computed from endDate at
+  // render time, the same way the daily score and the IELTS band are.
 }
 
 // The DDS site sections a Website piece belongs to (Website projects only).
@@ -139,6 +177,14 @@ export interface Project {
   period?: string; // YYYY-MM period a recurring project belongs to
   workingTitle?: string; // current piece being worked on (Research, Website)
   category?: WebsiteCategory; // Website only — which DDS site section
+  /** Parent project id. One level is enough at this app's scale; never self. */
+  parentId?: string;
+  /** Soft, non-blocking pointers to related projects. Absent means none. */
+  linkedProjects?: LinkedProject[];
+  /** Free text (an entity, a client, a theme) — grouping/filtering only. */
+  entityTag?: string;
+  /** Project-level reference links, distinct from a milestone's own. */
+  documents?: ProjectDocument[];
 }
 
 // A single IELTS practice result. The overall band is always DERIVED from the
