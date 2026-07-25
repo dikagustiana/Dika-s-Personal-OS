@@ -23,26 +23,23 @@
 
 /* Design tokens — Imperial College London LIGHT theme.
    ---------------------------------------------------------------------------
-   PROVENANCE OF THE TWO IMPERIAL ANCHORS — read before changing either.
+   THE TWO IMPERIAL ANCHORS ARE UNVERIFIED — read before changing either.
 
    Navy           #002147   -> --foreground
    Imperial Blue  #003E74   -> --primary, --chart-1
 
-   These were checked against Imperial's published brand pages
-   (imperial.ac.uk/brand-style-guide/visual-identity/brand-colours/) and both
-   matched; Imperial Blue was corroborated in a second colour space
-   (CMYK 100.61.0.45, PMS 541, RGB 0.62.116). Confidence is high but not
-   absolute: the page could only be read through a search intermediary rather
-   than opened directly, and repeated reads of it returned inconsistent
-   name->hex pairings for the SUPPORTING colours. So treat the two anchors
-   above as verified and everything below marked "Imperial accent" as
-   unconfirmed — in particular --chart-2 (#960078, claimed "Violet"): the
-   official page returns "Purple #653098" instead, and that discrepancy has
-   never been resolved.
+   Treat both as unverified. Neither has been confirmed against Imperial's
+   official brand pages by anyone who could open them directly, so they carry
+   no more authority than "what the stylesheet has always said". The same goes
+   for every value below marked "Imperial accent", and for --chart-2
+   (#960078, claimed "Violet") in particular: a search-based check once
+   returned "Purple #653098" for that slot instead, and the conflict was never
+   resolved. Do not treat any of these as settled.
 
    Blast radius if an anchor turns out to be wrong: only --foreground,
    --primary and the --chart-* set need revisiting. Every other value here is
-   a neutral or a derived semantic colour and is independent of them.
+   a neutral or a derived semantic colour and is independent of them, so
+   correcting an anchor is a three-token change, not a re-theme.
    ---------------------------------------------------------------------------
    Imperial is a light-background brand — white and light grey with navy as
    the anchor — so this theme puts the brand on its own ground instead of

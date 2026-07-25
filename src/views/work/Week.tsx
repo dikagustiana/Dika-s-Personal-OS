@@ -12,11 +12,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { format, getDay, getHours, parseISO, subDays } from 'date-fns';
+import { ContributionGraph } from '../../components/AnalyticsPanels';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
-import type { Project, WeeklyGoal, WeeklyPlan } from '../../data/types';
+import type { DailyLog, Project, WeeklyGoal, WeeklyPlan } from '../../data/types';
 import {
   formatWeekLabel,
   getIsoWeekKey,
@@ -43,6 +44,10 @@ export function Week() {
   const { run, isPending } = useMutation();
   const domain = useAppStore((state) => state.workspace);
   const now = new Date();
+  // A stable string, not the Date: `now` is a fresh object every render, so
+  // depending on it in a useCallback would give `load` a new identity each
+  // pass and the load effect would never stop firing.
+  const todayKey = format(now, 'yyyy-MM-dd');
   const currentWeek = getIsoWeekKey(now);
   const [selectedWeek, setSelectedWeek] = useState(currentWeek);
   const [plan, setPlan] = useState<WeeklyPlan>({
@@ -60,6 +65,10 @@ export function Week() {
     goalsMissed: [],
   });
   const [saved, setSaved] = useState(false);
+  // The 30-day habit grid moved here from the WORK dashboard, which is now a
+  // decisions-only screen and carries no charts. Week already owned the
+  // habit-consistency figure, so the graph belongs beside it.
+  const [habitLogs, setHabitLogs] = useState<DailyLog[]>([]);
 
   const isSundayEvening = getDay(now) === 0 && getHours(now) >= 18;
   // The week the review card summarizes — and the week its `reviewedAt`
@@ -68,22 +77,29 @@ export function Week() {
 
   const load = useCallback(async () => {
     const previousRange = getWeekRange(previousWeek);
-    const [selectedPlan, previousPlan, previousLogs, projectData] = await Promise.all([
-      repository.getWeeklyPlan(selectedWeek, domain),
-      repository.getWeeklyPlan(previousWeek, domain),
-      repository.listDailyLogs({
-        from: previousRange.from,
-        to: format(subDays(parseISO(previousRange.to), 1), 'yyyy-MM-dd'),
-        domain,
-      }),
-      repository.listProjects(domain),
-    ]);
+    const [selectedPlan, previousPlan, previousLogs, projectData, recentLogs] =
+      await Promise.all([
+        repository.getWeeklyPlan(selectedWeek, domain),
+        repository.getWeeklyPlan(previousWeek, domain),
+        repository.listDailyLogs({
+          from: previousRange.from,
+          to: format(subDays(parseISO(previousRange.to), 1), 'yyyy-MM-dd'),
+          domain,
+        }),
+        repository.listProjects(domain),
+        repository.listDailyLogs({
+          from: format(subDays(parseISO(todayKey), 29), 'yyyy-MM-dd'),
+          to: todayKey,
+          domain,
+        }),
+      ]);
     setPlan(selectedPlan ?? { week: selectedWeek, domain, goals: emptyGoals() });
     setReviewedPlan(previousPlan);
     setSummary(summarizeWeek(previousLogs, previousPlan));
     setProjects(projectData);
+    setHabitLogs(recentLogs);
     setSaved(false);
-  }, [domain, previousWeek, repository, selectedWeek]);
+  }, [domain, previousWeek, repository, selectedWeek, todayKey]);
 
   useEffect(() => {
     void load();
@@ -327,6 +343,13 @@ export function Week() {
               </div>
             </div>
             <p className="mt-3 text-xs text-foreground-muted">{summary.daysLogged} days logged</p>
+
+            <div className="mt-6" id="habit-contribution">
+              <p className="surface-label">Habit contribution · last 30 days</p>
+              <div className="mt-3">
+                <ContributionGraph logs={habitLogs} today={now} />
+              </div>
+            </div>
 
             <div className="mt-6">
               <p className="surface-label">Goals hit</p>

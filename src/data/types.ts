@@ -185,6 +185,12 @@ export interface Project {
   entityTag?: string;
   /** Project-level reference links, distinct from a milestone's own. */
   documents?: ProjectDocument[];
+  /**
+   * Shown in the WORK dashboard's project card. An explicit choice, not a
+   * ranking — see migration 20260724000014. Close-cycle projects are never
+   * pinnable; Section 2 of the dashboard owns those.
+   */
+  dashboardPinned?: boolean;
 }
 
 // A single IELTS practice result. The overall band is always DERIVED from the
