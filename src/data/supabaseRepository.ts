@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { createSupabaseResearchRepository } from './researchRepository';
+import type { ResearchRepository } from './researchRepository';
 import type { Repository } from './repository';
 import type {
   DailyLog,
@@ -341,7 +343,12 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
 // --- repository -------------------------------------------------------------
 
 class SupabaseRepository implements Repository {
-  constructor(private readonly client: SupabaseClient) {}
+  /** Research hangs off its own seam — see researchRepository.ts. */
+  readonly research: ResearchRepository;
+
+  constructor(private readonly client: SupabaseClient) {
+    this.research = createSupabaseResearchRepository(client);
+  }
 
   async listEntries(filter?: {
     type?: EntryType;
