@@ -353,6 +353,34 @@ export function Today() {
         </div>
       </header>
 
+      {/* The timebox renders FIRST. It used to be the last section, below six
+          cards — the feature that matters most was a full page of scroll away,
+          and it went unused. The grid opens on the current slot; everything
+          else on this page is secondary to "what is this half-hour for". */}
+      <section className="mb-5">
+        <div className="mb-3 flex items-end justify-between">
+          <div>
+            <p className="surface-label">Timebox</p>
+            <p className="mt-1 text-xs text-foreground-muted">
+              {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
+              {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min ·{' '}
+              {blocks.filter((block) => block.status === 'done').length}/{blocks.length} done
+            </p>
+          </div>
+          <Clock3 className="size-4 text-foreground-muted" />
+        </div>
+        <TimeboxSection
+          domain={domain}
+          date={todayKey}
+          now={now}
+          blocks={blocks}
+          tasks={openTasks}
+          onCreate={createBlock}
+          onSetStatus={setBlockStatus}
+          onDelete={deleteBlock}
+        />
+      </section>
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
         <div className="grid min-w-0 gap-5">
           <Card>
@@ -576,29 +604,6 @@ export function Today() {
         </div>
       </div>
 
-      <section className="mt-5">
-        <div className="mb-3 flex items-end justify-between">
-          <div>
-            <p className="surface-label">Timebox</p>
-            <p className="mt-1 text-xs text-foreground-muted">
-              {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
-              {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min ·{' '}
-              {blocks.filter((block) => block.status === 'done').length}/{blocks.length} done
-            </p>
-          </div>
-          <Clock3 className="size-4 text-foreground-muted" />
-        </div>
-        <TimeboxSection
-          domain={domain}
-          date={todayKey}
-          now={now}
-          blocks={blocks}
-          tasks={openTasks}
-          onCreate={createBlock}
-          onSetStatus={setBlockStatus}
-          onDelete={deleteBlock}
-        />
-      </section>
     </div>
   );
 }

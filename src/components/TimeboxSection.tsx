@@ -97,6 +97,14 @@ export function TimeboxSection({
       event.preventDefault();
       void createBlock(slot);
     }
+    // Escape backs out without reaching for the mouse — the X button was the
+    // only exit before.
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setOpenSlot(null);
+      setDraft('');
+      setDraftCategory('');
+    }
   };
 
   return (
