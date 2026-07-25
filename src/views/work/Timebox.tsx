@@ -183,11 +183,11 @@ export function Timebox() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
+      <header className="mb-7 border-b border-border-subtle pb-7 md:flex md:items-end md:justify-between">
         <div>
           <p className="page-kicker">{domain} / Timebox</p>
           <h1 className="page-title">Shape the day</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-gray-500">
+          <p className="mt-3 max-w-xl text-sm leading-6 text-foreground-muted">
             Give attention a place to land. Each block is deliberately short and finishable.
           </p>
         </div>
@@ -195,7 +195,7 @@ export function Timebox() {
           <Button variant="secondary" size="icon" onClick={() => shiftDate(-1)} aria-label="Previous day">
             <ChevronLeft className="size-4" />
           </Button>
-          <div className="grid min-h-11 min-w-40 place-items-center border border-gray-800 bg-muted px-4 text-center">
+          <div className="grid min-h-11 min-w-40 place-items-center border border-border-subtle bg-muted px-4 text-center">
             <span className="text-sm font-semibold">
               {isToday(parseISO(selectedDate)) ? 'Today' : format(parseISO(selectedDate), 'EEE, MMM d')}
             </span>
@@ -206,24 +206,24 @@ export function Timebox() {
         </div>
       </header>
 
-      <div className="mb-4 grid gap-3 border border-gray-800 bg-card p-4 text-xs text-gray-500 sm:grid-cols-3">
+      <div className="mb-4 grid gap-3 border border-border-subtle bg-card p-4 text-xs text-foreground-muted sm:grid-cols-3">
         <div className="flex items-center gap-2">
-          <Clock3 className="size-4 text-primary" />
+          <Clock3 className="size-4 text-foreground-muted" />
           {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
           {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min
         </div>
         <div className="flex items-center gap-2">
-          <Plus className="size-4 text-primary" />
+          <Plus className="size-4 text-foreground-muted" />
           Type or link a task
         </div>
         <div className="flex items-center gap-2">
-          <Link2 className="size-4 text-primary" />
+          <Link2 className="size-4 text-foreground-muted" />
           Linked completion cascades
         </div>
       </div>
 
       <Card className="overflow-hidden">
-        <div className="divide-y divide-gray-800">
+        <div className="divide-y divide-border-subtle">
           {slots.map((slot) => {
             const block = byStart.get(slot.start);
             const isCurrent = currentSlot === slot.start;
@@ -241,27 +241,27 @@ export function Timebox() {
               >
                 {isCurrent && <span className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
                 <div className="pt-1">
-                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-primary' : 'text-gray-600')}>
+                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                     {slot.start}
                   </time>
-                  {isCurrent && <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-primary">Now</span>}
+                  {isCurrent && <span className="mt-1 block text-[9px] font-bold uppercase tracking-wider text-foreground-secondary">Now</span>}
                 </div>
 
                 {block ? (
                   <div className="min-w-0 md:flex md:items-center md:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className={cn('font-semibold text-gray-200', block.status !== 'planned' && 'text-gray-500 line-through')}>
+                        <p className={cn('font-semibold text-foreground', block.status !== 'planned' && 'text-foreground-muted line-through')}>
                           {block.label}
                         </p>
                         {block.taskId && (
-                          <span className="inline-flex items-center gap-1 border border-primary/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary/80">
+                          <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-foreground-muted">
                             <Link2 className="size-2.5" />
                             Task
                           </span>
                         )}
                       </div>
-                      <p className="mt-1 text-xs text-gray-600">
+                      <p className="mt-1 text-xs text-foreground-muted">
                         {slot.start}–{slot.end}
                         {linkedTask ? ` · ${linkedTask.priority}` : ' · standalone'}
                       </p>

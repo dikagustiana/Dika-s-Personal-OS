@@ -17,8 +17,8 @@ function StatusChip({ status }: { status: MilestoneStatus }) {
         'shrink-0 border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider',
         status === 'blocked' && 'border-destructive/40 text-destructive',
         status === 'done' && 'border-primary/40 text-primary',
-        status === 'in-progress' && 'border-gray-600 text-gray-300',
-        status === 'not-started' && 'border-gray-700 text-gray-500',
+        status === 'in-progress' && 'border-border text-foreground-secondary',
+        status === 'not-started' && 'border-border text-foreground-muted',
       )}
     >
       {statusLabel.get(status)}
@@ -45,10 +45,10 @@ export function Escalations() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Work / Escalations</p>
         <h1 className="page-title">Raise it early</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           Every milestone flagged for leadership, grouped by who needs to hear it.
           {total > 0 && (
             <span className="ml-2 text-escalate">
@@ -59,11 +59,11 @@ export function Escalations() {
       </header>
 
       {!isLoading && groups.length === 0 && (
-        <div className="grid min-h-52 place-items-center border border-dashed border-gray-800 text-center">
+        <div className="grid min-h-52 place-items-center border border-dashed border-border-subtle text-center">
           <div>
-            <CheckCircle2 className="mx-auto size-6 text-gray-700" />
-            <p className="mt-3 font-semibold text-gray-400">Nothing to escalate right now.</p>
-            <p className="mt-1 text-sm text-gray-600">
+            <CheckCircle2 className="mx-auto size-6 text-foreground-muted" />
+            <p className="mt-3 font-semibold text-foreground-secondary">Nothing to escalate right now.</p>
+            <p className="mt-1 text-sm text-foreground-muted">
               Flag a WORK milestone from Projects when it needs leadership attention.
             </p>
           </div>
@@ -73,32 +73,32 @@ export function Escalations() {
       <div className="grid gap-5 xl:grid-cols-2">
         {groups.map((group) => (
           <Card key={group.target}>
-            <CardHeader className="border-b border-gray-800">
+            <CardHeader className="border-b border-border-subtle">
               <div className="flex items-center gap-3">
                 <div className="grid size-10 shrink-0 place-items-center border border-escalate/40 bg-escalate/10">
                   <Megaphone className="size-4 text-escalate" />
                 </div>
-                <CardTitle className="normal-case tracking-normal text-gray-100">
+                <CardTitle className="normal-case tracking-normal text-foreground">
                   {group.label}
                 </CardTitle>
               </div>
-              <span className="text-xs tabular-nums text-gray-600">
+              <span className="text-xs tabular-nums text-foreground-muted">
                 {group.items.length} item{group.items.length === 1 ? '' : 's'}
               </span>
             </CardHeader>
             <CardContent className="pt-4">
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-border-subtle">
                 {group.items.map((item) => (
                   <div key={item.milestone.id} className="py-3">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-gray-600">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-foreground-muted">
                       {item.projectTitle}
                     </p>
                     <div className="mt-1 flex items-start justify-between gap-3">
-                      <p className="min-w-0 text-sm text-gray-200">{item.milestone.text}</p>
+                      <p className="min-w-0 text-sm text-foreground">{item.milestone.text}</p>
                       <StatusChip status={item.milestone.status} />
                     </div>
                     {item.milestone.note && (
-                      <p className="mt-2 border-l border-gray-700 pl-3 text-sm leading-5 text-gray-500">
+                      <p className="mt-2 border-l border-border pl-3 text-sm leading-5 text-foreground-muted">
                         {item.milestone.note}
                       </p>
                     )}

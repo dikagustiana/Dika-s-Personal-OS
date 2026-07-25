@@ -50,9 +50,9 @@ function ScoreTooltip({
   if (!active || !payload?.[0]) return null;
   const item = payload[0].payload;
   return (
-    <div className="border border-gray-700 bg-card px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-200">{item.day} · {item.score}</p>
-      <p className="mt-1 text-gray-600">{format(parseISO(item.date), 'MMM d')}</p>
+    <div className="border border-border bg-card px-3 py-2 text-xs">
+      <p className="font-semibold text-foreground">{item.day} · {item.score}</p>
+      <p className="mt-1 text-foreground-muted">{format(parseISO(item.date), 'MMM d')}</p>
     </div>
   );
 }
@@ -109,29 +109,29 @@ export function Analytics() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">{domain} / Analytics</p>
         <h1 className="page-title">Evidence of effort</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           A quiet record of consistency—not a leaderboard, and never a verdict.
         </p>
       </header>
 
-      <div className="mb-5 grid gap-px overflow-hidden border border-gray-800 bg-gray-800 sm:grid-cols-3">
+      <div className="mb-5 grid gap-px overflow-hidden border border-border-subtle bg-surface-2 sm:grid-cols-3">
         <div className="bg-card p-5">
-          <Flame className="size-4 text-primary" />
+          <Flame className="size-4 text-foreground-muted" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{activeDays}</p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">Days with data</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Days with data</p>
         </div>
         <div className="bg-card p-5">
-          <Activity className="size-4 text-primary" />
+          <Activity className="size-4 text-foreground-muted" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{averageConsistency}%</p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">Habit consistency</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Habit consistency</p>
         </div>
         <div className="bg-card p-5">
-          <TrendingUp className="size-4 text-primary" />
+          <TrendingUp className="size-4 text-foreground-muted" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{bestScore}</p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">Best daily score</p>
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Best daily score</p>
         </div>
       </div>
 
@@ -140,17 +140,17 @@ export function Analytics() {
           <CardHeader>
             <div>
               <CardTitle>Habit consistency</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Last 30 days · one cell per day</p>
+              <p className="mt-2 text-sm text-foreground-muted">Last 30 days · one cell per day</p>
             </div>
-            <CalendarDays className="size-4 text-gray-600" />
+            <CalendarDays className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
             {activeDays === 0 ? (
-              <div className="grid min-h-52 place-items-center border border-dashed border-gray-800 text-center">
+              <div className="grid min-h-52 place-items-center border border-dashed border-border-subtle text-center">
                 <div>
-                  <Flame className="mx-auto size-6 text-gray-700" />
-                  <p className="mt-3 font-semibold text-gray-400">Building your streak</p>
-                  <p className="mt-1 text-sm text-gray-600">Complete one habit to light the first cell.</p>
+                  <Flame className="mx-auto size-6 text-foreground-muted" />
+                  <p className="mt-3 font-semibold text-foreground-secondary">Building your streak</p>
+                  <p className="mt-1 text-sm text-foreground-muted">Complete one habit to light the first cell.</p>
                 </div>
               </div>
             ) : (
@@ -180,7 +180,7 @@ export function Analytics() {
                     ))}
                   </div>
                 </div>
-                <div className="mt-4 flex items-center justify-end gap-2 text-[10px] text-gray-600">
+                <div className="mt-4 flex items-center justify-end gap-2 text-[10px] text-foreground-muted">
                   <span>Less</span>
                   {bucketColors.map((color) => (
                     <span
@@ -200,9 +200,9 @@ export function Analytics() {
           <CardHeader>
             <div>
               <CardTitle>Daily score</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Current ISO week · Mon–Sun</p>
+              <p className="mt-2 text-sm text-foreground-muted">Current ISO week · Mon–Sun</p>
             </div>
-            <TrendingUp className="size-4 text-primary" />
+            <TrendingUp className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
             <div className="h-64 min-w-0">

@@ -166,11 +166,11 @@ export function Week() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
+      <header className="mb-7 border-b border-border-subtle pb-7 md:flex md:items-end md:justify-between">
         <div>
           <p className="page-kicker">{domain} / Week</p>
           <h1 className="page-title">Direct the week</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-gray-500">
+          <p className="mt-3 max-w-xl text-sm leading-6 text-foreground-muted">
             Choose outcomes, trace them upward, and close the loop before the next week begins.
           </p>
         </div>
@@ -183,7 +183,7 @@ export function Week() {
           >
             <ChevronLeft className="size-4" />
           </Button>
-          <div className="grid min-h-11 min-w-40 place-items-center border border-gray-800 bg-muted px-3 text-sm font-semibold">
+          <div className="grid min-h-11 min-w-40 place-items-center border border-border-subtle bg-muted px-3 text-sm font-semibold">
             {formatWeekLabel(selectedWeek)}
           </div>
           <Button
@@ -198,12 +198,12 @@ export function Week() {
       </header>
 
       {isSundayEvening && selectedWeek === currentWeek && (
-        <div className="mb-5 flex flex-col gap-4 border border-primary/25 bg-primary/[0.06] p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-5 flex flex-col gap-4 rounded-lg border border-border bg-surface-2/50 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3">
-            <MoonStar className="mt-0.5 size-5 shrink-0 text-primary" />
+            <MoonStar className="mt-0.5 size-5 shrink-0 text-foreground-muted" />
             <div>
-              <p className="font-semibold text-primary">Time to plan next week</p>
-              <p className="mt-1 text-sm text-gray-500">A quiet ten-minute reset is enough.</p>
+              <p className="font-semibold text-foreground">Time to plan next week</p>
+              <p className="mt-1 text-sm text-foreground-muted">A quiet ten-minute reset is enough.</p>
             </div>
           </div>
           <Button variant="secondary" onClick={() => setSelectedWeek(getNextWeekKey(currentWeek))}>
@@ -215,10 +215,10 @@ export function Week() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.75fr)]">
         <Card>
-          <CardHeader className="border-b border-gray-800">
+          <CardHeader className="border-b border-border-subtle">
             <div>
               <CardTitle>Weekly plan</CardTitle>
-              <p className="mt-2 text-sm text-gray-500">
+              <p className="mt-2 text-sm text-foreground-muted">
                 {completion.done}/{completion.total} outcomes complete
               </p>
             </div>
@@ -241,10 +241,10 @@ export function Week() {
             <div className="mt-6 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="surface-label">Outcomes · 3–5</span>
-                <span className="text-xs tabular-nums text-gray-600">{plan.goals.length}/5</span>
+                <span className="text-xs tabular-nums text-foreground-muted">{plan.goals.length}/5</span>
               </div>
               {plan.goals.map((goal, index) => (
-                <div key={goal.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border border-gray-800 bg-black/10 p-2">
+                <div key={goal.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border border-border-subtle bg-black/10 p-2">
                   <Checkbox
                     checked={goal.done}
                     onCheckedChange={(checked) => updateGoal(goal.id, { done: checked === true })}
@@ -255,7 +255,7 @@ export function Week() {
                       value={goal.text}
                       onChange={(event) => updateGoal(goal.id, { text: event.target.value })}
                       placeholder={`Outcome ${index + 1}`}
-                      className={goal.done ? 'text-gray-600 line-through' : ''}
+                      className={goal.done ? 'text-foreground-muted line-through' : ''}
                     />
                     <select
                       className="native-select"
@@ -304,41 +304,41 @@ export function Week() {
         </Card>
 
         <Card className="self-start">
-          <CardHeader className="border-b border-gray-800">
+          <CardHeader className="border-b border-border-subtle">
             <div>
               <CardTitle>Sunday review</CardTitle>
-              <p className="mt-2 text-xs text-gray-600">{previousWeek} summary</p>
+              <p className="mt-2 text-xs text-foreground-muted">{previousWeek} summary</p>
             </div>
             {reviewedPlan?.reviewedAt ? (
               <CheckCircle2 className="size-5 text-primary" />
             ) : (
-              <Circle className="size-5 text-gray-700" />
+              <Circle className="size-5 text-foreground-muted" />
             )}
           </CardHeader>
           <CardContent className="pt-5">
-            <div className="grid grid-cols-2 gap-px overflow-hidden border border-gray-800 bg-gray-800">
+            <div className="grid grid-cols-2 gap-px overflow-hidden border border-border-subtle bg-surface-2">
               <div className="bg-card p-4">
                 <p className="text-3xl font-bold tabular-nums">{summary.averageScore}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">Avg score</p>
+                <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">Avg score</p>
               </div>
               <div className="bg-card p-4">
                 <p className="text-3xl font-bold tabular-nums">{summary.habitConsistency}%</p>
-                <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">Habit consistency</p>
+                <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">Habit consistency</p>
               </div>
             </div>
-            <p className="mt-3 text-xs text-gray-600">{summary.daysLogged} days logged</p>
+            <p className="mt-3 text-xs text-foreground-muted">{summary.daysLogged} days logged</p>
 
             <div className="mt-6">
               <p className="surface-label">Goals hit</p>
               <ul className="mt-3 space-y-2">
                 {summary.goalsHit.map((goal) => (
-                  <li key={goal} className="flex gap-2 text-sm text-gray-300">
+                  <li key={goal} className="flex gap-2 text-sm text-foreground-secondary">
                     <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
                     {goal}
                   </li>
                 ))}
                 {summary.goalsHit.length === 0 && (
-                  <li className="text-sm text-gray-600">No completed goals recorded.</li>
+                  <li className="text-sm text-foreground-muted">No completed goals recorded.</li>
                 )}
               </ul>
             </div>
@@ -347,13 +347,13 @@ export function Week() {
               <p className="surface-label">Goals missed</p>
               <ul className="mt-3 space-y-2">
                 {summary.goalsMissed.map((goal) => (
-                  <li key={goal} className="flex gap-2 text-sm text-gray-500">
+                  <li key={goal} className="flex gap-2 text-sm text-foreground-muted">
                     <Circle className="mt-0.5 size-4 shrink-0" />
                     {goal}
                   </li>
                 ))}
                 {summary.goalsMissed.length === 0 && (
-                  <li className="text-sm text-gray-600">Nothing marked missed.</li>
+                  <li className="text-sm text-foreground-muted">Nothing marked missed.</li>
                 )}
               </ul>
             </div>

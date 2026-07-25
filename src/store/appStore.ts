@@ -21,6 +21,7 @@ export type WorkView =
   | 'timebox'
   | 'week'
   | 'projects'
+  | 'finish-line'
   | 'monthly-close'
   | 'escalations';
 export type GrowthView =

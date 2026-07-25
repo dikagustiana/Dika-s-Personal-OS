@@ -12,12 +12,13 @@ import type { IeltsResult } from '../data/types';
 import { IELTS_SKILLS, IELTS_TARGET, overallBand } from '../logic/ielts';
 
 // The one place multiple line hues are allowed, for legibility. Shared by the
-// full IELTS view and the dashboard preview so both read identically.
+// full IELTS view and the dashboard preview so both read identically. The
+// values live in index.css (--chart-1…4, Imperial secondary-palette hues).
 export const IELTS_SKILL_COLORS: Record<string, string> = {
-  listening: '#60a5fa',
-  reading: '#c084fc',
-  writing: '#f59e0b',
-  speaking: '#f472b6',
+  listening: 'hsl(var(--chart-1))',
+  reading: 'hsl(var(--chart-2))',
+  writing: 'hsl(var(--chart-3))',
+  speaking: 'hsl(var(--chart-4))',
 };
 
 /**
@@ -66,8 +67,8 @@ export function IeltsTrendChart({
           {!compact && (
             <Tooltip
               contentStyle={{
-                background: 'hsl(215 25% 16%)',
-                border: '1px solid hsl(215 20% 22%)',
+                background: 'hsl(var(--surface-2))',
+                border: '1px solid hsl(var(--border))',
                 fontSize: 12,
               }}
             />

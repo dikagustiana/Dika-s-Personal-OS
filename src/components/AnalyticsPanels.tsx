@@ -50,7 +50,7 @@ export function ContributionGraph({ logs, today }: { logs: DailyLog[]; today: Da
           ))}
         </div>
       </div>
-      <div className="mt-4 flex items-center justify-end gap-2 text-[10px] text-gray-600">
+      <div className="mt-4 flex items-center justify-end gap-2 text-[10px] text-foreground-muted">
         <span>Less</span>
         {bucketColors.map((color) => (
           <span key={color} className="size-3 border border-black/20" style={{ backgroundColor: color }} />
@@ -76,9 +76,9 @@ function ScoreTooltip({
   if (!active || !payload?.[0]) return null;
   const item = payload[0].payload;
   return (
-    <div className="border border-gray-700 bg-card px-3 py-2 text-xs">
-      <p className="font-semibold text-gray-200">{item.day} · {item.score}</p>
-      <p className="mt-1 text-gray-600">{format(parseISO(item.date), 'MMM d')}</p>
+    <div className="border border-border bg-card px-3 py-2 text-xs">
+      <p className="font-semibold text-foreground">{item.day} · {item.score}</p>
+      <p className="mt-1 text-foreground-muted">{format(parseISO(item.date), 'MMM d')}</p>
     </div>
   );
 }

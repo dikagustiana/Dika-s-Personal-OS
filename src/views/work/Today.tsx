@@ -20,6 +20,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { ScoreRing } from '../../components/ScoreRing';
 import { TimeboxSection } from '../../components/TimeboxSection';
 import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
@@ -290,18 +291,18 @@ export function Today() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7 md:mb-9 md:flex md:items-end md:justify-between">
+      <header className="mb-7 border-b border-border-subtle pb-7 md:mb-9 md:flex md:items-end md:justify-between">
         <div>
           <p className="page-kicker">{domain} / Today</p>
           <h1 className="page-title">{format(now, 'EEEE')}</h1>
-          <p className="mt-3 text-sm text-gray-500 md:text-base">
-            {format(now, 'MMMM d, yyyy')} <span className="mx-2 text-gray-700">/</span>
-            <span className="tabular-nums text-gray-300">{format(now, 'HH:mm')}</span>
+          <p className="mt-3 text-sm text-foreground-muted md:text-base">
+            {format(now, 'MMMM d, yyyy')} <span className="mx-2 text-foreground-muted">/</span>
+            <span className="tabular-nums text-foreground-secondary">{format(now, 'HH:mm')}</span>
           </p>
         </div>
         <div className="mt-6 border-l-2 border-primary pl-4 md:mt-0 md:max-w-md">
           <p className="surface-label">Today&apos;s focus</p>
-          <p className="mt-1 text-base font-semibold text-gray-200">
+          <p className="mt-1 text-base font-semibold text-foreground">
             {plan?.goals.find((goal) => !goal.done)?.text ?? 'Choose the one move that matters.'}
           </p>
         </div>
@@ -313,9 +314,9 @@ export function Today() {
             <CardHeader>
               <div>
                 <CardTitle>Daily score</CardTitle>
-                <p className="mt-2 text-sm text-gray-600">Execution quality, recalculated live.</p>
+                <p className="mt-2 text-sm text-foreground-muted">Execution quality, recalculated live.</p>
               </div>
-              <Sparkles className="size-4 text-primary" />
+              <Sparkles className="size-4 text-foreground-muted" />
             </CardHeader>
             <CardContent>
               <ScoreRing result={score} />
@@ -326,28 +327,34 @@ export function Today() {
             <CardHeader className="pb-3">
               <div>
                 <CardTitle>Brain dump</CardTitle>
-                <p className="mt-2 text-sm text-gray-500">Capture now. Process later.</p>
+                <p className="mt-2 text-sm text-foreground-muted">Capture now. Process later.</p>
               </div>
-              <Brain className="size-4 text-primary" />
+              <Brain className="size-4 text-foreground-muted" />
             </CardHeader>
             <CardContent>
-              <form onSubmit={captureDump} className="flex gap-2">
+              <form onSubmit={captureDump} className="flex items-center gap-2">
                 <Input
                   value={dumpText}
                   onChange={(event) => setDumpText(event.target.value)}
                   placeholder="What is taking up mental space?"
                   aria-label="Capture a brain dump"
-                  className="h-14 flex-1"
+                  className="flex-1"
                 />
-                <Button type="submit" size="icon" className="size-14 shrink-0" aria-label="Save brain dump">
-                  <ArrowRight className="size-5" />
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  size="icon"
+                  className="shrink-0"
+                  aria-label="Save brain dump"
+                >
+                  <ArrowRight className="size-4" />
                 </Button>
               </form>
               <div className="mt-4 space-y-2">
                 {dumps.slice(0, 3).map((dump) => (
-                  <div key={dump.id} className="border-l border-gray-700 py-1 pl-3">
-                    <p className="text-sm leading-5 text-gray-300">{dump.text}</p>
-                    <time className="mt-1 block text-[11px] text-gray-600">
+                  <div key={dump.id} className="border-l border-border py-1 pl-3">
+                    <p className="text-sm leading-5 text-foreground-secondary">{dump.text}</p>
+                    <time className="mt-1 block text-[11px] text-foreground-muted">
                       {isSameDay(new Date(dump.createdAt), now)
                         ? format(new Date(dump.createdAt), "'Today' HH:mm")
                         : format(new Date(dump.createdAt), 'MMM d · HH:mm')}
@@ -361,24 +368,24 @@ export function Today() {
           <Card>
             <CardHeader>
               <CardTitle>Urgent tasks</CardTitle>
-              <span className="text-xs tabular-nums text-gray-600">
+              <span className="text-xs tabular-nums text-foreground-muted">
                 {urgentTasks.filter((task) => task.done).length}/{urgentTasks.length}
               </span>
             </CardHeader>
             <CardContent>
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-border-subtle">
                 {urgentTasks.map((task) => (
-                  <div key={task.id} className="flex min-h-16 items-center gap-3 py-2">
+                  <div key={task.id} className="flex min-h-11 items-center gap-3 py-1.5">
                     <Checkbox
                       checked={task.done}
                       onCheckedChange={() => void toggleTask(task)}
                       aria-label={`Mark ${task.title} ${task.done ? 'open' : 'done'}`}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className={task.done ? 'text-gray-600 line-through' : 'text-sm text-gray-200'}>
+                      <p className={task.done ? 'text-foreground-muted line-through' : 'text-sm text-foreground'}>
                         {task.title}
                       </p>
-                      {task.projectId && <span className="text-[10px] uppercase tracking-wider text-primary/70">Linked work</span>}
+                      {task.projectId && <span className="text-[10px] uppercase tracking-wider text-foreground-muted">Linked work</span>}
                     </div>
                     <Button
                       variant="danger"
@@ -391,7 +398,10 @@ export function Today() {
                   </div>
                 ))}
                 {!isLoading && urgentTasks.length === 0 && (
-                  <p className="py-8 text-center text-sm text-gray-600">Clear runway. Pin only what truly matters.</p>
+                  <EmptyState
+                    title="Clear runway"
+                    hint="Pin a task from the inbox below — pinned tasks are the ones that count toward today's score."
+                  />
                 )}
               </div>
             </CardContent>
@@ -401,11 +411,11 @@ export function Today() {
             <CardHeader>
               <div>
                 <CardTitle>Inbox</CardTitle>
-                <p className="mt-2 text-sm text-gray-500">
+                <p className="mt-2 text-sm text-foreground-muted">
                   Captured, not yet triaged. Pin one to put it on Today.
                 </p>
               </div>
-              <Inbox className="size-4 text-primary" />
+              <Inbox className="size-4 text-foreground-muted" />
             </CardHeader>
             <CardContent>
               <form onSubmit={addTask} className="mb-3 flex gap-2">
@@ -425,10 +435,10 @@ export function Today() {
                   <Plus className="size-5" />
                 </Button>
               </form>
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-border-subtle">
                 {inboxTasks.map((task) => (
-                  <div key={task.id} className="flex min-h-14 items-center gap-3 py-2">
-                    <span className="min-w-0 flex-1 text-sm text-gray-300">{task.title}</span>
+                  <div key={task.id} className="flex min-h-11 items-center gap-3 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-foreground-secondary">{task.title}</span>
                     <Button
                       variant="secondary"
                       size="icon"
@@ -448,7 +458,10 @@ export function Today() {
                   </div>
                 ))}
                 {!isLoading && inboxTasks.length === 0 && (
-                  <p className="py-8 text-center text-sm text-gray-600">Inbox empty.</p>
+                  <EmptyState
+                    title="Inbox zero"
+                    hint="Capture a task above — it waits here until you deliberately pin it to a day."
+                  />
                 )}
               </div>
             </CardContent>
@@ -459,15 +472,15 @@ export function Today() {
           <Card>
             <CardHeader>
               <CardTitle>Weekly direction</CardTitle>
-              <span className="text-[10px] uppercase tracking-widest text-primary">{plan?.week}</span>
+              <span className="surface-label">{plan?.week}</span>
             </CardHeader>
             <CardContent>
-              {plan?.theme && <p className="mb-4 text-sm italic text-primary/80">“{plan.theme}”</p>}
+              {plan?.theme && <p className="mb-4 text-sm italic text-foreground-secondary">“{plan.theme}”</p>}
               <ol className="space-y-3">
                 {plan?.goals.map((goal, index) => (
                   <li key={goal.id} className="flex gap-3 text-sm leading-5">
-                    <span className="font-mono text-xs text-gray-600">0{index + 1}</span>
-                    <span className={goal.done ? 'text-gray-600 line-through' : 'text-gray-300'}>{goal.text}</span>
+                    <span className="font-mono text-xs text-foreground-muted">0{index + 1}</span>
+                    <span className={goal.done ? 'text-foreground-muted line-through' : 'text-foreground-secondary'}>{goal.text}</span>
                   </li>
                 ))}
               </ol>
@@ -477,20 +490,20 @@ export function Today() {
           <Card>
             <CardHeader>
               <CardTitle>Habits</CardTitle>
-              <span className="text-xs text-gray-600">{format(now, 'MMM d')}</span>
+              <span className="text-xs text-foreground-muted">{format(now, 'MMM d')}</span>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="divide-y divide-border-subtle">
               {habits.map((habit) => (
                 <label
                   key={habit.id}
-                  className="flex min-h-14 cursor-pointer items-center gap-3 border border-transparent px-1 transition-colors hover:border-gray-800"
+                  className="flex min-h-11 cursor-pointer items-center gap-3 py-0.5 transition-colors duration-150 hover:bg-surface-2/50"
                 >
                   <Checkbox
                     checked={Boolean(dailyLog?.habits[habit.id])}
                     onCheckedChange={() => void toggleHabit(habit)}
                     aria-label={`Toggle ${habit.title}`}
                   />
-                  <span className={dailyLog?.habits[habit.id] ? 'text-sm text-gray-500 line-through' : 'text-sm text-gray-200'}>
+                  <span className={dailyLog?.habits[habit.id] ? 'text-sm text-foreground-muted line-through' : 'text-sm text-foreground'}>
                     {habit.title}
                   </span>
                 </label>
@@ -505,13 +518,13 @@ export function Today() {
         <div className="mb-3 flex items-end justify-between">
           <div>
             <p className="surface-label">Timebox</p>
-            <p className="mt-1 text-xs text-gray-600">
+            <p className="mt-1 text-xs text-foreground-muted">
               {minutesToTime(DOMAIN_HOURS[domain].startMinutes)}–
               {minutesToTime(DOMAIN_HOURS[domain].endMinutes)} · 30 min ·{' '}
               {blocks.filter((block) => block.status === 'done').length}/{blocks.length} done
             </p>
           </div>
-          <Clock3 className="size-4 text-gray-600" />
+          <Clock3 className="size-4 text-foreground-muted" />
         </div>
         <TimeboxSection
           domain={domain}

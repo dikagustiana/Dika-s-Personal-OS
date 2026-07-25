@@ -1,43 +1,95 @@
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+/* Self-hosted fonts (variable woff2, latin subset). Both families are OFL;
+   files vendored under src/assets/fonts so the app never depends on a CDN.
+   Playfair Display renders headings only; Plus Jakarta Sans everything else. */
+@font-face {
+  font-family: 'Playfair Display';
+  font-style: normal;
+  font-weight: 500 700;
+  font-display: swap;
+  src: url('./assets/fonts/playfair-display-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Plus Jakarta Sans';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('./assets/fonts/plus-jakarta-sans-latin.woff2') format('woff2');
+}
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Design tokens — matched to the owner's personal website (Dika's Digital
-   Studio) dark theme, same HSL-variable convention. The one addition beyond
-   the website palette is --escalate (amber), used ONLY for the
-   escalate-to-leadership marker. Green is positive/active, red is blocked. */
+/* Design tokens — dark ramp derived from Imperial College London's brand
+   palette (core: Navy #002147, Imperial Blue #003E74; supporting set incl.
+   Kermit Green #66A40A, Tangerine #EB7300, Red #DD2501, Pool Blue #00A0C8,
+   Violet #960078, Lime #BBCE00). Imperial is a light-background brand, so
+   official hexes are hue anchors, not surface values: the ramp keeps the
+   Navy hue (~213°) and builds its own value scale — base darker than the
+   brand navy, then three surface steps and two border steps above it.
+
+   The positive/done colour is deliberately NOT blue (a blue "done" would
+   merge into the navy ground): it takes Kermit Green's hue. Amber duties
+   (due-soon / escalation / TBC) take Tangerine's hue; blocked/overdue takes
+   Imperial Red's. All colours in the app resolve through these variables —
+   no component carries its own hex. */
 :root,
 .dark {
-  --background: 215 28% 12%;
-  --foreground: 0 0% 98%;
-  --card: 215 25% 16%;
-  --card-foreground: 0 0% 98%;
-  --popover: 215 25% 16%;
-  --popover-foreground: 0 0% 98%;
-  --primary: 142 71% 45%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 215 20% 20%;
-  --secondary-foreground: 0 0% 90%;
-  --muted: 215 18% 22%;
-  --muted-foreground: 215 12% 55%;
-  --accent: 142 71% 45%;
-  --accent-foreground: 0 0% 100%;
-  --destructive: 0 62% 50%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 215 20% 22%;
-  --input: 215 20% 22%;
-  --ring: 142 71% 45%;
+  /* Surfaces — a deliberate three-step lift: 8% → 13% → 18% lightness. */
+  --background: 213 55% 8%;
+  --surface-1: 213 45% 13%;
+  --surface-2: 212 38% 18%;
+  --surface-3: 211 32% 23%;
+  --border-subtle: 212 35% 21%;
+  --border: 211 28% 30%;
+
+  /* Text — three tiers; secondary clears AA (9.0:1 on surface-1),
+     muted is for timestamps and counts only (6.4:1 on surface-1). */
+  --foreground: 210 36% 96%;
+  --foreground-secondary: 212 22% 76%;
+  --foreground-muted: 213 14% 64%;
+
+  /* Kermit Green hue — done / positive / one primary action per screen. */
+  --primary: 80 78% 44%;
+  --primary-dim: 80 42% 24%;
+  --primary-foreground: 213 55% 8%;
+
+  /* Imperial Red hue — blocked / overdue. */
+  --destructive: 10 85% 58%;
+  --destructive-foreground: 213 55% 8%;
+
+  /* Tangerine hue — due soon / escalation / TBC. */
+  --escalate: 29 92% 55%;
+  --escalate-foreground: 213 55% 8%;
+
+  /* Chart series (IELTS skills) — Pool Blue, Violet, Tangerine, Lime hues. */
+  --chart-1: 197 85% 58%;
+  --chart-2: 322 65% 68%;
+  --chart-3: 29 92% 60%;
+  --chart-4: 74 70% 55%;
+
   --radius: 0.5rem;
 
-  --escalate: 38 92% 50%;
-  --escalate-foreground: 215 28% 12%;
+  /* Legacy aliases — older class names resolve into the ramp. */
+  --card: var(--surface-1);
+  --card-foreground: var(--foreground);
+  --popover: var(--surface-2);
+  --popover-foreground: var(--foreground);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--foreground-secondary);
+  --muted: var(--surface-3);
+  --muted-foreground: var(--foreground-muted);
+  --accent: var(--primary-dim);
+  --accent-foreground: var(--foreground);
+  --input: var(--border);
+  --ring: var(--primary);
 }
 
 :root {
   color-scheme: dark;
   font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 16px;
   background: hsl(var(--background));
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -56,9 +108,10 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 70% -10%, hsl(var(--primary) / 0.06), transparent 30rem),
-    hsl(var(--background));
+  font-size: 0.875rem; /* 14px body per type scale */
+  line-height: 1.5;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
 }
 
 button,
@@ -87,71 +140,67 @@ button {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
+  background: hsl(var(--surface-3));
   border: 2px solid hsl(var(--background));
 }
 
+/* Layout container — 1140px measure, 32px desktop / 16px mobile gutters. */
 .page-shell {
-  width: min(100%, 1480px);
+  width: min(100%, 1140px);
   margin-inline: auto;
-  padding: 2rem 1.25rem 3rem;
-}
-
-.page-kicker {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: hsl(var(--primary));
-}
-
-/* View titles take the display serif; dense numeric/data contexts elsewhere
-   (score ring, tabular numbers, timebox slot times, chart labels) stay on
-   Plus Jakarta Sans for legibility. Small uppercase card labels also stay
-   sans — serif at that size in packed dashboard rows hurts readability. */
-.page-title {
-  margin-top: 0.35rem;
-  font-family: 'Playfair Display', Georgia, serif;
-  font-size: clamp(2rem, 5vw, 3.6rem);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.05;
-}
-
-.surface-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: hsl(var(--muted-foreground));
-}
-
-.native-select {
-  min-height: 44px;
-  width: 100%;
-  border: 1px solid hsl(var(--input));
-  border-radius: calc(var(--radius) - 4px);
-  background: hsl(var(--card));
-  padding: 0 2.25rem 0 0.75rem;
-  color: hsl(var(--foreground) / 0.85);
-  outline: none;
-}
-
-.native-select:focus {
-  border-color: hsl(var(--ring));
-  box-shadow: 0 0 0 1px hsl(var(--ring));
+  padding: 1.5rem 1rem 6rem;
 }
 
 @media (min-width: 768px) {
   .page-shell {
-    padding: 2.5rem 2rem 4rem;
+    padding: 2rem 2rem 4rem;
   }
 }
 
-@media (min-width: 1280px) {
-  .page-shell {
-    padding: 3rem;
-  }
+/* Eyebrow label — Plus Jakarta 11/1 600, 0.08em; at most one per card.
+   Muted by design: the accent colour is reserved for done/positive states. */
+.page-kicker,
+.surface-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: hsl(var(--foreground-muted));
+}
+
+/* View title — Playfair Display 28/1.2 600, one per screen. */
+.page-title {
+  margin-top: 0.5rem;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+/* Hero metric — 40/1 700, tabular. */
+.metric-hero {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.native-select {
+  height: 40px;
+  width: 100%;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 4px);
+  background: hsl(var(--surface-2));
+  padding: 0 2.25rem 0 0.75rem;
+  color: hsl(var(--foreground));
+  outline: none;
+}
+
+.native-select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -160,5 +209,6 @@ button {
   *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

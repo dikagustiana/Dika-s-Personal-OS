@@ -1,50 +1,83 @@
 import type { Config } from 'tailwindcss';
 
+// The colour scale is a full override, not an extension: every colour a
+// component can name resolves to a CSS variable from src/index.css (the
+// Imperial-derived ramp). Tailwind's default palette (gray-600 etc.) is
+// deliberately absent so an unmapped colour class produces no CSS and gets
+// caught in review instead of silently shipping an off-palette value.
 export default {
   darkMode: ['class'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
-    extend: {
-      colors: {
-        background: 'hsl(var(--background))',
+    colors: {
+      transparent: 'transparent',
+      current: 'currentColor',
+      // True black, used only for scrims/overlays behind modals and drawers.
+      black: '#000',
+      background: 'hsl(var(--background))',
+      foreground: {
+        DEFAULT: 'hsl(var(--foreground))',
+        secondary: 'hsl(var(--foreground-secondary))',
+        muted: 'hsl(var(--foreground-muted))',
+      },
+      surface: {
+        1: 'hsl(var(--surface-1))',
+        2: 'hsl(var(--surface-2))',
+        3: 'hsl(var(--surface-3))',
+      },
+      card: {
+        DEFAULT: 'hsl(var(--surface-1))',
         foreground: 'hsl(var(--foreground))',
-        card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
-        },
-        popover: {
-          DEFAULT: 'hsl(var(--popover))',
-          foreground: 'hsl(var(--popover-foreground))',
-        },
-        primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
-        },
-        secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
-        },
-        muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
-        },
-        accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
-        },
-        destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
-        },
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
-        // Amber marker for escalate-to-leadership only — never for positive
-        // states (green) or blocked (red).
-        escalate: {
-          DEFAULT: 'hsl(var(--escalate))',
-          foreground: 'hsl(var(--escalate-foreground))',
-        },
+      },
+      popover: {
+        DEFAULT: 'hsl(var(--surface-2))',
+        foreground: 'hsl(var(--foreground))',
+      },
+      primary: {
+        DEFAULT: 'hsl(var(--primary))',
+        dim: 'hsl(var(--primary-dim))',
+        foreground: 'hsl(var(--primary-foreground))',
+      },
+      secondary: {
+        DEFAULT: 'hsl(var(--surface-2))',
+        foreground: 'hsl(var(--foreground-secondary))',
+      },
+      muted: {
+        DEFAULT: 'hsl(var(--surface-3))',
+        foreground: 'hsl(var(--foreground-muted))',
+      },
+      accent: {
+        DEFAULT: 'hsl(var(--primary-dim))',
+        foreground: 'hsl(var(--foreground))',
+      },
+      destructive: {
+        DEFAULT: 'hsl(var(--destructive))',
+        foreground: 'hsl(var(--destructive-foreground))',
+      },
+      // Amber marker for due-soon / escalation / TBC only — never positive
+      // states (green) and never blocked (red).
+      escalate: {
+        DEFAULT: 'hsl(var(--escalate))',
+        foreground: 'hsl(var(--escalate-foreground))',
+      },
+      border: {
+        DEFAULT: 'hsl(var(--border))',
+        subtle: 'hsl(var(--border-subtle))',
+      },
+      input: 'hsl(var(--input))',
+      ring: 'hsl(var(--ring))',
+      chart: {
+        1: 'hsl(var(--chart-1))',
+        2: 'hsl(var(--chart-2))',
+        3: 'hsl(var(--chart-3))',
+        4: 'hsl(var(--chart-4))',
+      },
+    },
+    extend: {
+      // Bare `border` / `divide-*` with no colour named falls back to the
+      // subtle internal-divider tone rather than Tailwind's (removed) gray.
+      borderColor: {
+        DEFAULT: 'hsl(var(--border-subtle))',
       },
       borderRadius: {
         lg: 'var(--radius)',
@@ -54,6 +87,12 @@ export default {
       fontFamily: {
         sans: ['Plus Jakarta Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         display: ['Playfair Display', 'Georgia', 'serif'],
+      },
+      fontSize: {
+        // Type scale roles beyond Tailwind defaults (body = text-sm 14/1.5,
+        // caption = text-xs 12/1.4, both already right by default).
+        'card-heading': ['1.1875rem', { lineHeight: '1.3' }],
+        data: ['0.9375rem', { lineHeight: '1.4' }],
       },
     },
   },

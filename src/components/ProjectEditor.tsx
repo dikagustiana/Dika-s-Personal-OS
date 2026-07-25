@@ -175,7 +175,7 @@ export function MilestoneEditorRows({
   return (
     <div className="space-y-3">
       {milestones.map((milestone, index) => (
-        <div key={milestone.id} className="border border-gray-800 bg-black/10 p-3">
+        <div key={milestone.id} className="border border-border-subtle bg-black/10 p-3">
           <div className="flex items-start gap-2">
             <Input
               className="min-w-0 flex-1"
