@@ -7,6 +7,7 @@ import {
   type FormEvent,
 } from 'react';
 import { format, getISOWeek, subDays } from 'date-fns';
+import { NowStrip } from '../../components/NowStrip';
 import { ProjectCard } from '../../components/ProjectCard';
 import { Button } from '../../components/ui/Button';
 import { Checkbox } from '../../components/ui/Checkbox';
@@ -68,9 +69,10 @@ const LINK_CLASS =
 /**
  * A text link, which is the ONLY navigation affordance on this page.
  *
- * Deliberate: the page carries no filled primary button at all. Several cards
- * each wanting their own filled button is exactly the competition that made
- * the old dashboard read as a wall of calls to action.
+ * Deliberate: below the NowStrip the page carries no filled button. The strip
+ * owns the screen's single primary action ("start the current half-hour");
+ * several cards each wanting their own filled button is exactly the
+ * competition that made the old dashboard read as a wall of calls to action.
  */
 function TextLink({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
   return (
@@ -422,6 +424,72 @@ export function Dashboard() {
     setCloseAnswer('question');
   };
 
+  /**
+   * The NowStrip's create path — the same write Today's grid performs,
+   * including the daily-log recompute: a block in the current slot is scored,
+   * and skipping the recompute would desync the score tile two rows below.
+   */
+  const startNowBlock = async (input: {
+    start: string;
+    end: string;
+    label: string;
+    taskId?: string;
+  }) => {
+    const entry: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'> = {
+      type: 'timeblock',
+      domain: 'work',
+      date: todayKey,
+      start: input.start,
+      end: input.end,
+      label: input.label,
+      taskId: input.taskId,
+      status: 'planned',
+      tags: [],
+    };
+    const created = await run('Start block', () => repository.createEntry(entry));
+    if (!created) return;
+    const nextBlocks = [...blocks, created as TimeBlockEntry].sort((a, b) =>
+      a.start.localeCompare(b.start),
+    );
+    setBlocks(nextBlocks);
+    await recomputeAndPersistDailyLog({ blocks: nextBlocks });
+  };
+
+  /** Done/skip from the strip — mirrors Today, linked task included. */
+  const setNowBlockStatus = async (
+    block: TimeBlockEntry,
+    status: TimeBlockEntry['status'],
+  ) => {
+    const updated = await run('Update block', () =>
+      repository.updateEntry(block.id, { status }),
+    );
+    if (!updated) return;
+    const nextBlocks = blocks.map((item) =>
+      item.id === block.id ? (updated as TimeBlockEntry) : item,
+    );
+    setBlocks(nextBlocks);
+
+    let nextTasks = tasks;
+    if (status === 'done' && block.taskId) {
+      const completed = await run('Complete linked task', () =>
+        repository.updateEntry(block.taskId as string, {
+          done: true,
+          completedAt: new Date().toISOString(),
+        }),
+      );
+      if (completed) {
+        nextTasks = tasks.map((item) =>
+          item.id === (completed as TaskEntry).id ? (completed as TaskEntry) : item,
+        );
+        setTasks(nextTasks);
+      }
+    }
+    await recomputeAndPersistDailyLog({
+      blocks: nextBlocks,
+      tasks: scoredTasks(nextTasks, todayKey),
+    });
+  };
+
   const togglePin = async (project: Project) => {
     const updated = await run('Update pinned projects', () =>
       repository.updateProject(project.id, { dashboardPinned: !project.dashboardPinned }),
@@ -479,6 +547,17 @@ export function Dashboard() {
           What needs a decision today, and nothing that doesn&apos;t.
         </p>
       </header>
+
+      {/* Inside working hours, the first thing on the page is the current
+          half-hour — not a metric, not a list. See NowStrip for why. Its
+          "Start" suggestion is the one filled button this page may carry. */}
+      <NowStrip
+        blocks={blocks}
+        urgentTasks={urgentTasks.filter((task) => !task.done)}
+        onStartBlock={startNowBlock}
+        onSetStatus={setNowBlockStatus}
+        disabled={isPending}
+      />
 
       {/* Tiles. No icons: at this size the little coloured marks read as
           noise rather than as meaning. */}
