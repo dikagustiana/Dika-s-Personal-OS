@@ -32,7 +32,7 @@ import type {
   WeeklyPlan,
 } from '../../data/types';
 import { calculateDailyScore } from '../../logic/score';
-import { scoredTasks } from '../../logic/dailyLog';
+import { isScoredTask, scoredTasks } from '../../logic/dailyLog';
 import { getIsoWeekKey } from '../../logic/week';
 import { useDailyLog } from '../../hooks/useDailyLog';
 import { useMutation } from '../../hooks/useMutation';
@@ -48,6 +48,15 @@ function isInboxTask(task: TaskEntry): boolean {
   return !task.done && task.priority !== 'urgent' && !task.dueDate;
 }
 
+/**
+ * The fields that put a task on today's list. Pinning from the Inbox and
+ * adding straight to Urgent tasks are the same act, so both read the shape
+ * from here rather than each spelling it out.
+ */
+function onTodayFields(dateKey: string): Pick<TaskEntry, 'priority' | 'dueDate'> {
+  return { priority: 'urgent', dueDate: dateKey };
+}
+
 export function Today() {
   const repository = useAppStore((state) => state.repository);
   const domain = useAppStore((state) => state.workspace);
@@ -58,6 +67,7 @@ export function Today() {
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
+  const [urgentTitle, setUrgentTitle] = useState('');
   const [dumpText, setDumpText] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -142,13 +152,25 @@ export function Today() {
   );
 
   /**
-   * Adds to the Inbox, not to Today. The draft is only cleared once the write
-   * has come back, so a failed save leaves the text on screen to retry.
+   * Commits a task set that may have changed the scored set, rewriting the
+   * stored log from it. Anything that lands a task on today's list has to come
+   * through here — a task that is scored on screen but not in the persisted log
+   * desyncs silently, with nothing on the page to show it.
    */
-  const addTask = async (event: FormEvent) => {
-    event.preventDefault();
-    const title = taskTitle.trim();
-    if (!title) return;
+  const commitTasks = async (nextTasks: TaskEntry[]) => {
+    setTasks(nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
+  };
+
+  /**
+   * The one create-task write, shared by both quick-adds: the Inbox field
+   * passes no triage, the Urgent field passes `onTodayFields`. Resolves true
+   * only once the row exists, so callers know when it is safe to clear a draft.
+   */
+  const createTask = async (
+    title: string,
+    fields?: Pick<TaskEntry, 'priority' | 'dueDate'>,
+  ) => {
     const input: Omit<TaskEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'task',
       domain,
@@ -156,22 +178,47 @@ export function Today() {
       priority: 'normal',
       done: false,
       tags: [],
+      ...fields,
     };
     const created = await run('Add task', () => repository.createEntry(input));
-    if (!created) return;
-    setTaskTitle('');
-    setTasks((current) => [created as TaskEntry, ...current]);
+    if (!created) return false;
+    const task = created as TaskEntry;
+    const nextTasks = [task, ...tasks];
+    // Captured-to-Inbox tasks are outside the scored set, so they leave the log
+    // alone; an urgent task counts from the moment it exists.
+    if (isScoredTask(task, todayKey)) await commitTasks(nextTasks);
+    else setTasks(nextTasks);
+    return true;
+  };
+
+  /**
+   * Adds to the Inbox, not to Today. The draft is only cleared once the write
+   * has come back, so a failed save leaves the text on screen to retry.
+   */
+  const addTask = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = taskTitle.trim();
+    if (!title) return;
+    if (await createTask(title)) setTaskTitle('');
+  };
+
+  /** Skips the Inbox: what is already known to be urgent belongs on Today now. */
+  const addUrgentTask = async (event: FormEvent) => {
+    event.preventDefault();
+    const title = urgentTitle.trim();
+    if (!title) return;
+    if (await createTask(title, onTodayFields(todayKey))) setUrgentTitle('');
   };
 
   /** The deliberate act of putting an Inbox task on today's list. */
   const pinToToday = async (task: TaskEntry) => {
     const updated = await run('Pin task to Today', () =>
-      repository.updateEntry(task.id, { priority: 'urgent', dueDate: todayKey }),
+      repository.updateEntry(task.id, onTodayFields(todayKey)),
     );
     if (!updated) return;
-    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
-    setTasks(nextTasks);
-    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
+    await commitTasks(
+      tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item)),
+    );
   };
 
   const toggleTask = async (task: TaskEntry) => {
@@ -183,9 +230,9 @@ export function Today() {
       }),
     );
     if (!updated) return;
-    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
-    setTasks(nextTasks);
-    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
+    await commitTasks(
+      tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item)),
+    );
   };
 
   const deleteTask = async (id: string) => {
@@ -194,9 +241,7 @@ export function Today() {
       return true as const;
     });
     if (!result) return;
-    const nextTasks = tasks.filter((task) => task.id !== id);
-    setTasks(nextTasks);
-    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
+    await commitTasks(tasks.filter((task) => task.id !== id));
   };
 
   const toggleHabit = async (habit: HabitEntry) => {
@@ -373,6 +418,23 @@ export function Today() {
               </span>
             </CardHeader>
             <CardContent>
+              <form onSubmit={addUrgentTask} className="mb-3 flex gap-2">
+                <Input
+                  value={urgentTitle}
+                  onChange={(event) => setUrgentTitle(event.target.value)}
+                  placeholder="Add an urgent task"
+                  aria-label="Add an urgent task to today"
+                />
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="shrink-0"
+                  disabled={isPending}
+                  aria-label="Add urgent task to today"
+                >
+                  <Plus className="size-5" />
+                </Button>
+              </form>
               <div className="divide-y divide-border-subtle">
                 {urgentTasks.map((task) => (
                   <div key={task.id} className="flex min-h-11 items-center gap-3 py-1.5">
@@ -400,7 +462,7 @@ export function Today() {
                 {!isLoading && urgentTasks.length === 0 && (
                   <EmptyState
                     title="Clear runway"
-                    hint="Pin a task from the inbox below — pinned tasks are the ones that count toward today's score."
+                    hint="Add one above, or pin a task from the inbox below — these are the tasks that count toward today's score."
                   />
                 )}
               </div>
