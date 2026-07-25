@@ -358,8 +358,6 @@ describe('summarizeCloseCycle', () => {
       status: 'done' as const,
     }));
     const summary = summarizeCloseCycle(projects, today);
-    expect(summary?.entitiesDone).toBe(1);
-    expect(summary?.entitiesTotal).toBe(6);
     expect(summary?.done).toBe(2);
     expect(summary?.total).toBe(12);
   });

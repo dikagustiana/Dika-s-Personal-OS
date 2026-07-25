@@ -18,7 +18,6 @@ export type Workspace = 'work' | 'growth';
 export type WorkView =
   | 'dashboard'
   | 'today'
-  | 'timebox'
   | 'week'
   | 'projects'
   | 'finish-line'
