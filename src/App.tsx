@@ -1,6 +1,7 @@
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
 import { Dashboard } from './views/work/Dashboard';
+import { FinishLine } from './views/work/FinishLine';
 import { Today } from './views/work/Today';
 import { Week } from './views/work/Week';
 import { Projects } from './views/growth/Projects';
@@ -22,6 +23,7 @@ export default function App() {
     if (workView === 'today') view = <Today key="work" />;
     else if (workView === 'week') view = <Week key="work" />;
     else if (workView === 'projects') view = <Projects key="work" />;
+    else if (workView === 'finish-line') view = <FinishLine />;
     else if (workView === 'monthly-close') view = <MonthlyClose />;
     else if (workView === 'escalations') view = <Escalations />;
     else view = <Dashboard />;

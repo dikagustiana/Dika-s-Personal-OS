@@ -100,7 +100,7 @@ export function TimeboxSection({
   };
 
   return (
-    <div className="divide-y divide-gray-800 border border-gray-800 bg-card">
+    <div className="divide-y divide-border-subtle border border-border-subtle bg-card">
       {slots.map((slot) => {
         const block = byStart.get(slot.start);
         const isCurrent = currentSlot === slot.start;
@@ -118,32 +118,32 @@ export function TimeboxSection({
             {block ? (
               <div className="grid min-h-14 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-3 py-2 sm:grid-cols-[4rem_minmax(0,1fr)]">
                 <div>
-                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-primary' : 'text-gray-600')}>
+                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                     {slot.start}
                   </time>
                   {isCurrent && (
-                    <span className="block text-[9px] font-bold uppercase tracking-wider text-primary">Now</span>
+                    <span className="block text-[9px] font-bold uppercase tracking-wider text-foreground-secondary">Now</span>
                   )}
                 </div>
                 <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                   <p
                     className={cn(
-                      'min-w-0 text-sm font-semibold text-gray-200',
-                      block.status !== 'planned' && 'text-gray-500 line-through',
+                      'min-w-0 text-sm font-semibold text-foreground',
+                      block.status !== 'planned' && 'text-foreground-muted line-through',
                     )}
                   >
                     {block.label}
                   </p>
-                  <span className="font-mono text-[10px] tabular-nums text-gray-600">
+                  <span className="font-mono text-[10px] tabular-nums text-foreground-muted">
                     {durationLabel(block.start, block.end)}
                   </span>
                   {block.category && (
-                    <span className="border border-gray-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-gray-400">
+                    <span className="border border-border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-foreground-secondary">
                       {CATEGORY_LABELS[block.category]}
                     </span>
                   )}
                   {block.taskId && (
-                    <span className="inline-flex items-center gap-1 border border-primary/30 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary/80">
+                    <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-foreground-muted">
                       <Link2 className="size-2.5" />
                       {linkedTask ? 'Task' : 'Task (done)'}
                     </span>
@@ -178,7 +178,7 @@ export function TimeboxSection({
               </div>
             ) : isOpen ? (
               <div className="grid gap-2 py-2 md:grid-cols-[4rem_minmax(140px,1fr)_minmax(130px,0.5fr)_minmax(150px,0.6fr)_auto]">
-                <time className="self-center font-mono text-xs tabular-nums text-gray-600">{slot.start}</time>
+                <time className="self-center font-mono text-xs tabular-nums text-foreground-muted">{slot.start}</time>
                 <Input
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -247,16 +247,16 @@ export function TimeboxSection({
                 className="group flex min-h-9 w-full items-center gap-3 py-1 text-left"
                 aria-label={`Add a block at ${slot.start}`}
               >
-                <time className={cn('w-[3.25rem] font-mono text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-primary' : 'text-gray-700')}>
+                <time className={cn('w-[3.25rem] font-mono text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                   {slot.start}
                 </time>
-                <span className="h-px flex-1 bg-gray-800 transition-colors group-hover:bg-gray-700" />
-                <span className="inline-flex items-center gap-1 text-[11px] text-gray-700 transition-colors group-hover:text-gray-400">
+                <span className="h-px flex-1 bg-surface-2 transition-colors group-hover:bg-surface-3" />
+                <span className="inline-flex items-center gap-1 text-[11px] text-foreground-muted transition-colors group-hover:text-foreground-secondary">
                   <Plus className="size-3" />
                   add
                 </span>
                 {isCurrent && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-primary">Now</span>
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-foreground-secondary">Now</span>
                 )}
               </button>
             )}

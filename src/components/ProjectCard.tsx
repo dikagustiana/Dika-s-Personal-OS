@@ -27,7 +27,14 @@ import type {
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
-import { daysLeft, daysLeftLabelFor, formatDateFor, urgencyForConfident } from '../logic/deadlines';
+import {
+  daysLeft,
+  daysLeftLabelFor,
+  formatDateFor,
+  resolveConfidence,
+  urgencyForConfident,
+} from '../logic/deadlines';
+import { TbcChip } from './ui/TbcChip';
 import {
   ESCALATION_TARGETS,
   MILESTONE_STATUSES,
@@ -71,7 +78,7 @@ function MilestoneDueChip({
         'shrink-0 border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider tabular-nums',
         urgency === 'overdue' && 'border-destructive/40 text-destructive',
         urgency === 'due-soon' && 'border-escalate/40 text-escalate',
-        urgency === 'on-track' && 'border-gray-700 text-gray-500',
+        urgency === 'on-track' && 'border-border text-foreground-muted',
       )}
     >
       {daysLeftLabelFor(days, confidence)}
@@ -194,16 +201,16 @@ export function ProjectCard({
 
   return (
     <Card className={cn('min-w-0', project.status !== 'active' && 'opacity-70')}>
-      <CardHeader className="flex-col border-b border-gray-800 sm:flex-row">
+      <CardHeader className="flex-col border-b border-border-subtle sm:flex-row">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="grid size-11 shrink-0 place-items-center border border-primary/40 bg-primary/10">
-            <Icon className="size-5 text-primary" />
+          <div className="grid size-10 shrink-0 place-items-center rounded-md border border-border bg-surface-2">
+            <Icon className="size-5 text-foreground-secondary" />
           </div>
           <div className="min-w-0">
-            <CardTitle className="truncate text-base normal-case tracking-normal text-gray-100">
+            <CardTitle className="truncate text-base normal-case tracking-normal text-foreground">
               {project.title}
             </CardTitle>
-            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-gray-600">
+            <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-foreground-muted">
               {project.recurring === 'monthly' ? 'monthly close' : project.type}
             </p>
           </div>
@@ -231,7 +238,7 @@ export function ProjectCard({
       </CardHeader>
       <CardContent className="pt-5">
         {editing && (
-          <div className="mb-5 border border-primary/30 bg-primary/[0.04] p-4">
+          <div className="mb-5 rounded-md border border-border bg-surface-2/50 p-4">
             <ProjectFields draft={draft} onChange={setDraft} idPrefix={project.title} />
             <div className="mt-5">
               <p className="surface-label mb-2">Milestones</p>
@@ -262,32 +269,35 @@ export function ProjectCard({
 
         {!compact && (
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="border border-gray-800 bg-black/10 p-3">
-              <CalendarClock className="size-4 text-primary" />
-              <p className="mt-3 text-sm font-semibold text-gray-200">
+            <div className="border border-border-subtle bg-black/10 p-3">
+              <CalendarClock className="size-4 text-foreground-muted" />
+              <p className="mt-3 text-sm font-semibold text-foreground">
                 {deadlineText(project.deadline, project.dateConfidence)}
               </p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">
+              <p className="mt-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-foreground-muted">
                 {project.deadline
                   ? formatDateFor(project.deadline, project.dateConfidence)
                   : 'Open horizon'}
+                {project.deadline && resolveConfidence(project.dateConfidence) !== 'confirmed' && (
+                  <TbcChip />
+                )}
               </p>
             </div>
-            <div className="border border-gray-800 bg-black/10 p-3">
-              <Link2 className="size-4 text-primary" />
-              <p className="mt-3 text-sm font-semibold text-gray-200">
+            <div className="border border-border-subtle bg-black/10 p-3">
+              <Link2 className="size-4 text-foreground-muted" />
+              <p className="mt-3 text-sm font-semibold text-foreground">
                 {linkedTasks.filter((task) => task.done).length}/{linkedTasks.length} tasks
               </p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">
+              <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">
                 Linked this week
               </p>
             </div>
-            <div className="border border-gray-800 bg-black/10 p-3">
-              <Target className="size-4 text-primary" />
-              <p className="mt-3 text-sm font-semibold text-gray-200">
+            <div className="border border-border-subtle bg-black/10 p-3">
+              <Target className="size-4 text-foreground-muted" />
+              <p className="mt-3 text-sm font-semibold text-foreground">
                 {linkedGoals.filter((goal) => goal.done).length}/{linkedGoals.length} goals
               </p>
-              <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">
+              <p className="mt-1 text-[10px] uppercase tracking-wider text-foreground-muted">
                 Weekly outcomes
               </p>
             </div>
@@ -295,9 +305,9 @@ export function ProjectCard({
         )}
 
         {project.targetMetric && (
-          <div className={cn('border-l-2 border-primary/50 pl-3', compact ? '' : 'mt-4')}>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">Target</p>
-            <p className="mt-1 text-sm text-primary/85">{project.targetMetric}</p>
+          <div className={cn('border-l-2 border-border pl-3', compact ? '' : 'mt-4')}>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Target</p>
+            <p className="mt-1 text-sm text-foreground-secondary">{project.targetMetric}</p>
           </div>
         )}
 
@@ -305,14 +315,14 @@ export function ProjectCard({
           <div className="mb-2 flex items-end justify-between">
             <div>
               <p className="surface-label">Milestones</p>
-              <p className="mt-1 text-xs text-gray-600">
+              <p className="mt-1 text-xs text-foreground-muted">
                 {doneMilestones} of {project.milestones.length} complete
               </p>
             </div>
             <span className="font-mono text-sm text-primary">{progress}%</span>
           </div>
           <Progress value={progress} />
-          <div className="mt-3 divide-y divide-gray-800">
+          <div className="mt-3 divide-y divide-border-subtle">
             {project.milestones.map((milestone) => {
               const escalated = (milestone.escalateTo ?? 'none') !== 'none';
               return (
@@ -330,17 +340,22 @@ export function ProjectCard({
                   <div className="flex items-center gap-2">
                     <span
                       className={cn(
-                        'min-w-0 flex-1 text-sm text-gray-300',
-                        milestone.done && 'text-gray-600 line-through',
+                        'min-w-0 flex-1 text-sm text-foreground-secondary',
+                        milestone.done && 'text-foreground-muted line-through',
                       )}
                     >
                       {milestone.text}
                     </span>
                     {milestone.dueDate && !milestone.done && (
-                      <MilestoneDueChip
-                        dueDate={milestone.dueDate}
-                        confidence={milestone.dateConfidence}
-                      />
+                      <>
+                        <MilestoneDueChip
+                          dueDate={milestone.dueDate}
+                          confidence={milestone.dateConfidence}
+                        />
+                        {resolveConfidence(milestone.dateConfidence) !== 'confirmed' && (
+                          <TbcChip />
+                        )}
+                      </>
                     )}
                     {escalated && (
                       <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />

@@ -4,7 +4,7 @@ import { cn } from '../../lib/utils';
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <section
-      className={cn('rounded-sm border border-gray-800 bg-card', className)}
+      className={cn('rounded-lg border border-border bg-card', className)}
       {...props}
     />
   );
@@ -14,8 +14,15 @@ export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElemen
   return <div className={cn('flex items-start justify-between gap-4 p-5', className)} {...props} />;
 }
 
+// Card headings are sentence-case Playfair — the eyebrow treatment lives in
+// `.surface-label` and appears at most once per card.
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn('text-sm font-bold uppercase tracking-[0.14em] text-gray-300', className)} {...props} />;
+  return (
+    <h2
+      className={cn('font-display text-card-heading font-semibold text-foreground', className)}
+      {...props}
+    />
+  );
 }
 
 export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {

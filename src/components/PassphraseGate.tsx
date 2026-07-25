@@ -116,12 +116,13 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
         setRepository(createSupabaseRepository(candidate));
         setState('unlocked');
       } else if (result.lockedOut) {
-        const minutes = Math.ceil((result.retryAfter ?? 900) / 60);
-        setError(`Too many attempts. Locked for about ${minutes} minute(s).`);
+        const until = new Date(Date.now() + (result.retryAfter ?? 900) * 1000);
+        const hh = String(until.getHours()).padStart(2, '0');
+        const mm = String(until.getMinutes()).padStart(2, '0');
+        setError(`Locked until ${hh}:${mm}.`);
       } else if (result.attemptsRemaining !== undefined && result.attemptsRemaining <= 3) {
-        setError(
-          `That passphrase is not correct. ${result.attemptsRemaining} attempt(s) before lockout.`,
-        );
+        const n = result.attemptsRemaining;
+        setError(`Not correct. ${n} attempt${n === 1 ? '' : 's'} left.`);
       } else {
         setError('That passphrase is not correct.');
       }
@@ -136,7 +137,7 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
 
   if (state === 'checking') {
     return (
-      <div className="grid min-h-dvh place-items-center bg-background text-sm text-gray-600">
+      <div className="grid min-h-dvh place-items-center bg-background text-sm text-foreground-muted">
         Unlocking…
       </div>
     );
@@ -146,17 +147,15 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     <div className="grid min-h-dvh place-items-center bg-background px-4 text-foreground">
       <form
         onSubmit={unlock}
-        className="w-full max-w-sm border border-gray-800 bg-card p-6"
+        className="w-full max-w-sm rounded-lg border border-border bg-card p-6"
       >
         <div className="mb-5 flex items-center gap-3">
-          <div className="grid size-10 place-items-center border border-primary/50 bg-primary/10">
-            <Lock className="size-5 text-primary" />
+          <div className="grid size-10 place-items-center rounded-md border border-border bg-surface-2">
+            <Lock className="size-5 text-foreground-secondary" />
           </div>
           <div>
-            <p className="font-bold tracking-tight">PERSONAL OS</p>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-gray-600">
-              Passphrase required
-            </p>
+            <p className="font-display text-base font-semibold tracking-tight">Personal OS</p>
+            <p className="surface-label mt-0.5">Passphrase required</p>
           </div>
         </div>
         <Input
@@ -167,7 +166,12 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
           aria-label="App passphrase"
           autoFocus
         />
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+        {/* Plain copy, not an alert banner — the lockout is information. */}
+        {error && (
+          <p className="mt-3 text-sm text-foreground-secondary" role="status">
+            {error}
+          </p>
+        )}
         <Button type="submit" className="mt-4 w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Checking…' : 'Unlock'}
         </Button>

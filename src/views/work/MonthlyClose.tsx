@@ -44,21 +44,21 @@ export function MonthlyClose() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Work / Monthly Close</p>
         <h1 className="page-title">Close the month</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           Recurring cycles for BMG, OKI, KGR, NMG, KBF and Consolidation. Each
           period generates on the 22nd; whatever is not done stays visible as overdue.
         </p>
       </header>
 
       {!isLoading && periods.length === 0 && (
-        <div className="grid min-h-52 place-items-center border border-dashed border-gray-800 text-center">
+        <div className="grid min-h-52 place-items-center border border-dashed border-border-subtle text-center">
           <div>
-            <RefreshCw className="mx-auto size-6 text-gray-700" />
-            <p className="mt-3 font-semibold text-gray-400">No close cycles yet.</p>
-            <p className="mt-1 text-sm text-gray-600">
+            <RefreshCw className="mx-auto size-6 text-foreground-muted" />
+            <p className="mt-3 font-semibold text-foreground-secondary">No close cycles yet.</p>
+            <p className="mt-1 text-sm text-foreground-muted">
               The {periodLabel(current)} cycle generates automatically on the 22nd.
             </p>
           </div>
@@ -71,16 +71,16 @@ export function MonthlyClose() {
         ).length;
         return (
           <section key={period} className="mb-8">
-            <div className="mb-3 flex items-end justify-between border-b border-gray-800 pb-3">
+            <div className="mb-3 flex items-end justify-between border-b border-border-subtle pb-3">
               <div>
-                <h2 className="text-lg font-bold text-gray-100">{label}</h2>
-                <p className="mt-1 text-xs text-gray-600">
+                <h2 className="text-lg font-bold text-foreground">{label}</h2>
+                <p className="mt-1 text-xs text-foreground-muted">
                   {period}
                   {period === current && ' · current cycle'}
                 </p>
               </div>
-              <p className="flex items-center gap-2 text-sm tabular-nums text-gray-400">
-                <CalendarClock className="size-4 text-primary" />
+              <p className="flex items-center gap-2 text-sm tabular-nums text-foreground-secondary">
+                <CalendarClock className="size-4 text-foreground-muted" />
                 {done} of {cycle.length} closes done
               </p>
             </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ProjectCard } from '../../components/ProjectCard';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
+import { EmptyState } from '../../components/ui/EmptyState';
 import { Input } from '../../components/ui/Input';
 import type { Project, TaskEntry, WebsiteCategory, WeeklyPlan } from '../../data/types';
 import { GROWTH_INITIATIVES, type InitiativeKey } from '../../logic/initiatives';
@@ -73,10 +74,10 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Growth / {meta?.label}</p>
         <h1 className="page-title">{meta?.label}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           Milestones, status, and the notes that keep this initiative moving.
         </p>
       </header>
@@ -135,8 +136,11 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
         </div>
       ) : (
         loaded && (
-          <div className="grid min-h-52 place-items-center border border-dashed border-gray-800 text-center">
-            <p className="text-sm text-gray-600">This initiative has not been set up yet.</p>
+          <div className="grid min-h-52 place-items-center rounded-lg border border-dashed border-border">
+            <EmptyState
+              title="Not set up yet"
+              hint="This initiative has no project behind it — create it from the Projects view."
+            />
           </div>
         )
       )}

@@ -16,9 +16,12 @@ import {
   daysLeft,
   daysLeftLabelFor,
   formatDateFor,
+  resolveConfidence,
   urgencyForConfident,
   type Urgency,
 } from '../../logic/deadlines';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { TbcChip } from '../../components/ui/TbcChip';
 import { collectEscalations } from '../../logic/milestones';
 import { periodLabel, targetPeriod } from '../../logic/monthlyClose';
 import { cn } from '../../lib/utils';
@@ -120,15 +123,15 @@ export function Dashboard() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Work / Dashboard</p>
         <h1 className="page-title">The helicopter view</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           Deadlines, escalations, and the close cycle — everything that needs a decision, on one screen.
         </p>
       </header>
 
-      <div className="mb-5 grid gap-px overflow-hidden border border-gray-800 bg-gray-800 sm:grid-cols-3">
+      <div className="mb-5 grid gap-px overflow-hidden border border-border-subtle bg-surface-2 sm:grid-cols-3">
         <button
           className="bg-card p-5 text-left transition-colors hover:bg-muted"
           onClick={() => setWorkView('escalations')}
@@ -136,7 +139,7 @@ export function Dashboard() {
         >
           <Megaphone className="size-4 text-escalate" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{escalationCount}</p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
             Escalations waiting <ArrowRight className="ml-1 inline size-3" />
           </p>
         </button>
@@ -145,18 +148,18 @@ export function Dashboard() {
           onClick={() => setWorkView('monthly-close')}
           aria-label="Open monthly close"
         >
-          <CalendarClock className="size-4 text-primary" />
+          <CalendarClock className="size-4 text-foreground-muted" />
           <p className="mt-4 text-3xl font-bold tabular-nums">
             {close.total > 0 ? `${close.done} of ${close.total}` : '—'}
           </p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
             {close.label} · closes done <ArrowRight className="ml-1 inline size-3" />
           </p>
         </button>
         <div className="bg-card p-5">
-          <TrendingUp className="size-4 text-primary" />
+          <TrendingUp className="size-4 text-foreground-muted" />
           <p className="mt-4 text-3xl font-bold tabular-nums">{consistency}%</p>
-          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+          <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
             Habit consistency · 30 days
           </p>
         </div>
@@ -167,16 +170,17 @@ export function Dashboard() {
           <CardHeader>
             <div>
               <CardTitle>Deadline countdowns</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Nearest first, including close cycles.</p>
+              <p className="mt-2 text-sm text-foreground-muted">Nearest first, including close cycles.</p>
             </div>
-            <CalendarClock className="size-4 text-gray-600" />
+            <CalendarClock className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-border-subtle">
               {countdowns.map((item) => (
                 <div key={`${item.title}-${item.date}`} className="flex min-h-12 items-center gap-3 py-2">
-                  <span className="min-w-0 flex-1 truncate text-sm text-gray-300">{item.title}</span>
-                  <span className="font-mono text-xs text-gray-600">
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground-secondary">{item.title}</span>
+                  {resolveConfidence(item.confidence) !== 'confirmed' && <TbcChip />}
+                  <span className="font-mono text-xs text-foreground-muted">
                     {formatDateFor(item.date, item.confidence)}
                   </span>
                   <span className={cn('w-24 text-right text-sm font-bold tabular-nums', urgencyText[item.urgency])}>
@@ -185,7 +189,10 @@ export function Dashboard() {
                 </div>
               ))}
               {countdowns.length === 0 && (
-                <p className="py-8 text-center text-sm text-gray-600">No open deadlines.</p>
+                <EmptyState
+                  title="No open deadlines"
+                  hint="Give a project a deadline in Projects and it will count down here."
+                />
               )}
             </div>
           </CardContent>
@@ -195,12 +202,12 @@ export function Dashboard() {
           <CardHeader>
             <div>
               <CardTitle>Needs attention</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Blocked, overdue, or due within a week.</p>
+              <p className="mt-2 text-sm text-foreground-muted">Blocked, overdue, or due within a week.</p>
             </div>
             <AlertTriangle className="size-4 text-escalate" />
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-border-subtle">
               {needsAttention.map(({ project, blocked, urgency }) => (
                 <button
                   key={project.id}
@@ -209,7 +216,7 @@ export function Dashboard() {
                     setWorkView(project.recurring === 'monthly' ? 'monthly-close' : 'projects')
                   }
                 >
-                  <span className="min-w-0 flex-1 truncate text-sm text-gray-300">{project.title}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-foreground-secondary">{project.title}</span>
                   {blocked && (
                     <span className="border border-destructive/40 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-destructive">
                       Blocked
@@ -233,7 +240,10 @@ export function Dashboard() {
                 </button>
               ))}
               {needsAttention.length === 0 && (
-                <p className="py-8 text-center text-sm text-gray-600">All clear. Nothing on fire.</p>
+                <EmptyState
+                  title="All clear"
+                  hint="Nothing is blocked, overdue, or due within a week."
+                />
               )}
             </div>
           </CardContent>
@@ -243,9 +253,9 @@ export function Dashboard() {
           <CardHeader>
             <div>
               <CardTitle>Habit consistency</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Last 30 days · one cell per day</p>
+              <p className="mt-2 text-sm text-foreground-muted">Last 30 days · one cell per day</p>
             </div>
-            <CalendarDays className="size-4 text-gray-600" />
+            <CalendarDays className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
             <ContributionGraph logs={logs} today={today} />
@@ -256,9 +266,9 @@ export function Dashboard() {
           <CardHeader>
             <div>
               <CardTitle>Daily score</CardTitle>
-              <p className="mt-2 text-sm text-gray-600">Current ISO week · Mon–Sun</p>
+              <p className="mt-2 text-sm text-foreground-muted">Current ISO week · Mon–Sun</p>
             </div>
-            <TrendingUp className="size-4 text-primary" />
+            <TrendingUp className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
             <WeeklyScoreChart logs={logs} today={today} />

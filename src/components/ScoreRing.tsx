@@ -16,7 +16,7 @@ export function ScoreRing({ result }: { result: DailyScoreResult }) {
       >
         <div className="grid size-[92px] place-items-center rounded-full bg-card">
           {result.isEmpty ? (
-            <Activity className="size-6 text-gray-600" />
+            <Activity className="size-6 text-foreground-muted" />
           ) : (
             <span className="text-3xl font-bold tabular-nums">{Math.round(result.score / 10)}</span>
           )}
@@ -27,12 +27,12 @@ export function ScoreRing({ result }: { result: DailyScoreResult }) {
           <span className="text-4xl font-bold tabular-nums">
             {result.isEmpty ? '—' : Math.round(result.score / 10)}
           </span>
-          <span className="text-lg text-gray-500">/10</span>
+          <span className="text-lg text-foreground-muted">/10</span>
         </div>
-        <p className="mt-1 max-w-44 text-sm leading-5 text-gray-500">
+        <p className="mt-1 max-w-44 text-sm leading-5 text-foreground-muted">
           {result.isEmpty
             ? 'Add a task, habit, or timeblock to begin.'
-            : `${result.activeComponents} signals active today`}
+            : `${result.activeComponents} signal${result.activeComponents === 1 ? '' : 's'} active today`}
         </p>
       </div>
     </div>

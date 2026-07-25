@@ -5,6 +5,8 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { TbcChip } from '../../components/ui/TbcChip';
 import { IeltsTrendChart } from '../../components/IeltsTrendChart';
 import { ScoreRing } from '../../components/ScoreRing';
 import type {
@@ -19,6 +21,7 @@ import {
   daysLeft,
   daysLeftLabelFor,
   formatDateFor,
+  resolveConfidence,
   urgencyForConfident,
   type Urgency,
 } from '../../logic/deadlines';
@@ -237,16 +240,16 @@ export function GrowthDashboard() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7">
+      <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Growth / Dashboard</p>
         <h1 className="page-title">{format(today, 'EEEE')}</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
           {format(today, 'MMMM d, yyyy')} — the whole growth campaign on one screen.
         </p>
       </header>
 
       {/* Deadline countdown strip */}
-      <div className="mb-5 grid gap-px overflow-hidden border border-gray-800 bg-gray-800 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="mb-5 grid gap-px overflow-hidden border border-border-subtle bg-surface-2 sm:grid-cols-3 xl:grid-cols-6">
         {GROWTH_INITIATIVES.map((initiative) => {
           const project = projects.find((item) => item.id === initiative.projectId);
           const deadline = project?.deadline;
@@ -258,19 +261,20 @@ export function GrowthDashboard() {
             : null;
           return (
             <div key={initiative.key} className="bg-card p-4">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-gray-600">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
                 {initiative.label}
               </p>
               <p
                 className={cn(
                   'mt-2 text-lg font-bold tabular-nums',
-                  urgency ? urgencyText[urgency] : 'text-gray-600',
+                  urgency ? urgencyText[urgency] : 'text-foreground-muted',
                 )}
               >
                 {days !== null ? daysLeftLabelFor(days, confidence) : '—'}
               </p>
-              <p className="mt-1 font-mono text-[10px] text-gray-600">
-                {deadline ? formatDateFor(deadline, confidence) : 'no deadline'}
+              <p className="mt-1 flex items-center gap-1.5 font-mono text-[10px] text-foreground-muted">
+                {deadline ? formatDateFor(deadline, confidence) : 'No deadline yet'}
+                {deadline && resolveConfidence(confidence) !== 'confirmed' && <TbcChip />}
               </p>
             </div>
           );
@@ -282,45 +286,60 @@ export function GrowthDashboard() {
         <CardHeader>
           <div>
             <CardTitle>Initiative timeline</CardTitle>
-            <p className="mt-2 text-sm text-gray-600">
+            <p className="mt-2 text-sm text-foreground-muted">
               {format(gantt.windowStart, 'MMM d')} – {format(gantt.windowEnd, 'MMM d, yyyy')} ·
               bar per initiative, line = today
             </p>
           </div>
-          <Sparkles className="size-4 text-primary" />
+          <Sparkles className="size-4 text-foreground-muted" />
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
             <div className="relative min-w-[560px] space-y-2 py-2">
               <span
-                className="absolute inset-y-0 z-10 w-px bg-gray-300/70"
+                className="absolute inset-y-0 z-10 w-px bg-foreground-muted/70"
                 style={{ left: `${gantt.todayPct}%` }}
                 aria-label="Today"
               />
-              {gantt.rows.map((row) => (
-                <div key={row.project.id} className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-3">
-                  <span className="truncate text-xs text-gray-400">{row.project.title}</span>
-                  <div className="relative h-6 rounded-sm bg-black/20">
-                    {row.hasDates ? (
-                      <div
-                        className={cn('absolute inset-y-1 rounded-sm', barColor[row.urgency])}
-                        style={{ left: `${row.startPct}%`, width: `${row.widthPct}%` }}
-                        title={`${row.project.startDate ?? 'lead-in'} → ${row.project.deadline}`}
-                      />
-                    ) : (
-                      <span className="absolute inset-y-0 left-2 flex items-center text-[10px] text-gray-700">
-                        No deadline set
-                      </span>
-                    )}
+              {gantt.rows.map((row) => {
+                const estimated =
+                  row.hasDates && resolveConfidence(row.project.dateConfidence) !== 'confirmed';
+                return (
+                  <div key={row.project.id} className="grid grid-cols-[8.5rem_minmax(0,1fr)] items-center gap-3">
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground-secondary">
+                      <span className="truncate">{row.project.title}</span>
+                      {estimated && <TbcChip />}
+                    </span>
+                    <div className="relative h-6 rounded-sm bg-black/20">
+                      {row.hasDates ? (
+                        <div
+                          className={cn(
+                            'absolute inset-y-1 rounded-sm',
+                            // An estimated span is an outline, not a solid bar:
+                            // dashed edges signal "this end date is a placeholder".
+                            estimated
+                              ? 'border-2 border-dashed border-primary/60 bg-primary/15'
+                              : barColor[row.urgency],
+                          )}
+                          style={{ left: `${row.startPct}%`, width: `${row.widthPct}%` }}
+                          title={`${row.project.startDate ?? 'lead-in'} → ${row.project.deadline}`}
+                        />
+                      ) : (
+                        <span className="absolute inset-y-0 left-2 flex items-center text-[10px] text-foreground-muted">
+                          No deadline set
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
-          <div className="mt-3 flex items-center gap-4 text-[10px] text-gray-600">
-            <span className="flex items-center gap-1.5"><span className="size-2.5 bg-primary/80" /> on track</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 bg-escalate/80" /> due soon</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 bg-destructive/80" /> overdue</span>
+          <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] text-foreground-muted">
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary/80" /> on track</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-escalate/80" /> due soon</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-destructive/80" /> overdue</span>
+            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm border-2 border-dashed border-primary/60 bg-primary/15" /> date TBC</span>
           </div>
         </CardContent>
       </Card>
@@ -330,7 +349,7 @@ export function GrowthDashboard() {
         <CardHeader>
           <div>
             <CardTitle>IELTS trend</CardTitle>
-            <p className="mt-2 text-sm text-gray-600">
+            <p className="mt-2 text-sm text-foreground-muted">
               Four skills + overall vs the 7.0 target.
             </p>
           </div>
@@ -343,9 +362,16 @@ export function GrowthDashboard() {
           {ieltsResults.length > 0 ? (
             <IeltsTrendChart results={ieltsResults} compact />
           ) : (
-            <p className="py-8 text-center text-sm text-gray-600">
-              No IELTS results yet. Add your first mock in the tracker.
-            </p>
+            <EmptyState
+              title="No results yet"
+              hint="Log your first mock test in the tracker to start the trend line."
+              action={
+                <Button variant="secondary" size="sm" onClick={() => setGrowthView('ielts')}>
+                  Open tracker
+                  <ArrowRight className="size-4" />
+                </Button>
+              }
+            />
           )}
         </CardContent>
       </Card>
@@ -355,7 +381,7 @@ export function GrowthDashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Today</CardTitle>
-            <span className="text-xs text-gray-600">{format(today, 'MMM d')}</span>
+            <span className="text-xs text-foreground-muted">{format(today, 'MMM d')}</span>
           </CardHeader>
           <CardContent>
             <ScoreRing result={score} />
@@ -370,8 +396,8 @@ export function GrowthDashboard() {
                   <span
                     className={
                       dailyLog?.habits[habit.id]
-                        ? 'text-sm text-gray-500 line-through'
-                        : 'text-sm text-gray-200'
+                        ? 'text-sm text-foreground-muted line-through'
+                        : 'text-sm text-foreground'
                     }
                   >
                     {habit.title}
@@ -386,7 +412,7 @@ export function GrowthDashboard() {
         <Card>
           <CardHeader>
             <CardTitle>Today&apos;s tasks</CardTitle>
-            <span className="text-xs tabular-nums text-gray-600">
+            <span className="text-xs tabular-nums text-foreground-muted">
               {todayTasks.filter((task) => task.done).length}/{todayTasks.length}
             </span>
           </CardHeader>
@@ -408,31 +434,35 @@ export function GrowthDashboard() {
                 <Plus className="size-5" />
               </Button>
             </form>
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-border-subtle">
               {todayTasks.map((task) => (
-                <label key={task.id} className="flex min-h-12 cursor-pointer items-center gap-3 py-1">
+                <label key={task.id} className="flex min-h-11 cursor-pointer items-center gap-3 py-1">
                   <Checkbox
                     checked={task.done}
                     onCheckedChange={() => void toggleTask(task)}
                     aria-label={`Mark ${task.title} ${task.done ? 'open' : 'done'}`}
                   />
-                  <span className={task.done ? 'text-sm text-gray-600 line-through' : 'text-sm text-gray-200'}>
+                  <span className={task.done ? 'text-sm text-foreground-muted line-through' : 'text-sm text-foreground'}>
                     {task.title}
                   </span>
                 </label>
               ))}
               {todayTasks.length === 0 && (
-                <p className="py-6 text-center text-sm text-gray-600">Nothing pinned to today.</p>
+                <EmptyState
+                  title="Nothing pinned yet"
+                  hint="Capture a task above, then pin it from the inbox to make it count today."
+                  className="py-6"
+                />
               )}
             </div>
 
             {inboxTasks.length > 0 && (
-              <div className="mt-4 border-t border-gray-800 pt-3">
+              <div className="mt-4 border-t border-border-subtle pt-3">
                 <p className="surface-label">Inbox · {inboxTasks.length}</p>
-                <div className="mt-2 divide-y divide-gray-800">
+                <div className="mt-2 divide-y divide-border-subtle">
                   {inboxTasks.map((task) => (
-                    <div key={task.id} className="flex min-h-12 items-center gap-2 py-1">
-                      <span className="min-w-0 flex-1 truncate text-sm text-gray-400">
+                    <div key={task.id} className="flex min-h-11 items-center gap-2 py-1">
+                      <span className="min-w-0 flex-1 truncate text-sm text-foreground-secondary">
                         {task.title}
                       </span>
                       <Button
@@ -456,17 +486,17 @@ export function GrowthDashboard() {
           <CardHeader>
             <div>
               <CardTitle>This week</CardTitle>
-              <p className="mt-2 text-xs text-gray-600">
+              <p className="mt-2 text-xs text-foreground-muted">
                 Last week: avg {recap.averageScore} · habits {recap.habitConsistency}% ·{' '}
                 {recap.daysLogged} days logged
               </p>
             </div>
-            <CalendarCheck2 className="size-4 text-primary" />
+            <CalendarCheck2 className="size-4 text-foreground-muted" />
           </CardHeader>
           <CardContent>
-            <div className="divide-y divide-gray-800">
+            <div className="divide-y divide-border-subtle">
               {(plan?.goals ?? []).map((goal) => (
-                <div key={goal.id} className="flex min-h-12 items-center gap-3 py-1">
+                <div key={goal.id} className="flex min-h-11 items-center gap-3 py-1">
                   <Checkbox
                     checked={goal.done}
                     onCheckedChange={() => void toggleGoal(goal)}
@@ -475,7 +505,7 @@ export function GrowthDashboard() {
                   <span
                     className={cn(
                       'min-w-0 flex-1 text-sm',
-                      goal.done ? 'text-gray-600 line-through' : 'text-gray-200',
+                      goal.done ? 'text-foreground-muted line-through' : 'text-foreground',
                     )}
                   >
                     {goal.text}
@@ -491,7 +521,11 @@ export function GrowthDashboard() {
                 </div>
               ))}
               {(plan?.goals.length ?? 0) === 0 && (
-                <p className="py-6 text-center text-sm text-gray-600">No goals set for this week.</p>
+                <EmptyState
+                  title="No goals this week"
+                  hint="Set three to five goals below — they anchor the weekly review."
+                  className="py-6"
+                />
               )}
             </div>
             {(plan?.goals.length ?? 0) < 5 && (
@@ -502,8 +536,8 @@ export function GrowthDashboard() {
                   placeholder="Add a weekly goal (3–5)"
                   aria-label="New weekly goal"
                 />
-                <Button type="submit" size="icon" className="shrink-0" aria-label="Add goal">
-                  <Plus className="size-5" />
+                <Button type="submit" variant="secondary" size="icon" className="shrink-0" aria-label="Add goal">
+                  <Plus className="size-4" />
                 </Button>
               </form>
             )}

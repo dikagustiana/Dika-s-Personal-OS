@@ -39,11 +39,11 @@ export class ErrorBoundary extends Component<Props, State> {
             <AlertOctagon className="size-5 shrink-0 text-destructive" />
             <h1 className="text-lg font-bold">Something broke on screen</h1>
           </div>
-          <p className="mt-3 text-sm leading-6 text-gray-400">
+          <p className="mt-3 text-sm leading-6 text-foreground-secondary">
             Your saved data is untouched — this is a display failure, not a data one.
             Try this view again, or reload if it keeps happening.
           </p>
-          <pre className="mt-4 max-h-40 overflow-auto border border-gray-800 bg-black/30 p-3 text-xs text-gray-500">
+          <pre className="mt-4 max-h-40 overflow-auto border border-border-subtle bg-black/30 p-3 text-xs text-foreground-muted">
             {error.message}
           </pre>
           <div className="mt-5 flex gap-2">

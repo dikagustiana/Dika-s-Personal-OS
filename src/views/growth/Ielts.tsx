@@ -142,22 +142,22 @@ export function Ielts() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
+      <header className="mb-7 border-b border-border-subtle pb-7 md:flex md:items-end md:justify-between">
         <div>
           <p className="page-kicker">Growth / IELTS</p>
           <h1 className="page-title">Practice band</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-gray-500">
+          <p className="mt-3 max-w-xl text-sm leading-6 text-foreground-muted">
             Every mock result, tracked toward the target overall band.
           </p>
         </div>
         <div className="mt-5 flex items-end gap-4 md:mt-0">
           <div>
             <p className="surface-label">Latest overall</p>
-            <p className="font-sans text-5xl font-bold tabular-nums text-primary">
+            <p className="metric-hero font-sans text-foreground">
               {overall !== null ? formatBand(overall) : '—'}
             </p>
           </div>
-          <div className="pb-1 text-sm text-gray-500">
+          <div className="pb-1 text-sm text-foreground-muted">
             <p>Target {formatBand(IELTS_TARGET)}</p>
             {gap !== null && (
               <p className={cn('tabular-nums', gap >= 0 ? 'text-primary' : 'text-escalate')}>
@@ -168,7 +168,7 @@ export function Ielts() {
         </div>
       </header>
 
-      <div className="mb-5 grid gap-px overflow-hidden border border-gray-800 bg-gray-800 sm:grid-cols-4">
+      <div className="mb-5 grid gap-px overflow-hidden border border-border-subtle bg-surface-2 sm:grid-cols-4">
         {IELTS_SKILLS.map((skill) => {
           const d = latest ? delta(latest[skill.key], previous?.[skill.key]) : null;
           return (
@@ -177,9 +177,9 @@ export function Ielts() {
               <p className="mt-3 font-sans text-3xl font-bold tabular-nums">
                 {latest ? formatBand(latest[skill.key]) : '—'}
               </p>
-              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+              <p className="mt-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
                 {skill.label}
-                {d && <span className="ml-2 text-gray-500">{d}</span>}
+                {d && <span className="ml-2 text-foreground-muted">{d}</span>}
               </p>
             </div>
           );
@@ -196,7 +196,7 @@ export function Ielts() {
                 onClick={() => toggleLine(line.key)}
                 className={cn(
                   'flex items-center gap-1.5 border px-2 py-1 text-[10px] font-bold uppercase tracking-wider transition-opacity',
-                  hidden.has(line.key) ? 'border-gray-800 text-gray-600 opacity-50' : 'border-gray-700 text-gray-300',
+                  hidden.has(line.key) ? 'border-border-subtle text-foreground-muted opacity-50' : 'border-border text-foreground-secondary',
                 )}
               >
                 <span className="size-2 rounded-full" style={{ background: line.color }} />
@@ -220,8 +220,8 @@ export function Ielts() {
                 />
                 <Tooltip
                   contentStyle={{
-                    background: 'hsl(215 25% 16%)',
-                    border: '1px solid hsl(215 20% 22%)',
+                    background: 'hsl(var(--surface-2))',
+                    border: '1px solid hsl(var(--border))',
                     fontSize: 12,
                   }}
                 />
@@ -282,9 +282,9 @@ export function Ielts() {
                   </label>
                 ))}
               </div>
-              <div className="flex items-center justify-between border border-gray-800 bg-black/20 px-3 py-2">
+              <div className="flex items-center justify-between border border-border-subtle bg-black/20 px-3 py-2">
                 <span className="surface-label">Overall (auto)</span>
-                <span className="font-sans text-lg font-bold tabular-nums text-gray-500">
+                <span className="font-sans text-lg font-bold tabular-nums text-foreground-muted">
                   {formAverage !== null ? formatBand(formAverage) : '—'}
                 </span>
               </div>
@@ -300,31 +300,31 @@ export function Ielts() {
         <Card>
           <CardHeader>
             <CardTitle>History</CardTitle>
-            <span className="text-xs tabular-nums text-gray-600">{results.length} results</span>
+            <span className="text-xs tabular-nums text-foreground-muted">{results.length} results</span>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[420px] text-sm">
                 <thead>
-                  <tr className="text-left text-[10px] uppercase tracking-wider text-gray-600">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-foreground-muted">
                     <th className="pb-2 font-bold">Date</th>
                     <th className="pb-2 text-center font-bold">L</th>
                     <th className="pb-2 text-center font-bold">R</th>
                     <th className="pb-2 text-center font-bold">W</th>
                     <th className="pb-2 text-center font-bold">S</th>
-                    <th className="pb-2 text-center font-bold text-primary">Overall</th>
+                    <th className="pb-2 text-center font-bold text-foreground">Overall</th>
                     <th className="pb-2" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800">
+                <tbody className="divide-y divide-border-subtle">
                   {descending.map((result) => (
-                    <tr key={result.id} className="tabular-nums text-gray-300">
+                    <tr key={result.id} className="tabular-nums text-foreground-secondary">
                       <td className="py-2 font-mono text-xs">{result.date}</td>
                       <td className="py-2 text-center">{formatBand(result.listening)}</td>
                       <td className="py-2 text-center">{formatBand(result.reading)}</td>
                       <td className="py-2 text-center">{formatBand(result.writing)}</td>
                       <td className="py-2 text-center">{formatBand(result.speaking)}</td>
-                      <td className="py-2 text-center font-bold text-primary">
+                      <td className="py-2 text-center font-bold text-foreground">
                         {formatBand(overallBand(result))}
                       </td>
                       <td className="py-2 text-right">
@@ -341,7 +341,7 @@ export function Ielts() {
                   ))}
                   {results.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-sm text-gray-600">
+                      <td colSpan={7} className="py-8 text-center text-sm text-foreground-muted">
                         No results yet. Add your first mock above.
                       </td>
                     </tr>

@@ -70,11 +70,11 @@ export function Projects() {
 
   return (
     <div className="page-shell">
-      <header className="mb-7 border-b border-gray-800 pb-7 md:flex md:items-end md:justify-between">
+      <header className="mb-7 border-b border-border-subtle pb-7 md:flex md:items-end md:justify-between">
         <div>
           <p className="page-kicker">{domain} / Projects</p>
           <h1 className="page-title">Keep it moving</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-gray-500">
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
             Long-range commitments, reduced to the milestones and linked activity that prove momentum.
           </p>
         </div>
@@ -97,7 +97,7 @@ export function Projects() {
                 <Plus className="size-4" />
                 Create project
               </Button>
-              <p className="mt-3 text-xs text-gray-600">
+              <p className="mt-3 text-xs text-foreground-muted">
                 Milestones are added from the project card once it exists.
               </p>
             </div>

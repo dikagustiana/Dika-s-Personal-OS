@@ -56,3 +56,17 @@ them only from the environment; once the Production env vars are configured, the
 two copies behave identically.
 
 This folder is documentation and is not used by the app build.
+
+## Build stamp (v5)
+
+Every build now bakes a short commit SHA and UTC timestamp into the bundle
+(Vite `define`, see `vite.config.ts`), rendered in small muted type at the
+bottom of the sidebar. "Is the live site running the code I merged?" is
+answered by comparing that stamp to `git log` — no more guessing from UI
+features. SHA resolution order: `VERCEL_GIT_COMMIT_SHA` (present once the Git
+integration exists) → local `git rev-parse` → a gitignored `.build-sha` file
+(for git-less file uploads) → `unknown`.
+
+Until the dashboard-only Git connection is made, interim production deploys are
+prebuilt locally from the repo (so the stamp carries the real SHA) and uploaded
+as static files. The stamp makes any future staleness self-evident.

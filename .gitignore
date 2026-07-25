@@ -16,3 +16,6 @@ dist/
 
 # Vercel
 .vercel/
+
+# Build stamp for git-less uploads (see vite.config.ts)
+.build-sha

@@ -24,7 +24,7 @@ export function ToastViewport() {
           key={toast.id}
           className={cn(
             'flex items-start gap-3 border bg-card p-3 shadow-lg',
-            toast.tone === 'error' ? 'border-destructive/50' : 'border-gray-700',
+            toast.tone === 'error' ? 'border-destructive/50' : 'border-border',
           )}
         >
           <AlertTriangle
@@ -33,7 +33,7 @@ export function ToastViewport() {
               toast.tone === 'error' ? 'text-destructive' : 'text-primary',
             )}
           />
-          <p className="min-w-0 flex-1 text-sm leading-5 text-gray-200">{toast.message}</p>
+          <p className="min-w-0 flex-1 text-sm leading-5 text-foreground">{toast.message}</p>
           {toast.retry && (
             <Button
               variant="secondary"
