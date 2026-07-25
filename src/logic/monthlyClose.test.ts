@@ -4,6 +4,7 @@ import type { Milestone, Project } from '../data/types';
 import {
   buildMonthlyCloseInputs,
   closeDayIndex,
+  closeWindowState,
   ensureMonthlyClose,
   latestPriorClose,
   missingSeries,
@@ -142,6 +143,41 @@ describe('shiftCloseDate', () => {
   });
 });
 
+describe('closeWindowState', () => {
+  it('walks the July 2026 window from hidden to asking', () => {
+    expect(closeWindowState('2026-07', new Date(2026, 6, 21))).toBe('before');
+    expect(closeWindowState('2026-07', new Date(2026, 6, 22))).toBe('visible');
+    expect(closeWindowState('2026-07', new Date(2026, 7, 12))).toBe('visible'); // WD8
+    expect(closeWindowState('2026-07', new Date(2026, 7, 13))).toBe('ask');
+  });
+
+  it('counts any time of day on a boundary day as inside the window', () => {
+    expect(closeWindowState('2026-07', new Date(2026, 6, 22, 23, 59))).toBe('visible');
+    expect(closeWindowState('2026-07', new Date(2026, 7, 12, 23, 59))).toBe('visible');
+    expect(closeWindowState('2026-07', new Date(2026, 6, 21, 23, 59))).toBe('before');
+  });
+
+  it('follows WD8 across the weekends it skips', () => {
+    // Sept 2026 ends Wed 30th, so WD8 is Mon 12 Oct — two weekends later. The
+    // Saturday inside the window is still 'visible', not already 'ask'.
+    expect(closeWindowState('2026-09', new Date(2026, 9, 10))).toBe('visible');
+    expect(closeWindowState('2026-09', new Date(2026, 9, 12))).toBe('visible');
+    expect(closeWindowState('2026-09', new Date(2026, 9, 13))).toBe('ask');
+  });
+
+  it('opens on the 22nd of the period month, not of the month after', () => {
+    expect(closeWindowState('2026-09', new Date(2026, 8, 22))).toBe('visible');
+    expect(closeWindowState('2026-09', new Date(2026, 8, 21))).toBe('before');
+  });
+
+  it('stays open across the year boundary', () => {
+    // Dec 2026 ends Thu 31st, so WD8 is Tue 12 Jan 2027.
+    expect(closeWindowState('2026-12', new Date(2026, 11, 22))).toBe('visible');
+    expect(closeWindowState('2026-12', new Date(2027, 0, 12))).toBe('visible');
+    expect(closeWindowState('2026-12', new Date(2027, 0, 13))).toBe('ask');
+  });
+});
+
 describe('seriesOf', () => {
   it('reads the series from the title suffix', () => {
     expect(seriesOf(closeProject({ title: 'Closing Juli — BMG' }))).toBe('BMG');
@@ -185,6 +221,15 @@ describe('buildMonthlyCloseInputs (fallback template)', () => {
     const bmg = inputs[0];
     expect(bmg.milestones.map((m) => m.endDate)).toEqual(['2026-08-05', '2026-08-10']);
     expect(bmg.milestones.every((m) => m.dueDate === undefined)).toBe(true);
+  });
+
+  it('deadlines every series on WD8, the day the checklist itself runs to', () => {
+    // WD8 of the July period is Wed 12 Aug, not the calendar 8th (a Saturday).
+    for (const input of inputs) expect(input.deadline).toBe('2026-08-12');
+  });
+
+  it('gives consolidation the same WD8 as the entities, not a day later', () => {
+    expect(inputs[5].deadline).toBe(inputs[0].deadline);
   });
 
   it('orders consolidation by date with Approve TB before the review deck', () => {
@@ -233,6 +278,15 @@ describe('missingSeries / needsGeneration', () => {
     expect(needsGeneration(existing, '2026-07', 'Consolidation')).toBe(true);
   });
 
+  it('still reports all six when the prior period was closed out', () => {
+    // Answering "Sudah" marks every project in a period done. That must not
+    // read as "the next period is already covered".
+    const existing = ['BMG', 'OKI', 'KGR', 'NMG', 'KBF', 'Consolidation'].map((series) =>
+      closeProject({ title: `Closing Juni — ${series}`, period: '2026-06', status: 'done' }),
+    );
+    expect(missingSeries(existing, '2026-07')).toHaveLength(6);
+  });
+
   it('ignores other periods and non-recurring projects entirely', () => {
     const existing = [
       closeProject({ title: 'Closing Juni — BMG', period: '2026-06' }),
@@ -260,6 +314,15 @@ describe('latestPriorClose', () => {
 
   it('is null for a series with no history', () => {
     expect(latestPriorClose(existing, '2026-07', 'KGR')).toBeNull();
+  });
+
+  it('finds a prior close that was already marked done', () => {
+    // The only source the first generation after a close-out has is a project
+    // whose status is 'done'. A status filter here would end the series.
+    const closed = [
+      closeProject({ title: 'Closing Juni — KGR', period: '2026-06', status: 'done' }),
+    ];
+    expect(latestPriorClose(closed, '2026-07', 'KGR')?.period).toBe('2026-06');
   });
 });
 
@@ -328,6 +391,30 @@ describe('rollForwardMilestone', () => {
     );
     expect(marked.dateConfidence).toBe('estimated');
   });
+
+  it('carries a still-blocked milestone across blocked, with its note intact', () => {
+    // Blocked at the end of the cycle means the blocker was never resolved, so
+    // the new period inherits it rather than pretending the work is fresh.
+    const blocked = rollForwardMilestone(
+      milestone({ status: 'blocked', note: 'waiting on another department' }),
+      '2026-06',
+      '2026-07',
+    );
+    expect(blocked.status).toBe('blocked');
+    expect(blocked.note).toBe('waiting on another department');
+    expect(blocked.done).toBe(false);
+    expect(blocked.escalateTo).toBe('none');
+  });
+
+  it('still resets an in-progress milestone and drops its note', () => {
+    const inProgress = rollForwardMilestone(
+      milestone({ status: 'in-progress', note: 'half of the reconciliation done' }),
+      '2026-06',
+      '2026-07',
+    );
+    expect(inProgress.status).toBe('not-started');
+    expect(inProgress.note).toBeUndefined();
+  });
 });
 
 describe('rollForwardProject', () => {
@@ -361,14 +448,28 @@ describe('rollForwardProject', () => {
     expect(rolled.parentId).toBeUndefined();
   });
 
-  it('carries every milestone across as a clean instance, none skipped', () => {
+  it('carries every milestone across, none skipped, with none left done', () => {
     expect(rolled.milestones.map((m) => m.text)).toEqual(['Task A', 'Task B']);
-    expect(rolled.milestones.every((m) => m.status === 'not-started' && !m.done)).toBe(true);
-    expect(rolled.milestones.every((m) => m.note === undefined)).toBe(true);
+    expect(rolled.milestones.every((m) => !m.done)).toBe(true);
+  });
+
+  it('resets the finished milestone but inherits the blocked one and its note', () => {
+    const [taskA, taskB] = rolled.milestones;
+    expect(taskA.status).toBe('not-started');
+    expect(taskA.note).toBeUndefined();
+    expect(taskB.status).toBe('blocked');
+    expect(taskB.note).toBe('stuck');
+  });
+
+  it('deadlines the rolled project on WD8 of the new period', () => {
+    expect(rolled.deadline).toBe('2026-08-12');
+    expect(rollForwardProject(source, '2026-07', 'Consolidation').deadline).toBe(
+      '2026-08-12',
+    );
   });
 
   it('does not additionally carry the unfinished ones over as leftovers', () => {
-    // "Task B" was blocked in June. It appears exactly once, reset — not twice.
+    // "Task B" was blocked in June. It appears exactly once — not twice.
     expect(rolled.milestones.filter((m) => m.text === 'Task B')).toHaveLength(1);
   });
 });
@@ -383,11 +484,16 @@ describe('ensureMonthlyClose', () => {
     return repository;
   }
 
-  const june = (series: string, milestones: Milestone[]): Omit<Project, 'id'> => ({
+  const june = (
+    series: string,
+    milestones: Milestone[],
+    // The period a cycle rolls forward FROM is normally already closed out.
+    status: Project['status'] = 'active',
+  ): Omit<Project, 'id'> => ({
     domain: 'work',
     title: `Closing Juni — ${series}`,
     type: 'other',
-    status: 'active',
+    status,
     milestones,
     order: 100,
     recurring: 'monthly',
@@ -408,6 +514,34 @@ describe('ensureMonthlyClose', () => {
     expect(bmg?.milestones[0].text).toBe('First task');
     expect(bmg?.milestones[0].pic).toBe('PIC-1');
     expect(bmg?.milestones[0].endDate).toBe('2026-08-10'); // WD6, over the weekend
+  });
+
+  it('rolls a closed-out period forward — the first cycle after "Sudah"', async () => {
+    // Answering "Sudah" sets all six June projects to 'done'. Nothing may treat
+    // that as "no history": it would stop every checklist at the first close.
+    const repository = await seedRepository(
+      ['BMG', 'OKI', 'KGR', 'NMG', 'KBF', 'Consolidation'].map((series) =>
+        june(
+          series,
+          [milestone({ id: `${series}-1`, text: `${series} step`, pic: 'PIC-1', endDate: '2026-07-08' })],
+          'done',
+        ),
+      ),
+    );
+    const created = await ensureMonthlyClose(repository, now);
+    expect(created.map((project) => project.title)).toEqual([
+      'Closing Juli — BMG',
+      'Closing Juli — OKI',
+      'Closing Juli — KGR',
+      'Closing Juli — NMG',
+      'Closing Juli — KBF',
+      'Closing Juli — Consolidation',
+    ]);
+    const bmg = created[0];
+    expect(bmg.status).toBe('active');
+    expect(bmg.milestones.map((m) => m.text)).toEqual(['BMG step']);
+    expect(bmg.milestones[0].pic).toBe('PIC-1');
+    expect(bmg.milestones[0].endDate).toBe('2026-08-10'); // WD6, over the weekend
   });
 
   it('falls back to the generic template for a series with no history', async () => {

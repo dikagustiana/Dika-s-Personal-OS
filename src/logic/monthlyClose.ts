@@ -46,13 +46,6 @@ export function periodLabel(period: string): string {
   return `Closing ${INDONESIAN_MONTHS[month - 1]}`;
 }
 
-/** Day D in the month AFTER the period. Calendar days, no weekday logic. */
-function nextMonthDay(period: string, day: number): string {
-  const year = Number(period.slice(0, 4));
-  const month = Number(period.slice(5, 7)); // 1-based
-  return format(new Date(year, month, day), 'yyyy-MM-dd');
-}
-
 // ---------------------------------------------------------------------------
 // Working-day arithmetic
 //
@@ -143,6 +136,40 @@ export function shiftCloseDate(date: string, from: string, to: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// The close-cycle window
+// ---------------------------------------------------------------------------
+
+// WD8 is where a cycle is expected to be finished. The project deadline and the
+// close card's window both end there, so they read from one value instead of
+// two literals that can drift apart.
+const CLOSE_DEADLINE_WD = 8;
+
+// The day of the period's own month a cycle opens — the same day `targetPeriod`
+// starts pointing at that period.
+const CLOSE_OPEN_DAY = 22;
+
+export type CloseWindowState = 'before' | 'visible' | 'ask';
+
+/**
+ * Where a period's close sits relative to its own window.
+ *
+ * `before` means the cycle has not opened yet. `visible` runs from the 22nd of
+ * the period month through WD8 of the following month. After WD8 the state is
+ * `ask`, not `before` again: a cycle that overran is still real work, so the
+ * card asks whether it finished rather than vanishing and taking an unfinished
+ * checklist with it. What that question looks like is the UI's business.
+ *
+ * Compared on calendar dates, so any time of day on the 22nd or on WD8 counts
+ * as inside the window instead of half of it.
+ */
+export function closeWindowState(period: string, now: Date): CloseWindowState {
+  const today = format(now, 'yyyy-MM-dd');
+  const opens = `${period}-${String(CLOSE_OPEN_DAY).padStart(2, '0')}`;
+  if (today < opens) return 'before';
+  return today <= workingDay(period, CLOSE_DEADLINE_WD) ? 'visible' : 'ask';
+}
+
+// ---------------------------------------------------------------------------
 // Series identity
 // ---------------------------------------------------------------------------
 
@@ -205,10 +232,10 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
     title: `${label}${SERIES_SEPARATOR}${entity}`,
     type: 'other',
     status: 'active',
-    // Project-level deadline stays anchored to the 8th. See the note on
-    // ensureMonthlyClose: reconciling it with the working-day schedule is the
-    // owner's call, not something to decide silently here.
-    deadline: nextMonthDay(period, 8),
+    // The project deadline is the same working day the checklist runs to. A
+    // calendar 8th read as overdue while the last milestone was still
+    // legitimately open, which made the project card argue with its own rows.
+    deadline: workingDay(period, CLOSE_DEADLINE_WD),
     milestones: [
       milestone('Close the books', period, 3),
       milestone('TB final & reconciled', period, 6),
@@ -223,7 +250,10 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
     title: `${label}${SERIES_SEPARATOR}Consolidation`,
     type: 'other',
     status: 'active',
-    deadline: nextMonthDay(period, 9),
+    // Consolidation used to sit one calendar day after the entities. Both now
+    // land on WD8, so that gap is deliberately collapsed: expressing it in
+    // working days would push consolidation to WD9, a date nobody committed to.
+    deadline: workingDay(period, CLOSE_DEADLINE_WD),
     milestones: [
       milestone('Collect entity TBs', period, 4),
       milestone('Eliminations & consolidated TB', period, 5),
@@ -248,10 +278,11 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
  * Preserved: the text, the PIC (the owner rarely reassigns month to month),
  * and any date-confidence marking they set.
  *
- * Reset: status and done, so the new cycle starts clean. Cleared: the note
- * (last month's blocker is not this month's), the escalation flag, and the
- * documents (last month's working papers are not this month's). A fresh id,
- * because this is a new instance of the task and not the same one.
+ * Reset: status and done, so the new cycle starts clean — except for a
+ * milestone still 'blocked' at the end of the cycle, which keeps that status
+ * and the note explaining it. Cleared otherwise: the note, the escalation
+ * flag, and the documents (last month's working papers are not this month's).
+ * A fresh id, because this is a new instance of the task and not the same one.
  *
  * Dates shift by working day, not by adding a month — a task that ran on WD6
  * in June runs on WD6 in July, wherever the weekend falls. This is also the
@@ -265,13 +296,20 @@ export function rollForwardMilestone(
   to: string,
 ): Milestone {
   const end = milestoneEnd(source);
+  // A blocker resolved mid-cycle would already have moved the milestone to
+  // in-progress or done, so anything still blocked when the cycle ends was
+  // never unblocked: it is a standing blocker, not last month's news. Resetting
+  // it to not-started and dropping the explanation produces a LESS accurate
+  // record of where the work stands, not a cleaner one.
+  const stillBlocked = source.status === 'blocked';
   const rolled: Milestone = {
     id: crypto.randomUUID(),
     text: source.text,
     done: false,
-    status: 'not-started',
+    status: stillBlocked ? 'blocked' : 'not-started',
     escalateTo: 'none',
   };
+  if (stillBlocked && source.note) rolled.note = source.note;
   if (source.pic) rolled.pic = source.pic;
   if (source.dateConfidence) rolled.dateConfidence = source.dateConfidence;
   if (source.startDate) rolled.startDate = shiftCloseDate(source.startDate, from, to);
@@ -282,7 +320,8 @@ export function rollForwardMilestone(
 /**
  * Copies a whole close project into the next period.
  *
- * Every milestone comes across as a clean instance of the task. Milestones
+ * Every milestone comes across as a new instance of the task — clean, apart
+ * from a standing blocker (see `rollForwardMilestone`). Milestones
  * the previous cycle never finished are NOT additionally carried over as
  * leftovers — they stay on the older project, where they keep showing as
  * overdue, which is the existing deliberate behaviour. Copying them as well
@@ -306,7 +345,9 @@ export function rollForwardProject(
     order: closeOrder(series),
     recurring: 'monthly',
     period: to,
-    deadline: nextMonthDay(to, series === 'Consolidation' ? 9 : 8),
+    // WD8 for every series, consolidation included — see the note in
+    // buildMonthlyCloseInputs on the collapsed one-day gap.
+    deadline: workingDay(to, CLOSE_DEADLINE_WD),
   };
   if (source.targetMetric) rolled.targetMetric = source.targetMetric;
   if (source.entityTag) rolled.entityTag = source.entityTag;
@@ -370,10 +411,10 @@ export function needsGeneration(
  * Idempotent: a second run for the same period creates nothing and never
  * touches a close already in flight.
  *
- * OPEN, deliberately not resolved here: the project-level `deadline` is still
- * anchored to the 8th of the following month, while a working-day schedule
- * can run past it (WD8 for the July period is 12 Aug). Only the owner can
- * decide which one is the real commitment.
+ * The project-level `deadline` is WD8 of the following month — the same day
+ * the checklist runs to, so it no longer reads as overdue while the cycle's
+ * last milestones are still legitimately open. Consolidation shares that WD8
+ * rather than trailing the entities by a day.
  */
 export async function ensureMonthlyClose(
   repository: Repository,
