@@ -1,9 +1,15 @@
-import { format } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, parseISO } from 'date-fns';
 import type { Repository } from '../data/repository';
 import type { Milestone, Project } from '../data/types';
+import { milestoneEnd } from './milestones';
 
 // The recurring monthly-close cycle: five entity closes plus consolidation.
 export const CLOSE_ENTITIES = ['BMG', 'OKI', 'KGR', 'NMG', 'KBF'] as const;
+
+// One independent series per project. Each generates, and rolls forward, on
+// its own — a series is never suppressed because a sibling already exists.
+export const CLOSE_SERIES = [...CLOSE_ENTITIES, 'Consolidation'] as const;
+export type CloseSeries = (typeof CLOSE_SERIES)[number];
 
 const INDONESIAN_MONTHS = [
   'Januari',
@@ -20,10 +26,13 @@ const INDONESIAN_MONTHS = [
   'Desember',
 ];
 
+// The title separator between the period label and the series name.
+const SERIES_SEPARATOR = ' — ';
+
 /**
  * The close period a given date belongs to, as YYYY-MM. Cycles generate on
  * the 22nd for THAT month's close, so before the 22nd the pending period is
- * still the previous month (its milestones run to the 8th of this month).
+ * still the previous month (its milestones run into the following month).
  */
 export function targetPeriod(now: Date): string {
   const day = now.getDate();
@@ -37,58 +46,191 @@ export function periodLabel(period: string): string {
   return `Closing ${INDONESIAN_MONTHS[month - 1]}`;
 }
 
-/** Day D in the month AFTER the period ("deadlines anchored to the 8th"). */
+/** Day D in the month AFTER the period. Calendar days, no weekday logic. */
 function nextMonthDay(period: string, day: number): string {
   const year = Number(period.slice(0, 4));
   const month = Number(period.slice(5, 7)); // 1-based
   return format(new Date(year, month, day), 'yyyy-MM-dd');
 }
 
-function milestone(text: string, dueDate: string): Milestone {
+// ---------------------------------------------------------------------------
+// Working-day arithmetic
+//
+// A close is not paced in calendar days. D0 is the last calendar day of the
+// period (the cut-off), WD1 is the first weekday strictly after it, and WDn
+// counts weekdays only — so a task at WD6 lands on a Monday when the weekend
+// falls in between, instead of on a Saturday nobody works.
+//
+// Indonesian public holidays are deliberately NOT modelled. There is no
+// holiday table in this app and no reliable source wired up to it; a guessed
+// or hardcoded list would silently move real deadlines onto wrong dates,
+// which is worse than the owner nudging two dates by hand when a national
+// holiday lands mid-close. Weekends only.
+//
+// Only resolved calendar dates are ever stored. "WD5" is a way of computing a
+// date, never a value that reaches the database.
+// ---------------------------------------------------------------------------
+
+// A close task more than a working year past cut-off is bad data, not a
+// schedule. The cap keeps a corrupt date from spinning the resolver.
+const MAX_WORKING_DAY = 260;
+
+function isWeekday(date: Date): boolean {
+  const day = date.getDay();
+  return day !== 0 && day !== 6; // Sunday, Saturday
+}
+
+/** D0 — the last calendar day of the period, as YYYY-MM-DD. */
+export function periodEnd(period: string): string {
+  const year = Number(period.slice(0, 4));
+  const month = Number(period.slice(5, 7)); // 1-based; day 0 = last day of it
+  return format(new Date(year, month, 0), 'yyyy-MM-dd');
+}
+
+/**
+ * Resolves a close-day index to a calendar date.
+ *
+ * `0` is D0, `n >= 1` is WDn, and a negative index is that many calendar days
+ * before D0 — the last case exists only so a hand-entered date inside the
+ * period survives a roll-forward instead of being snapped to the cut-off.
+ */
+export function resolveCloseDay(period: string, index: number): string {
+  const d0 = parseISO(periodEnd(period));
+  if (index <= 0) return format(addDays(d0, index), 'yyyy-MM-dd');
+
+  let cursor = d0;
+  let counted = 0;
+  const target = Math.min(index, MAX_WORKING_DAY);
+  while (counted < target) {
+    cursor = addDays(cursor, 1);
+    if (isWeekday(cursor)) counted += 1;
+  }
+  return format(cursor, 'yyyy-MM-dd');
+}
+
+/** WDn for a period. `workingDay('2026-07', 6)` is 2026-08-10, not the 8th. */
+export function workingDay(period: string, n: number): string {
+  return resolveCloseDay(period, n);
+}
+
+/**
+ * The close-day index a date sits on within its period — the inverse of
+ * `resolveCloseDay`, so a date can be re-expressed in another period's
+ * calendar.
+ *
+ * A date that falls on a weekend after D0 reports the index of the weekday
+ * before it, so it snaps onto a working day on the way back out. That is a
+ * deliberate normalisation: a close task scheduled on a Saturday is an
+ * artefact, not an intention.
+ */
+export function closeDayIndex(period: string, date: string): number {
+  const d0 = parseISO(periodEnd(period));
+  const offset = differenceInCalendarDays(parseISO(date), d0);
+  if (offset <= 0) return offset;
+
+  let cursor = d0;
+  let index = 0;
+  for (let step = 0; step < offset; step += 1) {
+    cursor = addDays(cursor, 1);
+    if (isWeekday(cursor)) index += 1;
+  }
+  return index;
+}
+
+/** Re-expresses a date from one period's close calendar in another's. */
+export function shiftCloseDate(date: string, from: string, to: string): string {
+  return resolveCloseDay(to, closeDayIndex(from, date));
+}
+
+// ---------------------------------------------------------------------------
+// Series identity
+// ---------------------------------------------------------------------------
+
+function isCloseSeries(value: string): value is CloseSeries {
+  return (CLOSE_SERIES as readonly string[]).includes(value);
+}
+
+/** Where a series sits in the Monthly Close view, matching generation order. */
+function closeOrder(series: CloseSeries): number {
+  return 100 + CLOSE_SERIES.indexOf(series);
+}
+
+/**
+ * Which series a recurring close project belongs to.
+ *
+ * `entity_tag` wins when it names a known series, because it is the field the
+ * owner controls; the title suffix is the fallback, and is what every project
+ * generated before entity tags existed carries. Returns null for a project
+ * that is not part of the cycle at all.
+ */
+export function seriesOf(project: Project): CloseSeries | null {
+  const tag = project.entityTag?.trim();
+  if (tag && isCloseSeries(tag)) return tag;
+  const suffix = project.title.split(SERIES_SEPARATOR).pop()?.trim();
+  return suffix && isCloseSeries(suffix) ? suffix : null;
+}
+
+// ---------------------------------------------------------------------------
+// Fallback template
+// ---------------------------------------------------------------------------
+
+/**
+ * A milestone for the fallback template. Dates are written to `endDate`:
+ * `dueDate` is the legacy field and nothing new writes it, so a first-ever
+ * generation does not immediately owe the next roll-forward a migration.
+ */
+function milestone(text: string, period: string, wd: number): Milestone {
   return {
     id: crypto.randomUUID(),
     text,
     done: false,
     status: 'not-started',
-    dueDate,
+    endDate: workingDay(period, wd),
   };
 }
 
 /**
- * The six project inputs for one close period, milestones ordered by
- * deadline. Consolidation ends with "Approve TB" then "Build monthly review
- * deck" — deadline-ordered, not locked.
+ * The generic six-project template — used ONLY when a series has no prior
+ * period to copy from: a first-ever generation, or an entity added to
+ * CLOSE_SERIES later.
+ *
+ * Its milestone content is deliberately minimal and generic. The real
+ * checklist for a given entity is data the owner maintains from the UI, and
+ * it reaches new periods by roll-forward, not from this file.
  */
 export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id'>> {
   const label = periodLabel(period);
-  const entityProjects = CLOSE_ENTITIES.map<Omit<Project, 'id'>>((entity, index) => ({
+  const entityProjects = CLOSE_ENTITIES.map<Omit<Project, 'id'>>((entity) => ({
     domain: 'work',
-    title: `${label} — ${entity}`,
+    title: `${label}${SERIES_SEPARATOR}${entity}`,
     type: 'other',
     status: 'active',
+    // Project-level deadline stays anchored to the 8th. See the note on
+    // ensureMonthlyClose: reconciling it with the working-day schedule is the
+    // owner's call, not something to decide silently here.
     deadline: nextMonthDay(period, 8),
     milestones: [
-      milestone('Close the books', nextMonthDay(period, 5)),
-      milestone('TB final & reconciled', nextMonthDay(period, 8)),
+      milestone('Close the books', period, 3),
+      milestone('TB final & reconciled', period, 6),
     ],
-    order: 100 + index,
+    order: closeOrder(entity),
     recurring: 'monthly',
     period,
   }));
 
   const consolidation: Omit<Project, 'id'> = {
     domain: 'work',
-    title: `${label} — Consolidation`,
+    title: `${label}${SERIES_SEPARATOR}Consolidation`,
     type: 'other',
     status: 'active',
     deadline: nextMonthDay(period, 9),
     milestones: [
-      milestone('Collect entity TBs', nextMonthDay(period, 6)),
-      milestone('Eliminations & consolidated TB', nextMonthDay(period, 7)),
-      milestone('Approve TB', nextMonthDay(period, 8)),
-      milestone('Build monthly review deck', nextMonthDay(period, 9)),
+      milestone('Collect entity TBs', period, 4),
+      milestone('Eliminations & consolidated TB', period, 5),
+      milestone('Approve TB', period, 6),
+      milestone('Build monthly review deck', period, 7),
     ],
-    order: 100 + CLOSE_ENTITIES.length,
+    order: closeOrder('Consolidation'),
     recurring: 'monthly',
     period,
   };
@@ -96,18 +238,142 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
   return [...entityProjects, consolidation];
 }
 
-/** True when no recurring project exists yet for the period. */
-export function needsGeneration(existing: Project[], period: string): boolean {
-  return !existing.some(
-    (project) => project.recurring === 'monthly' && project.period === period,
-  );
+// ---------------------------------------------------------------------------
+// Roll-forward
+// ---------------------------------------------------------------------------
+
+/**
+ * Copies one milestone into the next period.
+ *
+ * Preserved: the text, the PIC (the owner rarely reassigns month to month),
+ * and any date-confidence marking they set.
+ *
+ * Reset: status and done, so the new cycle starts clean. Cleared: the note
+ * (last month's blocker is not this month's), the escalation flag, and the
+ * documents (last month's working papers are not this month's). A fresh id,
+ * because this is a new instance of the task and not the same one.
+ *
+ * Dates shift by working day, not by adding a month — a task that ran on WD6
+ * in June runs on WD6 in July, wherever the weekend falls. This is also the
+ * one place the legacy `dueDate` is allowed to migrate: a milestone that only
+ * ever had a `dueDate` comes out the other side with `endDate` set and
+ * `dueDate` gone.
+ */
+export function rollForwardMilestone(
+  source: Milestone,
+  from: string,
+  to: string,
+): Milestone {
+  const end = milestoneEnd(source);
+  const rolled: Milestone = {
+    id: crypto.randomUUID(),
+    text: source.text,
+    done: false,
+    status: 'not-started',
+    escalateTo: 'none',
+  };
+  if (source.pic) rolled.pic = source.pic;
+  if (source.dateConfidence) rolled.dateConfidence = source.dateConfidence;
+  if (source.startDate) rolled.startDate = shiftCloseDate(source.startDate, from, to);
+  if (end) rolled.endDate = shiftCloseDate(end, from, to);
+  return rolled;
 }
 
 /**
- * Generates the current period's close cycle if it does not exist yet.
- * Idempotent: a period is generated at most once (guarded by needsGeneration);
- * items from older periods are left untouched so unfinished work stays
- * visible as overdue. Returns the created projects (empty when up to date).
+ * Copies a whole close project into the next period.
+ *
+ * Every milestone comes across as a clean instance of the task. Milestones
+ * the previous cycle never finished are NOT additionally carried over as
+ * leftovers — they stay on the older project, where they keep showing as
+ * overdue, which is the existing deliberate behaviour. Copying them as well
+ * would double-count the same piece of work across two periods.
+ *
+ * The project keeps its entity tag and its parent; project-level documents
+ * are cleared for the same reason milestone documents are.
+ */
+export function rollForwardProject(
+  source: Project,
+  to: string,
+  series: CloseSeries,
+): Omit<Project, 'id'> {
+  const from = source.period ?? to;
+  const rolled: Omit<Project, 'id'> = {
+    domain: source.domain,
+    title: `${periodLabel(to)}${SERIES_SEPARATOR}${series}`,
+    type: source.type,
+    status: 'active',
+    milestones: source.milestones.map((item) => rollForwardMilestone(item, from, to)),
+    order: closeOrder(series),
+    recurring: 'monthly',
+    period: to,
+    deadline: nextMonthDay(to, series === 'Consolidation' ? 9 : 8),
+  };
+  if (source.targetMetric) rolled.targetMetric = source.targetMetric;
+  if (source.entityTag) rolled.entityTag = source.entityTag;
+  if (source.parentId) rolled.parentId = source.parentId;
+  return rolled;
+}
+
+/** The most recent close project in a series strictly before `period`. */
+export function latestPriorClose(
+  existing: Project[],
+  period: string,
+  series: CloseSeries,
+): Project | null {
+  const candidates = existing
+    .filter(
+      (project) =>
+        project.recurring === 'monthly' &&
+        typeof project.period === 'string' &&
+        project.period < period &&
+        seriesOf(project) === series,
+    )
+    .sort((a, b) => (a.period as string).localeCompare(b.period as string));
+  return candidates.at(-1) ?? null;
+}
+
+/** Series with no project for the period yet, in generation order. */
+export function missingSeries(existing: Project[], period: string): CloseSeries[] {
+  const present = new Set<CloseSeries>();
+  for (const project of existing) {
+    if (project.recurring !== 'monthly' || project.period !== period) continue;
+    const series = seriesOf(project);
+    if (series) present.add(series);
+  }
+  return CLOSE_SERIES.filter((series) => !present.has(series));
+}
+
+/**
+ * True when THIS series has no project for the period.
+ *
+ * Per series, not per period: the old per-period check meant one existing
+ * project suppressed generation of the other five, so a cycle that was
+ * partially created (or had one project deleted) could never complete itself.
+ */
+export function needsGeneration(
+  existing: Project[],
+  period: string,
+  series: CloseSeries,
+): boolean {
+  return missingSeries(existing, period).includes(series);
+}
+
+/**
+ * Generates whatever the current period is missing, one series at a time.
+ *
+ * Each missing series rolls forward from its own most recent prior period —
+ * so the checklist the owner maintains in the UI propagates automatically,
+ * with PICs intact, dates shifted by working day, and statuses clean. A
+ * series with no history at all falls back to the generic template; nothing
+ * is invented for it.
+ *
+ * Idempotent: a second run for the same period creates nothing and never
+ * touches a close already in flight.
+ *
+ * OPEN, deliberately not resolved here: the project-level `deadline` is still
+ * anchored to the 8th of the following month, while a working-day schedule
+ * can run past it (WD8 for the July period is 12 Aug). Only the owner can
+ * decide which one is the real commitment.
  */
 export async function ensureMonthlyClose(
   repository: Repository,
@@ -115,10 +381,22 @@ export async function ensureMonthlyClose(
 ): Promise<Project[]> {
   const period = targetPeriod(now);
   const existing = await repository.listProjects('work');
-  if (!needsGeneration(existing, period)) return [];
-  const created: Project[] = [];
+  const missing = missingSeries(existing, period);
+  if (missing.length === 0) return [];
+
+  const fallbacks = new Map<CloseSeries, Omit<Project, 'id'>>();
   for (const input of buildMonthlyCloseInputs(period)) {
-    created.push(await repository.createProject(input));
+    const series = input.title.split(SERIES_SEPARATOR).pop()?.trim();
+    if (series && isCloseSeries(series)) fallbacks.set(series, input);
+  }
+
+  const created: Project[] = [];
+  for (const series of missing) {
+    const source = latestPriorClose(existing, period, series);
+    const input = source
+      ? rollForwardProject(source, period, series)
+      : fallbacks.get(series);
+    if (input) created.push(await repository.createProject(input));
   }
   return created;
 }
