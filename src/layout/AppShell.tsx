@@ -12,7 +12,6 @@ import {
   Megaphone,
   Lock,
   Menu,
-  Mountain,
   RefreshCw,
   Target,
   Trophy,
@@ -29,6 +28,7 @@ import {
   type Workspace,
 } from '../store/appStore';
 import { Button } from '../components/ui/Button';
+import { LanternMark } from '../components/ui/LanternMark';
 
 // `short` is the compact label used in the mobile bottom strip.
 const workNav: Array<{ id: WorkView; label: string; short: string; icon: typeof Focus }> = [
@@ -119,7 +119,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border-subtle bg-card p-5 lg:flex lg:flex-col">
         <div className="mb-8 flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-md border border-border bg-surface-2">
-            <Mountain className="size-5 text-foreground-secondary" />
+            {/* Width only — the mark is wider than tall, so a square size
+                utility would shrink it inside the tile. */}
+            <LanternMark className="w-5" />
           </div>
           <div>
             <p className="font-display text-base font-semibold tracking-tight">Personal OS</p>
@@ -173,7 +175,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border-subtle bg-background/95 px-4 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2.5">
-          <Mountain className="size-5 text-foreground-secondary" />
+          <LanternMark className="w-5" />
           <span className="font-display text-sm font-semibold">Personal OS</span>
         </div>
         <Button
