@@ -83,7 +83,7 @@ export function WeekStripSection({
                 // continues outside the visible week.
                 bar.clippedStart ? 'rounded-l-none' : 'rounded-l-sm',
                 bar.clippedEnd ? 'rounded-r-none' : 'rounded-r-sm',
-                milestone.status === 'done' && 'border-primary/40 bg-primary-dim',
+                milestone.status === 'done' && 'border-success/40 bg-success/15',
                 milestone.status === 'blocked' && 'border-destructive/40 bg-destructive/15',
                 milestone.status === 'in-progress' && 'border-primary/30 bg-surface-3',
                 milestone.status === 'not-started' && 'border-border-subtle bg-surface-2',

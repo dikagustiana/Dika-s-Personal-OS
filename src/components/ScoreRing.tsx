@@ -2,7 +2,9 @@ import { Activity } from 'lucide-react';
 import type { DailyScoreResult } from '../logic/score';
 
 export function ScoreRing({ result }: { result: DailyScoreResult }) {
-  const ringColor = result.isEmpty ? 'hsl(var(--muted))' : 'hsl(var(--primary))';
+  // The ring reports how much of the day was earned — a positive metric, so
+  // it fills with `success` rather than the action colour.
+  const ringColor = result.isEmpty ? 'hsl(var(--muted))' : 'hsl(var(--success))';
   const fill = result.isEmpty ? 0 : result.score * 3.6;
 
   return (

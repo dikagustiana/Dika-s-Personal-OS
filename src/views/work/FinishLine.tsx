@@ -127,7 +127,7 @@ export function FinishLine() {
                     : `${row.remaining.length} milestones left`}
                 </p>
               </div>
-              <span className="font-mono text-data font-semibold tabular-nums text-primary">
+              <span className="font-mono text-data font-semibold tabular-nums text-success">
                 {Math.round((100 * row.done) / row.total)}%
               </span>
             </CardHeader>

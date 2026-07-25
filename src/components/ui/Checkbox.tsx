@@ -4,9 +4,10 @@ import { cn } from '../../lib/utils';
 
 /**
  * 20px visual box inside a 40px touch target (padding on the root). Checked
- * and focus are visually separate states: checked = primary fill with a dark
- * checkmark, focus = an offset ring on :focus-visible only — hover never
- * recolours the border, so an unchecked box can't read as checked.
+ * and focus are visually separate states: checked = `success` fill with a
+ * white checkmark (5.13:1), focus = an offset ring on :focus-visible only —
+ * hover never recolours the border, so an unchecked box can't read as
+ * checked. Checked is a DONE state, so it takes `success`, not `primary`.
  */
 export function Checkbox({
   className,
@@ -22,7 +23,7 @@ export function Checkbox({
     >
       <span
         aria-hidden
-        className="grid size-5 place-items-center rounded-sm border border-border bg-surface-2 text-primary-foreground transition-colors duration-150 group-hover:bg-surface-3 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background group-data-[state=checked]:border-primary group-data-[state=checked]:bg-primary"
+        className="grid size-5 place-items-center rounded-sm border border-border bg-surface-2 text-success-foreground transition-colors duration-150 group-hover:bg-surface-3 group-focus-visible:ring-2 group-focus-visible:ring-ring group-focus-visible:ring-offset-2 group-focus-visible:ring-offset-background group-data-[state=checked]:border-success group-data-[state=checked]:bg-success"
       >
         <CheckboxPrimitive.Indicator>
           <Check className="size-3.5" strokeWidth={3} />

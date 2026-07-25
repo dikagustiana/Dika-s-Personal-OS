@@ -244,7 +244,7 @@ export function Week() {
                 <span className="text-xs tabular-nums text-foreground-muted">{plan.goals.length}/5</span>
               </div>
               {plan.goals.map((goal, index) => (
-                <div key={goal.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border border-border-subtle bg-black/10 p-2">
+                <div key={goal.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border border-border-subtle bg-surface-2 p-2">
                   <Checkbox
                     checked={goal.done}
                     onCheckedChange={(checked) => updateGoal(goal.id, { done: checked === true })}

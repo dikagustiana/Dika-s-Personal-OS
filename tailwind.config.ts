@@ -6,6 +6,9 @@ import type { Config } from 'tailwindcss';
 // deliberately absent so an unmapped colour class produces no CSS and gets
 // caught in review instead of silently shipping an off-palette value.
 export default {
+  // Inert: the app is light-only, there is no `.dark` class on the document
+  // and no `dark:` variant anywhere in src/. Kept so the config keeps its
+  // shape; it generates nothing.
   darkMode: ['class'],
   content: ['./index.html', './src/**/*.{ts,tsx}'],
   theme: {
@@ -54,6 +57,15 @@ export default {
         DEFAULT: 'hsl(var(--destructive))',
         foreground: 'hsl(var(--destructive-foreground))',
       },
+      // Done / completed / positive delta — never a warning, never an action.
+      // Split out from `primary` when the theme went light: on navy a blue
+      // "done" would have merged into the ground, which is why done used to
+      // borrow the primary. On white the two roles can and should be
+      // different colours.
+      success: {
+        DEFAULT: 'hsl(var(--success))',
+        foreground: 'hsl(var(--success-foreground))',
+      },
       // Amber marker for due-soon / escalation / TBC only — never positive
       // states (green) and never blocked (red).
       escalate: {
@@ -83,6 +95,12 @@ export default {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      // The only card lift in the app. Navy-tinted, single layer — a light
+      // theme separates elevation with a hairline border plus this, not with
+      // a bigger lightness gap.
+      boxShadow: {
+        card: 'var(--shadow-card)',
       },
       fontFamily: {
         sans: ['Plus Jakarta Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],

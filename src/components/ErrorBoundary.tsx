@@ -43,7 +43,7 @@ export class ErrorBoundary extends Component<Props, State> {
             Your saved data is untouched — this is a display failure, not a data one.
             Try this view again, or reload if it keeps happening.
           </p>
-          <pre className="mt-4 max-h-40 overflow-auto border border-border-subtle bg-black/30 p-3 text-xs text-foreground-muted">
+          <pre className="mt-4 max-h-40 overflow-auto border border-border-subtle bg-surface-2 p-3 text-xs text-foreground-muted">
             {error.message}
           </pre>
           <div className="mt-5 flex gap-2">

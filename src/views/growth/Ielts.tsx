@@ -13,7 +13,7 @@ import {
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { IELTS_SKILL_COLORS } from '../../components/IeltsTrendChart';
+import { IELTS_SKILL_COLORS, IELTS_SKILL_DASH } from '../../components/IeltsTrendChart';
 import type { IeltsResult } from '../../data/types';
 import {
   formatBand,
@@ -31,6 +31,7 @@ import { useAppStore } from '../../store/appStore';
 // the emerald primary; the target line is a dashed neutral. Shared with the
 // dashboard preview so both charts read identically.
 const skillColors: Record<IeltsSkill, string> = IELTS_SKILL_COLORS as Record<IeltsSkill, string>;
+const skillDash = IELTS_SKILL_DASH as Record<IeltsSkill, string | undefined>;
 
 const emptyForm = { date: format(new Date(), 'yyyy-MM-dd'), listening: '', reading: '', writing: '', speaking: '' };
 
@@ -134,9 +135,10 @@ export function Ielts() {
       key: skill.key,
       label: skill.label,
       color: skillColors[skill.key],
+      dash: skillDash[skill.key],
       width: 1.5,
     })),
-    { key: 'overall', label: 'Overall', color: 'hsl(var(--primary))', width: 3 },
+    { key: 'overall', label: 'Overall', color: 'hsl(var(--success))', width: 3 },
     { key: 'target', label: 'Target 7.0', color: 'hsl(var(--muted-foreground))', dash: '4 4', width: 1.5 },
   ];
 
@@ -160,7 +162,7 @@ export function Ielts() {
           <div className="pb-1 text-sm text-foreground-muted">
             <p>Target {formatBand(IELTS_TARGET)}</p>
             {gap !== null && (
-              <p className={cn('tabular-nums', gap >= 0 ? 'text-primary' : 'text-escalate')}>
+              <p className={cn('tabular-nums', gap >= 0 ? 'text-success' : 'text-escalate')}>
                 {gap >= 0 ? 'at/above' : `${formatBand(Math.abs(gap))} to go`}
               </p>
             )}
@@ -199,7 +201,21 @@ export function Ielts() {
                   hidden.has(line.key) ? 'border-border-subtle text-foreground-muted opacity-50' : 'border-border text-foreground-secondary',
                 )}
               >
-                <span className="size-2 rounded-full" style={{ background: line.color }} />
+                {/* The swatch draws the line's real dash pattern, not a dot:
+                    two of the four skill hues are near-identical in
+                    brightness, so the pattern is what tells them apart and
+                    the legend has to show the same thing the chart does. */}
+                <svg width="18" height="8" aria-hidden className="shrink-0 overflow-visible">
+                  <line
+                    x1="0"
+                    y1="4"
+                    x2="18"
+                    y2="4"
+                    stroke={line.color}
+                    strokeWidth={line.width}
+                    strokeDasharray={line.dash}
+                  />
+                </svg>
                 {line.label}
               </button>
             ))}
@@ -282,7 +298,7 @@ export function Ielts() {
                   </label>
                 ))}
               </div>
-              <div className="flex items-center justify-between border border-border-subtle bg-black/20 px-3 py-2">
+              <div className="flex items-center justify-between border border-border-subtle bg-surface-2 px-3 py-2">
                 <span className="surface-label">Overall (auto)</span>
                 <span className="font-sans text-lg font-bold tabular-nums text-foreground-muted">
                   {formAverage !== null ? formatBand(formAverage) : '—'}

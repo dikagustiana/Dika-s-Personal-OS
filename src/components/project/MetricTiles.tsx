@@ -16,7 +16,7 @@ function Tile({
   sub: React.ReactNode;
 }) {
   return (
-    <div className="border border-border-subtle bg-black/10 p-3">
+    <div className="border border-border-subtle bg-surface-2 p-3">
       <div className="flex items-center gap-1.5">
         {icon}
         <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">

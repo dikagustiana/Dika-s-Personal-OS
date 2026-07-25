@@ -1,10 +1,12 @@
 import type { HTMLAttributes } from 'react';
 import { cn } from '../../lib/utils';
 
+// White card on a grey canvas is only 1.09:1 apart, so the edge is carried by
+// the border and one navy-tinted shadow rather than by a lightness gap.
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <section
-      className={cn('rounded-lg border border-border bg-card', className)}
+      className={cn('rounded-lg border border-border bg-card shadow-card', className)}
       {...props}
     />
   );

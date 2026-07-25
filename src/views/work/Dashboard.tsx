@@ -30,7 +30,7 @@ import { useAppStore } from '../../store/appStore';
 const urgencyText: Record<Urgency, string> = {
   overdue: 'text-destructive',
   'due-soon': 'text-escalate',
-  'on-track': 'text-primary',
+  'on-track': 'text-success',
 };
 
 interface Countdown {
