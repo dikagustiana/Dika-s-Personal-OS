@@ -61,22 +61,53 @@ export function isDateInWeek(date: string, weekKey: string): boolean {
   return date >= range.from && date < range.to;
 }
 
+/**
+ * Summarizes a week over an explicit number of days, not over logged days.
+ *
+ * The old divisor was `logs.length` — the same lie the 30-day habit figure
+ * told before it was fixed: one logged day scoring 74 reported "average 74"
+ * for a seven-day week. A day with no log is a day nothing was earned, so it
+ * belongs in the denominator at zero. Callers pass how many days the summary
+ * claims to cover: 7 for a finished week, days-elapsed-so-far for the current
+ * one. `daysLogged` stays in the result as the disclosure.
+ */
 export function summarizeWeek(
   logs: DailyLog[],
   plan: WeeklyPlan | null,
+  windowDays: number,
 ): WeekSummary {
+  const days = Math.max(windowDays, logs.length, 1);
   const scoreTotal = logs.reduce((sum, log) => sum + log.score, 0);
-  const habitValues = logs.flatMap((log) => Object.values(log.habits));
-  const habitsDone = habitValues.filter(Boolean).length;
+  // Per-day consistency averaged over the window — an unlogged day counts 0,
+  // and a day's habits are judged against that day's own habit set.
+  const consistencyTotal = logs.reduce((sum, log) => {
+    const values = Object.values(log.habits);
+    if (values.length === 0) return sum;
+    return sum + values.filter(Boolean).length / values.length;
+  }, 0);
 
   return {
-    averageScore: logs.length > 0 ? Math.round(scoreTotal / logs.length) : 0,
-    habitConsistency:
-      habitValues.length > 0 ? Math.round((100 * habitsDone) / habitValues.length) : 0,
+    averageScore: Math.round(scoreTotal / days),
+    habitConsistency: Math.round((100 * consistencyTotal) / days),
     daysLogged: logs.length,
     goalsHit: plan?.goals.filter((goal) => goal.done).map((goal) => goal.text) ?? [],
     goalsMissed: plan?.goals.filter((goal) => !goal.done).map((goal) => goal.text) ?? [],
   };
+}
+
+/**
+ * The honest window for a week still in progress: Monday through `today`,
+ * inclusive, capped at 7. Yesterday's week is always 7.
+ */
+export function daysElapsedInWeek(weekKey: string, today: Date): number {
+  const range = getWeekRange(weekKey);
+  const todayKey = format(today, 'yyyy-MM-dd');
+  if (todayKey >= range.to) return 7;
+  if (todayKey < range.from) return 1;
+  const monday = dateFromIsoWeekKey(weekKey);
+  const elapsed =
+    Math.floor((today.getTime() - monday.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+  return Math.min(Math.max(elapsed, 1), 7);
 }
 
 export function formatWeekLabel(weekKey: string): string {

@@ -31,7 +31,7 @@ import { buildProjectTree, findNode, rollupMilestones } from '../../logic/hierar
 import { collectEscalations } from '../../logic/milestones';
 import { closeWindowState } from '../../logic/monthlyClose';
 import { calculateDailyScore } from '../../logic/score';
-import { getIsoWeekKey, getWeekRange, summarizeWeek } from '../../logic/week';
+import { daysElapsedInWeek, getIsoWeekKey, getWeekRange, summarizeWeek } from '../../logic/week';
 import {
   closeEntityCount,
   collectNeedsAction,
@@ -327,8 +327,9 @@ export function Dashboard() {
   const weekSummary = useMemo(() => {
     const range = getWeekRange(weekKey);
     const weekLogs = logs.filter((entry) => entry.date >= range.from && entry.date < range.to);
-    return summarizeWeek(weekLogs, plan);
-  }, [logs, plan, weekKey]);
+    // Days elapsed, not days logged: mid-week the honest window is Mon..today.
+    return summarizeWeek(weekLogs, plan, daysElapsedInWeek(weekKey, today));
+  }, [logs, plan, today, weekKey]);
 
   const goals = useMemo(
     () => (plan?.goals ?? []).map((goal) => goalProgress(goal, tasks)),
@@ -455,7 +456,9 @@ export function Dashboard() {
       caption: `${closeTile.label} · entities closed`,
       view: 'monthly-close',
     },
-    { value: `${score.score}%`, caption: "Today's score", view: 'today' },
+    // '—', not '0%': with no habits, tasks or blocks there is nothing the
+    // number could be describing, and a zero reads as a judgement.
+    { value: score.isEmpty ? '—' : `${score.score}%`, caption: "Today's score", view: 'today' },
     {
       value: `${consistency}%`,
       caption: `Habit consistency · ${HABIT_WINDOW_DAYS} days`,

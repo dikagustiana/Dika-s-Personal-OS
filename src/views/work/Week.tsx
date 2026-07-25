@@ -95,7 +95,8 @@ export function Week() {
       ]);
     setPlan(selectedPlan ?? { week: selectedWeek, domain, goals: emptyGoals() });
     setReviewedPlan(previousPlan);
-    setSummary(summarizeWeek(previousLogs, previousPlan));
+    // The Sunday review covers a finished week — seven days, logged or not.
+    setSummary(summarizeWeek(previousLogs, previousPlan, 7));
     setProjects(projectData);
     setHabitLogs(recentLogs);
     setSaved(false);
