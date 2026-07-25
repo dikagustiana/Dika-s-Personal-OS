@@ -1,6 +1,6 @@
 import { addDays, differenceInCalendarDays, parseISO } from 'date-fns';
 import type { Project } from '../data/types';
-import { urgencyFor, type Urgency } from './deadlines';
+import { urgencyForConfident, type Urgency } from './deadlines';
 
 export interface GanttRow {
   project: Project;
@@ -61,7 +61,12 @@ export function buildGanttChart(
       project,
       startPct,
       widthPct: Math.max(1, pct(span.end) - startPct),
-      urgency: urgencyFor(project.deadline as string, today, dueSoonDays),
+      urgency: urgencyForConfident(
+        project.deadline as string,
+        today,
+        dueSoonDays,
+        project.dateConfidence,
+      ),
       hasDates: true,
     };
   });

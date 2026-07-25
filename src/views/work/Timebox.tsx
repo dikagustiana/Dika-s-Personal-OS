@@ -28,13 +28,15 @@ import type {
   TimeBlockEntry,
 } from '../../data/types';
 import { cn } from '../../lib/utils';
-import { calculateDailyScore } from '../../logic/score';
+import { scoreFromSnapshot, scoredTasks } from '../../logic/dailyLog';
+import { useMutation } from '../../hooks/useMutation';
 import { DOMAIN_HOURS, getCurrentSlot, minutesToTime, slotsForDomain } from '../../logic/timebox';
 import { useAppStore } from '../../store/appStore';
 
 export function Timebox() {
   const repository = useAppStore((state) => state.repository);
   const domain = useAppStore((state) => state.workspace);
+  const { run } = useMutation();
   const slots = useMemo(() => slotsForDomain(domain), [domain]);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
@@ -89,7 +91,6 @@ export function Timebox() {
     const linkedTask = taskId ? tasks.find((task) => task.id === taskId) : undefined;
     const label = linkedTask?.title ?? drafts[slot.start]?.trim();
     if (!label) return;
-    setDrafts((current) => ({ ...current, [slot.start]: '' }));
     const input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'timeblock',
       domain,
@@ -101,8 +102,15 @@ export function Timebox() {
       status: 'planned',
       tags: [],
     };
-    const created = (await repository.createEntry(input)) as TimeBlockEntry;
-    setBlocks((current) => [...current, created].sort((a, b) => a.start.localeCompare(b.start)));
+    const created = await run('Add timeblock', () => repository.createEntry(input));
+    if (!created) return;
+    // The draft is only cleared once the write is confirmed.
+    setDrafts((current) => ({ ...current, [slot.start]: '' }));
+    const nextBlocks = [...blocks, created as TimeBlockEntry].sort((a, b) =>
+      a.start.localeCompare(b.start),
+    );
+    setBlocks(nextBlocks);
+    await recomputeAndPersistDailyLog(nextBlocks);
   };
 
   const handleDraftKey = (
@@ -115,7 +123,12 @@ export function Timebox() {
     }
   };
 
-  const snapshotTodayScore = async (nextBlocks: TimeBlockEntry[]) => {
+  /**
+   * This view can show any date, so rather than mirroring state it re-reads
+   * the day it is about to score. Same single derivation as everywhere else
+   * (scoreFromSnapshot); only the source of the inputs differs.
+   */
+  const recomputeAndPersistDailyLog = async (nextBlocks: TimeBlockEntry[]) => {
     if (!isToday(parseISO(selectedDate))) return;
     const [allEntries, currentLog] = await Promise.all([
       repository.listEntries({ domain }),
@@ -124,32 +137,19 @@ export function Timebox() {
     const habits = allEntries.filter(
       (entry): entry is HabitEntry => entry.type === 'habit' && entry.active,
     );
-    const urgentTasks = allEntries.filter(
-      (entry): entry is TaskEntry =>
-        entry.type === 'task' &&
-        entry.priority === 'urgent' &&
-        (!entry.done || Boolean(entry.completedAt?.startsWith(selectedDate))),
-    );
+    const allTasks = allEntries.filter((entry): entry is TaskEntry => entry.type === 'task');
     const log: DailyLog = currentLog ?? {
       date: selectedDate,
       domain,
       habits: {},
       score: 0,
     };
-    const score = calculateDailyScore({
-      habits: {
-        completed: habits.filter((habit) => log.habits[habit.id]).length,
-        total: habits.length,
-      },
-      tasks: {
-        completed: urgentTasks.filter((task) => task.done).length,
-        total: urgentTasks.length,
-      },
-      timeblocks: {
-        completed: nextBlocks.filter((block) => block.status === 'done').length,
-        total: nextBlocks.length,
-      },
-    }).score;
+    const score = scoreFromSnapshot({
+      habits,
+      tasks: scoredTasks(allTasks, selectedDate),
+      blocks: nextBlocks,
+      log,
+    });
     await repository.upsertDailyLog({ ...log, score });
   };
 
@@ -167,14 +167,14 @@ export function Timebox() {
       });
       setTasks((current) => current.filter((task) => task.id !== block.taskId));
     }
-    await snapshotTodayScore(nextBlocks);
+    await recomputeAndPersistDailyLog(nextBlocks);
   };
 
   const deleteBlock = async (block: TimeBlockEntry) => {
     await repository.deleteEntry(block.id);
     const nextBlocks = blocks.filter((item) => item.id !== block.id);
     setBlocks(nextBlocks);
-    await snapshotTodayScore(nextBlocks);
+    await recomputeAndPersistDailyLog(nextBlocks);
   };
 
   const shiftDate = (days: number) => {

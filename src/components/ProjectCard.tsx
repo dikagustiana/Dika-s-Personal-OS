@@ -1,19 +1,24 @@
 import {
   CalendarClock,
+  Check,
   FlaskConical,
   GraduationCap,
   Hammer,
   Link2,
   Megaphone,
+  Pencil,
   Target,
+  Trash2,
   Trophy,
+  X,
 } from 'lucide-react';
 import { useState } from 'react';
-import { format, parseISO } from 'date-fns';
+import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import { Input } from './ui/Input';
 import { Progress } from './ui/Progress';
 import type {
+  DateConfidence,
   Domain,
   EscalateTo,
   Milestone,
@@ -22,12 +27,20 @@ import type {
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
-import { daysLeft, daysLeftLabel, urgencyFor } from '../logic/deadlines';
+import { daysLeft, daysLeftLabelFor, formatDateFor, urgencyForConfident } from '../logic/deadlines';
 import {
   ESCALATION_TARGETS,
   MILESTONE_STATUSES,
   withMilestoneStatus,
 } from '../logic/milestones';
+import {
+  MilestoneEditorRows,
+  ProjectFields,
+  draftToPatch,
+  projectToDraft,
+  type ProjectDraft,
+} from './ProjectEditor';
+import { useMutation } from '../hooks/useMutation';
 import { cn } from '../lib/utils';
 
 const typeIcons = {
@@ -38,14 +51,20 @@ const typeIcons = {
   other: Target,
 } as const;
 
-function deadlineText(deadline?: string): string {
+function deadlineText(deadline?: string, confidence?: DateConfidence): string {
   if (!deadline) return 'No deadline';
-  return daysLeftLabel(daysLeft(deadline, new Date()));
+  return daysLeftLabelFor(daysLeft(deadline, new Date()), confidence);
 }
 
-function MilestoneDueChip({ dueDate }: { dueDate: string }) {
+function MilestoneDueChip({
+  dueDate,
+  confidence,
+}: {
+  dueDate: string;
+  confidence?: DateConfidence;
+}) {
   const days = daysLeft(dueDate, new Date());
-  const urgency = urgencyFor(dueDate, new Date(), 7);
+  const urgency = urgencyForConfident(dueDate, new Date(), 7, confidence);
   return (
     <span
       className={cn(
@@ -55,7 +74,7 @@ function MilestoneDueChip({ dueDate }: { dueDate: string }) {
         urgency === 'on-track' && 'border-gray-700 text-gray-500',
       )}
     >
-      {daysLeftLabel(days)}
+      {daysLeftLabelFor(days, confidence)}
     </span>
   );
 }
@@ -71,6 +90,11 @@ export interface ProjectCardProps {
   updateProject: (id: string, patch: Partial<Project>) => Promise<Project>;
   /** Hide the deadline/tasks/goals tile strip for compact contexts. */
   compact?: boolean;
+  /**
+   * Supplied by views that own the project list. Its presence is what turns
+   * on the delete control — a card embedded in a read-only context has none.
+   */
+  onDelete?: (id: string) => Promise<void>;
 }
 
 /**
@@ -87,8 +111,48 @@ export function ProjectCard({
   onChange,
   updateProject,
   compact = false,
+  onDelete,
 }: ProjectCardProps) {
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<ProjectDraft>(() => projectToDraft(project));
+  const [milestoneDraft, setMilestoneDraft] = useState<Milestone[]>(project.milestones);
+  const { run, isPending } = useMutation();
+
+  const openEditor = () => {
+    setDraft(projectToDraft(project));
+    setMilestoneDraft(project.milestones);
+    setEditing(true);
+  };
+
+  /**
+   * One write for the whole edit. Milestones are replaced by the array the
+   * editor produced, which is the array it was seeded with — so this is still
+   * an edit of known ids, not a blind overwrite of someone else's work.
+   */
+  const saveEdits = async () => {
+    const title = draft.title.trim();
+    if (!title) return;
+    const updated = await run('Save project', () =>
+      updateProject(project.id, {
+        ...draftToPatch(draft),
+        milestones: milestoneDraft
+          .map((milestone) => ({ ...milestone, text: milestone.text.trim() }))
+          .filter((milestone) => milestone.text.length > 0),
+      }),
+    );
+    if (!updated) return;
+    onChange(updated);
+    setEditing(false);
+  };
+
+  const deleteProject = async () => {
+    if (!onDelete) return;
+    await run('Delete project', async () => {
+      await onDelete(project.id);
+      return true as const;
+    });
+  };
 
   const Icon = typeIcons[project.type];
   const doneMilestones = project.milestones.filter((milestone) => milestone.done).length;
@@ -144,28 +208,68 @@ export function ProjectCard({
             </p>
           </div>
         </div>
-        <select
-          className="native-select !w-full text-xs sm:!w-auto sm:min-w-28"
-          value={project.status}
-          onChange={(event) => void setStatus(event.target.value as Project['status'])}
-          aria-label={`Status for ${project.title}`}
-        >
-          <option value="active">Active</option>
-          <option value="paused">Paused</option>
-          <option value="done">Done</option>
-        </select>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <select
+            className="native-select !w-full text-xs sm:!w-auto sm:min-w-28"
+            value={project.status}
+            onChange={(event) => void setStatus(event.target.value as Project['status'])}
+            aria-label={`Status for ${project.title}`}
+          >
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="done">Done</option>
+          </select>
+          <Button
+            variant="secondary"
+            size="icon"
+            onClick={() => (editing ? setEditing(false) : openEditor())}
+            aria-label={editing ? `Stop editing ${project.title}` : `Edit ${project.title}`}
+          >
+            {editing ? <X className="size-4" /> : <Pencil className="size-4" />}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="pt-5">
+        {editing && (
+          <div className="mb-5 border border-primary/30 bg-primary/[0.04] p-4">
+            <ProjectFields draft={draft} onChange={setDraft} idPrefix={project.title} />
+            <div className="mt-5">
+              <p className="surface-label mb-2">Milestones</p>
+              <MilestoneEditorRows milestones={milestoneDraft} onChange={setMilestoneDraft} />
+            </div>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button onClick={() => void saveEdits()} disabled={isPending || !draft.title.trim()}>
+                <Check className="size-4" />
+                Save changes
+              </Button>
+              <Button variant="secondary" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+              {onDelete && (
+                <Button
+                  variant="danger"
+                  className="sm:ml-auto"
+                  onClick={() => void deleteProject()}
+                  disabled={isPending}
+                >
+                  <Trash2 className="size-4" />
+                  Delete project
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+
         {!compact && (
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="border border-gray-800 bg-black/10 p-3">
               <CalendarClock className="size-4 text-primary" />
               <p className="mt-3 text-sm font-semibold text-gray-200">
-                {deadlineText(project.deadline)}
+                {deadlineText(project.deadline, project.dateConfidence)}
               </p>
               <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-600">
                 {project.deadline
-                  ? format(parseISO(project.deadline), 'MMM d, yyyy')
+                  ? formatDateFor(project.deadline, project.dateConfidence)
                   : 'Open horizon'}
               </p>
             </div>
@@ -233,7 +337,10 @@ export function ProjectCard({
                       {milestone.text}
                     </span>
                     {milestone.dueDate && !milestone.done && (
-                      <MilestoneDueChip dueDate={milestone.dueDate} />
+                      <MilestoneDueChip
+                        dueDate={milestone.dueDate}
+                        confidence={milestone.dateConfidence}
+                      />
                     )}
                     {escalated && (
                       <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />

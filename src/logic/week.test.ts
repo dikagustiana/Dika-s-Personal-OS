@@ -4,6 +4,7 @@ import {
   getIsoWeekKey,
   getNextWeekKey,
   getPreviousWeekKey,
+  getReviewTargetWeek,
   getWeekRange,
   summarizeWeek,
 } from './week';
@@ -49,5 +50,39 @@ describe('summarizeWeek', () => {
       goalsHit: ['Ship draft'],
       goalsMissed: ['Book exam'],
     });
+  });
+});
+
+describe('getReviewTargetWeek', () => {
+  // B4: the review always judges the week before the one on screen. These
+  // walk across a Sunday boundary, where the old code was most wrong.
+  it('reviews the week that is ending, not the one being planned', () => {
+    const sundayEvening = new Date('2026-07-26T19:00:00'); // Sunday, ISO 2026-W30
+    const selected = getIsoWeekKey(sundayEvening);
+    expect(selected).toBe('2026-W30');
+    expect(getReviewTargetWeek(selected)).toBe('2026-W29');
+  });
+
+  it('still targets the week just ended once the boundary is crossed', () => {
+    const mondayMorning = new Date('2026-07-27T09:00:00'); // Monday, ISO 2026-W31
+    const selected = getIsoWeekKey(mondayMorning);
+    expect(selected).toBe('2026-W31');
+    expect(getReviewTargetWeek(selected)).toBe('2026-W30');
+  });
+
+  it('never marks the week on screen as reviewed', () => {
+    for (const day of ['2026-07-25', '2026-07-26', '2026-07-27', '2026-07-28']) {
+      const selected = getIsoWeekKey(new Date(`${day}T12:00:00`));
+      expect(getReviewTargetWeek(selected)).not.toBe(selected);
+    }
+  });
+
+  it('planning next week on Sunday still reviews the week that just ended', () => {
+    // The Sunday-evening banner jumps the planner forward a week; the review
+    // card must not follow it.
+    const sunday = new Date('2026-07-26T19:00:00');
+    const planningWeek = getNextWeekKey(getIsoWeekKey(sunday)); // 2026-W31
+    expect(getReviewTargetWeek(getIsoWeekKey(sunday))).toBe('2026-W29');
+    expect(planningWeek).toBe('2026-W31');
   });
 });

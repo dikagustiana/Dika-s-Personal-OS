@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarCheck2, Plus, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowRight, CalendarCheck2, Pin, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { format, parseISO, subDays } from 'date-fns';
 import { Button } from '../../components/ui/Button';
@@ -8,7 +8,6 @@ import { Input } from '../../components/ui/Input';
 import { IeltsTrendChart } from '../../components/IeltsTrendChart';
 import { ScoreRing } from '../../components/ScoreRing';
 import type {
-  DailyLog,
   HabitEntry,
   IeltsResult,
   Project,
@@ -16,10 +15,19 @@ import type {
   WeeklyGoal,
   WeeklyPlan,
 } from '../../data/types';
-import { daysLeft, daysLeftLabel, type Urgency } from '../../logic/deadlines';
+import {
+  daysLeft,
+  daysLeftLabelFor,
+  formatDateFor,
+  urgencyForConfident,
+  type Urgency,
+} from '../../logic/deadlines';
 import { buildGanttChart } from '../../logic/gantt';
 import { GROWTH_INITIATIVES, initiativeProjects } from '../../logic/initiatives';
 import { calculateDailyScore } from '../../logic/score';
+import { scoredTasks } from '../../logic/dailyLog';
+import { useDailyLog } from '../../hooks/useDailyLog';
+import { useMutation } from '../../hooks/useMutation';
 import { getIsoWeekKey, getPreviousWeekKey, getWeekRange, summarizeWeek } from '../../logic/week';
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/appStore';
@@ -47,7 +55,6 @@ export function GrowthDashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [habits, setHabits] = useState<HabitEntry[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
-  const [dailyLog, setDailyLog] = useState<DailyLog | null>(null);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [recap, setRecap] = useState({ averageScore: 0, habitConsistency: 0, daysLogged: 0 });
   const [ieltsResults, setIeltsResults] = useState<IeltsResult[]>([]);
@@ -57,6 +64,13 @@ export function GrowthDashboard() {
   const today = useMemo(() => new Date(), []);
   const todayKey = format(today, 'yyyy-MM-dd');
   const week = getIsoWeekKey(today);
+  const { run, isPending } = useMutation();
+  const {
+    log: dailyLog,
+    setLog,
+    syncInputs,
+    recomputeAndPersistDailyLog,
+  } = useDailyLog(todayKey, 'growth');
 
   const load = useCallback(async () => {
     const previousWeek = getPreviousWeekKey(week);
@@ -82,15 +96,9 @@ export function GrowthDashboard() {
         .filter((entry): entry is HabitEntry => entry.type === 'habit' && entry.active)
         .sort((a, b) => a.order - b.order),
     );
-    setTasks(
-      entries.filter(
-        (entry): entry is TaskEntry =>
-          entry.type === 'task' &&
-          entry.priority === 'urgent' &&
-          (!entry.done || Boolean(entry.completedAt?.startsWith(todayKey))),
-      ),
-    );
-    setDailyLog(log);
+    // Every task, not only today's: the Inbox lives in this view too.
+    setTasks(entries.filter((entry): entry is TaskEntry => entry.type === 'task'));
+    setLog(log);
     setPlan(weeklyPlan);
     const summary = summarizeWeek(previousLogs, previousPlan);
     setRecap({
@@ -98,7 +106,7 @@ export function GrowthDashboard() {
       habitConsistency: summary.habitConsistency,
       daysLogged: summary.daysLogged,
     });
-  }, [repository, todayKey, week]);
+  }, [repository, setLog, todayKey, week]);
 
   useEffect(() => {
     void load();
@@ -106,6 +114,17 @@ export function GrowthDashboard() {
 
   const initiatives = useMemo(() => initiativeProjects(projects), [projects]);
   const gantt = useMemo(() => buildGanttChart(initiatives, today, 14), [initiatives, today]);
+
+  const todayTasks = useMemo(() => scoredTasks(tasks, todayKey), [tasks, todayKey]);
+  const inboxTasks = useMemo(
+    () => tasks.filter((task) => !task.done && task.priority !== 'urgent' && !task.dueDate),
+    [tasks],
+  );
+
+  // GROWTH has no timebox, so the score renormalizes over habits and tasks.
+  useEffect(() => {
+    syncInputs({ habits, tasks: todayTasks, blocks: [] });
+  }, [habits, syncInputs, todayTasks]);
 
   const score = useMemo(
     () =>
@@ -115,68 +134,69 @@ export function GrowthDashboard() {
           total: habits.length,
         },
         tasks: {
-          completed: tasks.filter((task) => task.done).length,
-          total: tasks.length,
+          completed: todayTasks.filter((task) => task.done).length,
+          total: todayTasks.length,
         },
         timeblocks: { completed: 0, total: 0 },
       }),
-    [dailyLog, habits, tasks],
+    [dailyLog, habits, todayTasks],
   );
 
-  const persistScore = async (nextLog: DailyLog, nextTasks = tasks) => {
-    const nextScore = calculateDailyScore({
-      habits: {
-        completed: habits.filter((habit) => nextLog.habits[habit.id]).length,
-        total: habits.length,
-      },
-      tasks: {
-        completed: nextTasks.filter((task) => task.done).length,
-        total: nextTasks.length,
-      },
-      timeblocks: { completed: 0, total: 0 },
-    }).score;
-    setDailyLog(await repository.upsertDailyLog({ ...nextLog, score: nextScore }));
-  };
-
-  const emptyLog = (): DailyLog => ({ date: todayKey, domain: 'growth', habits: {}, score: 0 });
-
   const toggleHabit = async (habit: HabitEntry) => {
-    const currentLog = dailyLog ?? emptyLog();
-    const nextLog: DailyLog = {
-      ...currentLog,
-      habits: { ...currentLog.habits, [habit.id]: !currentLog.habits[habit.id] },
-    };
-    setDailyLog(nextLog);
-    await persistScore(nextLog);
+    const previous = dailyLog;
+    const currentHabits = dailyLog?.habits ?? {};
+    const nextHabits = { ...currentHabits, [habit.id]: !currentHabits[habit.id] };
+    setLog({
+      ...(dailyLog ?? { date: todayKey, domain: 'growth', habits: {}, score: 0 }),
+      habits: nextHabits,
+    });
+    const saved = await run('Save habit', () =>
+      recomputeAndPersistDailyLog({ habitState: nextHabits }),
+    );
+    if (!saved) setLog(previous);
   };
 
+  /** Captured to the Inbox, exactly as in WORK — see Today.tsx. */
   const addTask = async (event: FormEvent) => {
     event.preventDefault();
     const title = taskTitle.trim();
     if (!title) return;
-    setTaskTitle('');
     const input: Omit<TaskEntry, 'id' | 'createdAt' | 'updatedAt'> = {
       type: 'task',
       domain: 'growth',
       title,
-      priority: 'urgent',
+      priority: 'normal',
       done: false,
-      dueDate: todayKey,
       tags: [],
     };
-    const created = (await repository.createEntry(input)) as TaskEntry;
-    setTasks((current) => [created, ...current]);
+    const created = await run('Add task', () => repository.createEntry(input));
+    if (!created) return;
+    setTaskTitle('');
+    setTasks((current) => [created as TaskEntry, ...current]);
+  };
+
+  const pinToToday = async (task: TaskEntry) => {
+    const updated = await run('Pin task to Today', () =>
+      repository.updateEntry(task.id, { priority: 'urgent', dueDate: todayKey }),
+    );
+    if (!updated) return;
+    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
+    setTasks(nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
   };
 
   const toggleTask = async (task: TaskEntry) => {
     const done = !task.done;
-    const updated = (await repository.updateEntry(task.id, {
-      done,
-      completedAt: done ? new Date().toISOString() : undefined,
-    })) as TaskEntry;
-    const nextTasks = tasks.map((item) => (item.id === task.id ? updated : item));
+    const updated = await run(done ? 'Complete task' : 'Reopen task', () =>
+      repository.updateEntry(task.id, {
+        done,
+        completedAt: done ? new Date().toISOString() : undefined,
+      }),
+    );
+    if (!updated) return;
+    const nextTasks = tasks.map((item) => (item.id === task.id ? (updated as TaskEntry) : item));
     setTasks(nextTasks);
-    await persistScore(dailyLog ?? emptyLog(), nextTasks);
+    await recomputeAndPersistDailyLog({ tasks: scoredTasks(nextTasks, todayKey) });
   };
 
   const savePlan = async (goals: WeeklyGoal[]) => {
@@ -230,13 +250,11 @@ export function GrowthDashboard() {
         {GROWTH_INITIATIVES.map((initiative) => {
           const project = projects.find((item) => item.id === initiative.projectId);
           const deadline = project?.deadline;
+          const confidence = project?.dateConfidence;
           const days = deadline ? daysLeft(deadline, today) : null;
+          // Placeholder dates never drive urgency colour — see DateConfidence.
           const urgency = deadline
-            ? days !== null && days < 0
-              ? 'overdue'
-              : days !== null && days <= 14
-                ? 'due-soon'
-                : 'on-track'
+            ? urgencyForConfident(deadline, today, 14, confidence)
             : null;
           return (
             <div key={initiative.key} className="bg-card p-4">
@@ -249,9 +267,11 @@ export function GrowthDashboard() {
                   urgency ? urgencyText[urgency] : 'text-gray-600',
                 )}
               >
-                {days !== null ? daysLeftLabel(days) : '—'}
+                {days !== null ? daysLeftLabelFor(days, confidence) : '—'}
               </p>
-              <p className="mt-1 font-mono text-[10px] text-gray-600">{deadline ?? 'no deadline'}</p>
+              <p className="mt-1 font-mono text-[10px] text-gray-600">
+                {deadline ? formatDateFor(deadline, confidence) : 'no deadline'}
+              </p>
             </div>
           );
         })}
@@ -367,7 +387,7 @@ export function GrowthDashboard() {
           <CardHeader>
             <CardTitle>Today&apos;s tasks</CardTitle>
             <span className="text-xs tabular-nums text-gray-600">
-              {tasks.filter((task) => task.done).length}/{tasks.length}
+              {todayTasks.filter((task) => task.done).length}/{todayTasks.length}
             </span>
           </CardHeader>
           <CardContent>
@@ -375,15 +395,21 @@ export function GrowthDashboard() {
               <Input
                 value={taskTitle}
                 onChange={(event) => setTaskTitle(event.target.value)}
-                placeholder="Add a growth task"
-                aria-label="New growth task"
+                placeholder="Capture a growth task"
+                aria-label="Capture a growth task to the inbox"
               />
-              <Button type="submit" size="icon" className="shrink-0" aria-label="Add task">
+              <Button
+                type="submit"
+                size="icon"
+                className="shrink-0"
+                disabled={isPending}
+                aria-label="Add task to inbox"
+              >
                 <Plus className="size-5" />
               </Button>
             </form>
             <div className="divide-y divide-gray-800">
-              {tasks.map((task) => (
+              {todayTasks.map((task) => (
                 <label key={task.id} className="flex min-h-12 cursor-pointer items-center gap-3 py-1">
                   <Checkbox
                     checked={task.done}
@@ -395,10 +421,33 @@ export function GrowthDashboard() {
                   </span>
                 </label>
               ))}
-              {tasks.length === 0 && (
-                <p className="py-6 text-center text-sm text-gray-600">Nothing queued for today.</p>
+              {todayTasks.length === 0 && (
+                <p className="py-6 text-center text-sm text-gray-600">Nothing pinned to today.</p>
               )}
             </div>
+
+            {inboxTasks.length > 0 && (
+              <div className="mt-4 border-t border-gray-800 pt-3">
+                <p className="surface-label">Inbox · {inboxTasks.length}</p>
+                <div className="mt-2 divide-y divide-gray-800">
+                  {inboxTasks.map((task) => (
+                    <div key={task.id} className="flex min-h-12 items-center gap-2 py-1">
+                      <span className="min-w-0 flex-1 truncate text-sm text-gray-400">
+                        {task.title}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        size="icon"
+                        onClick={() => void pinToToday(task)}
+                        aria-label={`Pin ${task.title} to Today`}
+                      >
+                        <Pin className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

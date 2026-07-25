@@ -1,4 +1,8 @@
+# esbuild ships a platform binary and needs its install script to run.
+# `onlyBuiltDependencies` is the allow-list; anything not named here is not
+# built. The value here must be a real Boolean — pnpm 11 rejects a non-Boolean
+# build-approval value and aborts the install.
 allowBuilds:
-  esbuild: set this to true or false
+  esbuild: true
 onlyBuiltDependencies:
   - esbuild
