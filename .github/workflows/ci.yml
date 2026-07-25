@@ -1,0 +1,31 @@
+name: CI
+
+# A broken pnpm-workspace.yaml once made `pnpm install` fail while the app
+# still built for anyone with a warm node_modules. These checks run from a
+# clean checkout so that class of breakage cannot reach main unnoticed.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install (clean, lockfile must be current)
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test:run
+
+      - name: Build
+        run: pnpm build
