@@ -1,13 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Milestone, Project, TaskEntry, WeeklyGoal } from '../data/types';
+import { workingDay } from './monthlyClose';
 import {
   closeEntityCount,
   collectNeedsAction,
   goalProgress,
   isPinnable,
+  needsActionBreakdown,
   picInitials,
-  pinnedProjectRows,
+  sortNeedsAction,
   summarizeCloseCycle,
+  type NeedsActionRow,
+  type NeedsActionState,
 } from './workDashboard';
 
 const today = new Date(2026, 6, 25); // Sat 2026-07-25
@@ -25,6 +29,16 @@ function project(overrides: Partial<Project> & { id: string }): Project {
     milestones: [],
     order: 1,
     ...overrides,
+  };
+}
+
+function row(id: string, state: NeedsActionState, daysOverdue = 0): NeedsActionRow {
+  return {
+    milestone: milestone({ id }),
+    project: project({ id: `project-${id}` }),
+    state,
+    daysOverdue,
+    alsoBlocked: false,
   };
 }
 
@@ -153,6 +167,98 @@ describe('collectNeedsAction', () => {
   });
 });
 
+describe('sortNeedsAction', () => {
+  // The production shape: every blocked milestone is undated, so blocked rows
+  // outnumber everything else and would take all five visible slots.
+  const shuffled = () => [
+    row('blocked-1', 'blocked'),
+    row('blocked-2', 'blocked'),
+    row('late-2d', 'overdue', 2),
+    row('blocked-3', 'blocked'),
+    row('due-today', 'today'),
+    row('blocked-4', 'blocked'),
+    row('late-11d', 'overdue', 11),
+    row('blocked-5', 'blocked'),
+  ];
+
+  it('puts an overdue row above every blocked row, not just the first', () => {
+    const sorted = sortNeedsAction(shuffled());
+    const states = sorted.map((item) => item.state);
+    expect(states.lastIndexOf('overdue')).toBeLessThan(states.indexOf('blocked'));
+    expect(sorted.map((item) => item.milestone.id).slice(0, 2)).toEqual(['late-11d', 'late-2d']);
+  });
+
+  it('orders two overdue rows most-overdue-first', () => {
+    const sorted = sortNeedsAction([row('late-2d', 'overdue', 2), row('late-11d', 'overdue', 11)]);
+    expect(sorted.map((item) => item.daysOverdue)).toEqual([11, 2]);
+  });
+
+  it('sits due-today between overdue and blocked', () => {
+    const sorted = sortNeedsAction(shuffled());
+    const states = sorted.map((item) => item.state);
+    expect(states.indexOf('today')).toBeGreaterThan(states.lastIndexOf('overdue'));
+    expect(states.indexOf('today')).toBeLessThan(states.indexOf('blocked'));
+  });
+
+  it('leaves the caller its own array', () => {
+    const rows = shuffled();
+    sortNeedsAction(rows);
+    expect(rows[0].milestone.id).toBe('blocked-1');
+  });
+
+  it('sorts inside collectNeedsAction, so a consumer cannot render it unsorted', () => {
+    const rows = collectNeedsAction(
+      [
+        project({
+          id: 'p',
+          milestones: [
+            milestone({ id: 'blocked-1', status: 'blocked' }),
+            milestone({ id: 'blocked-2', status: 'blocked' }),
+            milestone({ id: 'blocked-3', status: 'blocked' }),
+            milestone({ id: 'blocked-4', status: 'blocked' }),
+            milestone({ id: 'blocked-5', status: 'blocked' }),
+            milestone({ id: 'late', endDate: '2026-07-14' }),
+          ],
+        }),
+      ],
+      today,
+    );
+    expect(rows[0].milestone.id).toBe('late');
+  });
+});
+
+describe('needsActionBreakdown', () => {
+  it('counts each state', () => {
+    expect(
+      needsActionBreakdown([
+        row('a', 'overdue', 3),
+        row('b', 'overdue', 1),
+        row('c', 'today'),
+        row('d', 'blocked'),
+        row('e', 'blocked'),
+        row('f', 'blocked'),
+      ]),
+    ).toEqual({ overdue: 2, today: 1, blocked: 3 });
+  });
+
+  it('is all zeroes for an empty list', () => {
+    expect(needsActionBreakdown([])).toEqual({ overdue: 0, today: 0, blocked: 0 });
+  });
+
+  it('counts an also-blocked row once, under the badge it leads with', () => {
+    const rows = collectNeedsAction(
+      [
+        project({
+          id: 'p',
+          milestones: [milestone({ id: 'both', endDate: '2026-07-20', status: 'blocked' })],
+        }),
+      ],
+      today,
+    );
+    expect(needsActionBreakdown(rows)).toEqual({ overdue: 1, today: 0, blocked: 0 });
+  });
+});
+
 describe('picInitials', () => {
   it('takes one letter from each of the first two words', () => {
     expect(picInitials('Alex Kim')).toBe('AK');
@@ -177,7 +283,9 @@ describe('summarizeCloseCycle', () => {
         recurring: 'monthly',
         period,
         order: 100 + index,
-        deadline: '2026-08-08',
+        // Derived, not literal: the generator's deadline is the 8th WORKING
+        // day, so a hardcoded date is wrong for one of the two periods here.
+        deadline: workingDay(period, 8),
         milestones: [
           milestone({ id: `${series}-1`, done: doneAll, status: doneAll ? 'done' : 'not-started' }),
           milestone({ id: `${series}-2`, done: doneAll, status: doneAll ? 'done' : 'not-started' }),
@@ -185,9 +293,13 @@ describe('summarizeCloseCycle', () => {
       }),
     );
 
-  it('is null when the current and previous cycles are both fully closed', () => {
+  it('still shows a fully-ticked cycle — the checklist is not what ends a period', () => {
+    // Hiding it here would hide the card's own "sudah selesai?" question, and
+    // the question is the only thing that marks the six projects done.
     const projects = [...cycle('2026-07', true), ...cycle('2026-06', true)];
-    expect(summarizeCloseCycle(projects, today)).toBeNull();
+    const summary = summarizeCloseCycle(projects, today);
+    expect(summary?.period).toBe('2026-07');
+    expect(summary?.done).toBe(summary?.total);
   });
 
   it('is null when there is no close cycle at all', () => {
@@ -209,14 +321,24 @@ describe('summarizeCloseCycle', () => {
     ]);
   });
 
-  it('falls back to the previous period rather than showing an all-done cycle', () => {
+  it('describes the same period the entity tile does, never the month before', () => {
+    // A fully-ticked July used to send the card back to June while the tile
+    // still counted July, so "Sudah" wrote June's rows and the July tile could
+    // never leave 0 of 6.
     const projects = [...cycle('2026-07', true), ...cycle('2026-06')];
-    expect(summarizeCloseCycle(projects, today)?.period).toBe('2026-06');
+    const summary = summarizeCloseCycle(projects, today);
+    expect(summary?.period).toBe('2026-07');
+    expect(summary?.label).toBe(closeEntityCount(projects, today).label);
   });
 
-  it('is not gated on a date — mid-month with work outstanding still shows', () => {
-    // The 5th: an old date-window condition would have been in-cycle anyway,
-    // which is the point — a date gate is barely a gate.
+  it('keeps selecting a period whose deadline has already passed', () => {
+    // Thu 13 Aug 2026 is one day past WD8 of the July close — the overrun is
+    // exactly when the card has to be there to ask.
+    const late = summarizeCloseCycle(cycle('2026-07', true), new Date(2026, 7, 13));
+    expect(late?.period).toBe('2026-07');
+  });
+
+  it('follows the pending period mid-month — on the 5th that is still last month', () => {
     const early = summarizeCloseCycle(cycle('2026-06'), new Date(2026, 6, 5));
     expect(early?.period).toBe('2026-06');
   });
@@ -244,24 +366,38 @@ describe('summarizeCloseCycle', () => {
 });
 
 describe('closeEntityCount', () => {
-  it('counts entities fully closed in the current period', () => {
+  const closeProject = (id: string, overrides: Partial<Project> = {}) =>
+    project({
+      id,
+      title: `Closing Juli — ${id}`,
+      recurring: 'monthly',
+      period: '2026-07',
+      ...overrides,
+    });
+
+  it('counts a project whose status is done, ticked checklist or not', () => {
     const projects = [
-      project({
-        id: 'a',
-        title: 'Closing Juli — BMG',
-        recurring: 'monthly',
-        period: '2026-07',
-        milestones: [milestone({ id: 'm', done: true, status: 'done' })],
-      }),
-      project({
-        id: 'b',
-        title: 'Closing Juli — OKI',
-        recurring: 'monthly',
-        period: '2026-07',
-        milestones: [milestone({ id: 'm2' })],
-      }),
+      closeProject('a', { status: 'done', milestones: [milestone({ id: 'm' })] }),
+      closeProject('b', { milestones: [milestone({ id: 'm2' })] }),
     ];
     expect(closeEntityCount(projects, today)).toMatchObject({ done: 1, total: 2 });
+  });
+
+  it('ignores the milestone checklist — a fully-ticked but active project is not done', () => {
+    const projects = [
+      closeProject('a', { milestones: [milestone({ id: 'm', done: true, status: 'done' })] }),
+    ];
+    expect(closeEntityCount(projects, today)).toMatchObject({ done: 0, total: 1 });
+  });
+
+  it('reaches 6 of 6 when the period is closed out with milestones left unticked', () => {
+    const projects = ['BMG', 'OKI', 'KGR', 'NMG', 'KBF', 'Consolidation'].map((series) =>
+      closeProject(series, {
+        status: 'done',
+        milestones: [milestone({ id: `${series}-1` }), milestone({ id: `${series}-2` })],
+      }),
+    );
+    expect(closeEntityCount(projects, today)).toMatchObject({ done: 6, total: 6 });
   });
 });
 
@@ -295,63 +431,9 @@ describe('goalProgress', () => {
   });
 });
 
-describe('pinnedProjectRows / isPinnable', () => {
+describe('isPinnable', () => {
   it('never treats a close-cycle project as pinnable', () => {
     expect(isPinnable(project({ id: 'p', recurring: 'monthly' }))).toBe(false);
     expect(isPinnable(project({ id: 'q' }))).toBe(true);
-  });
-
-  it('excludes close-cycle projects even if the flag somehow got set', () => {
-    const rows = pinnedProjectRows(
-      [
-        project({ id: 'close', recurring: 'monthly', period: '2026-07', dashboardPinned: true }),
-        project({ id: 'normal', dashboardPinned: true }),
-      ],
-      today,
-    );
-    expect(rows.map((row) => row.project.id)).toEqual(['normal']);
-  });
-
-  it('returns nothing when nothing is pinned', () => {
-    expect(pinnedProjectRows([project({ id: 'a' }), project({ id: 'b' })], today)).toEqual([]);
-  });
-
-  it('reports rollup counts including children, matching the project card', () => {
-    const rows = pinnedProjectRows(
-      [
-        project({
-          id: 'parent',
-          dashboardPinned: true,
-          milestones: [milestone({ id: 'a', done: true, status: 'done' })],
-        }),
-        project({
-          id: 'child',
-          parentId: 'parent',
-          milestones: [milestone({ id: 'b' }), milestone({ id: 'c' })],
-        }),
-      ],
-      today,
-    );
-    expect(rows[0]).toMatchObject({ done: 1, total: 3 });
-  });
-
-  it('takes the earliest open milestone date and flags overdue and blocked', () => {
-    const rows = pinnedProjectRows(
-      [
-        project({
-          id: 'p',
-          dashboardPinned: true,
-          milestones: [
-            milestone({ id: 'late', endDate: '2026-07-18', status: 'blocked' }),
-            milestone({ id: 'later', endDate: '2026-09-01' }),
-            milestone({ id: 'closed', endDate: '2026-01-01', done: true, status: 'done' }),
-          ],
-        }),
-      ],
-      today,
-    );
-    expect(rows[0].nextDate).toBe('2026-07-18');
-    expect(rows[0].overdue).toBe(true);
-    expect(rows[0].blocked).toBe(true);
   });
 });

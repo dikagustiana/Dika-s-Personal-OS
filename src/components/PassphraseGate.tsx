@@ -3,16 +3,53 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
   createSupabaseRepository,
   isSupabaseConfigured,
+  requestPassphraseRecovery,
   verifyAppKey,
 } from '../data/supabaseRepository';
 import { useAppStore } from '../store/appStore';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
+import { LanternMark } from './ui/LanternMark';
+
+/**
+ * The owner's own image of a released sky lantern. It lives at `src/lantern.png`
+ * — where the owner placed it, deliberately not moved.
+ *
+ * The lookup goes through `import.meta.glob` rather than a plain import because
+ * a plain `import '../lantern.png'` FAILS THE BUILD outright if the file is
+ * ever absent. The glob compiles to an empty object in that case and resolves
+ * to the hashed asset URL when the file is present, so the gate degrades to the
+ * mark instead of breaking the build. Verified both ways.
+ *
+ * Typed `string | undefined`: the glob genuinely yields nothing when the file
+ * is missing, and every read below is guarded.
+ */
+const lanternPhoto: string | undefined = Object.values(
+  import.meta.glob<string>('../lantern.png', {
+    eager: true,
+    query: '?url',
+    import: 'default',
+  }),
+)[0];
 
 const STORAGE_KEY = 'personal-os-app-key';
 const EXPIRY_KEY = 'personal-os-app-key-expires';
 /** How long an unlocked session lasts before the passphrase is asked for again. */
 const SESSION_HOURS = 12;
+
+const OFFLINE_COPY = 'Could not reach the database. Check your connection and retry.';
+/**
+ * Offered only after the third miss: an escape hatch on the first screen is an
+ * invitation to use it instead of remembering.
+ */
+const FAILURES_BEFORE_RECOVERY = 3;
+/**
+ * The request answers the same way whether or not it sent anything, so the copy
+ * cannot promise a delivery. It also has to be clear that a link is coming and
+ * not the passphrase — the stored secret is a hash and cannot be read back.
+ */
+const RECOVERY_SENT_COPY =
+  'If an address is on file, a link for setting a new passphrase has been sent. It works once and expires in 30 minutes. The passphrase itself cannot be sent — it is not stored in a readable form.';
 
 /**
  * The credential lives in sessionStorage, not localStorage: it dies with the
@@ -72,6 +109,13 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Second line of defence: the file can exist and still fail to decode.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  // This session only. A reload is a fresh start, which is the right default:
+  // the counter exists to spot someone struggling now, not to keep a record.
+  const [failures, setFailures] = useState(0);
+  const [recovery, setRecovery] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
@@ -94,7 +138,7 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         if (cancelled) return;
-        setError('Could not reach the database. Check your connection and retry.');
+        setError(OFFLINE_COPY);
         setState('locked');
       });
     return () => {
@@ -110,6 +154,7 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await verifyAppKey(candidate);
+      if (!result.valid) setFailures((count) => count + 1);
       if (result.valid) {
         storeKey(candidate);
         setPassphrase('');
@@ -127,9 +172,23 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
         setError('That passphrase is not correct.');
       }
     } catch {
-      setError('Could not reach the database. Check your connection and retry.');
+      setError(OFFLINE_COPY);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const askForRecovery = async () => {
+    if (recovery === 'sending') return;
+    setRecovery('sending');
+    setRecoveryNotice(null);
+    try {
+      await requestPassphraseRecovery();
+      setRecovery('sent');
+      setRecoveryNotice(RECOVERY_SENT_COPY);
+    } catch {
+      setRecovery('idle');
+      setRecoveryNotice(OFFLINE_COPY);
     }
   };
 
@@ -158,6 +217,24 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
             <p className="surface-label mt-0.5">Passphrase required</p>
           </div>
         </div>
+        {/* Fixed box either way, so the mark standing in for the photo costs
+            no layout shift. The photo is RGB with square corners, hence the
+            clipped radius — a hard rectangle on the light canvas would read
+            as an unstyled asset. */}
+        <div className="mx-auto mb-5 grid size-[120px] place-items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-2">
+          {lanternPhoto && !photoFailed ? (
+            <img
+              src={lanternPhoto}
+              width={120}
+              height={120}
+              alt="A sky lantern lifting away into the night sky just after release"
+              className="size-full object-cover"
+              onError={() => setPhotoFailed(true)}
+            />
+          ) : (
+            <LanternMark className="w-14" title="A sky lantern rising at night" />
+          )}
+        </div>
         <Input
           type="password"
           value={passphrase}
@@ -175,6 +252,27 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
         <Button type="submit" className="mt-4 w-full" disabled={isSubmitting}>
           {isSubmitting ? 'Checking…' : 'Unlock'}
         </Button>
+        {failures >= FAILURES_BEFORE_RECOVERY && recovery !== 'sent' && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            onClick={askForRecovery}
+            disabled={recovery === 'sending'}
+          >
+            {recovery === 'sending' ? 'Sending…' : 'Forgot passphrase?'}
+          </Button>
+        )}
+        {/* Present from the start so the announcement lands, collapsed while
+            empty so it costs no space. */}
+        <div
+          role="status"
+          aria-live="polite"
+          className="mt-3 text-sm text-foreground-secondary empty:hidden"
+        >
+          {recoveryNotice}
+        </div>
       </form>
     </div>
   );

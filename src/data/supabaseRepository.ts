@@ -68,6 +68,66 @@ export async function verifyAppKey(candidate: string): Promise<VerifyResult> {
   return (await response.json()) as VerifyResult;
 }
 
+/**
+ * Asks for a one-time link that sets a new passphrase. There is deliberately
+ * nothing to return: the function answers identically whether it sent an email,
+ * was inside its one-per-hour window, or found no mailbox — so the caller has
+ * no result to report and must not imply one. Resolving means the request was
+ * accepted, not that mail went out.
+ */
+export async function requestPassphraseRecovery(): Promise<void> {
+  const { url, anonKey } = requireConfig();
+  const response = await fetch(`${url}/functions/v1/request-passphrase-recovery`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
+    body: '{}',
+  });
+  if (!response.ok) throw new Error(`Recovery request failed (${response.status}).`);
+}
+
+/** 'weak' is the strength floor; 'invalid' covers unknown, used and expired alike. */
+export type RecoveryOutcome = 'ok' | 'weak' | 'invalid';
+
+export interface ConsumeRecoveryResult {
+  outcome: RecoveryOutcome;
+  /** Whether the failed-attempt lockout was also cleared. Only set on 'ok'. */
+  lockoutCleared?: boolean;
+}
+
+/**
+ * Redeems a recovery token and installs the new passphrase. Neither argument is
+ * logged or stored anywhere on the way through — not in the thrown error
+ * either, which carries the status code only.
+ */
+export async function consumePassphraseRecovery(
+  token: string,
+  passphrase: string,
+): Promise<ConsumeRecoveryResult> {
+  const { url, anonKey } = requireConfig();
+  const response = await fetch(`${url}/functions/v1/consume-passphrase-recovery`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
+    body: JSON.stringify({ token, passphrase }),
+  });
+  if (response.status === 400) {
+    const body = (await response.json()) as { reason?: RecoveryOutcome };
+    // A 400 without a reason is a malformed request rather than a bad token,
+    // but the owner can do nothing different about it either way.
+    return { outcome: body.reason === 'weak' ? 'weak' : 'invalid' };
+  }
+  if (!response.ok) throw new Error(`Recovery failed (${response.status}).`);
+  const body = (await response.json()) as { lockoutCleared?: boolean };
+  return { outcome: 'ok', lockoutCleared: body.lockoutCleared };
+}
+
 export function createSupabaseRepository(appKey: string): Repository {
   const { url, anonKey } = requireConfig();
   const client = createClient(url, anonKey, {
