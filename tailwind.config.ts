@@ -102,15 +102,14 @@ export default {
       boxShadow: {
         card: 'var(--shadow-card)',
       },
+      // Two families, and only two. Every number in this app is Plus Jakarta
+      // Sans; numeric alignment is `font-variant-numeric: tabular-nums`, never
+      // a monospace family. A third family here makes `font-mono` a legal
+      // class again, which is how 10 uses of it survived a sweep that reported
+      // them fixed.
       fontFamily: {
         sans: ['Plus Jakarta Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         display: ['Playfair Display', 'Georgia', 'serif'],
-        // Declared so the fallback is a decision, not an accident. font-mono
-        // is reserved for <pre> prompt/JSON blocks and the council's aligned
-        // stage-progress dots — numbers use sans + tabular-nums, which does
-        // the alignment alone. Before this declaration, font-mono fell
-        // through to Tailwind's default stack and a third typeface shipped.
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       fontSize: {
         // Type scale roles beyond Tailwind defaults (body = text-sm 14/1.5,
