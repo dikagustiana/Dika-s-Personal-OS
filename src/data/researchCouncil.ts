@@ -224,6 +224,17 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
     return { ok: false, reason: 'Could not reach the council function during peer review.' };
   }
 
+  if (!stage2?.ran) {
+    // The advisor completions are already paid for, but a transcript with no
+    // peer reviews and no warning would read as a complete council — worse
+    // than stopping loudly and letting the owner decide whether to retry.
+    return {
+      ok: false,
+      reason: `Peer review stage failed: ${String(stage2?.reason ?? 'no response')}. The ${advisorResponses.length} advisor responses were not discarded by the provider, but the run stopped before the chairman.`,
+      failedSeats: progress.failedSeats,
+    };
+  }
+
   const rawPeers = (stage2?.peerReviews ?? []) as Array<{
     reviewerId: string;
     reviewerName: string;
@@ -261,12 +272,17 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
       },
     });
     if (stage3?.ran) {
-      verdict = parseChairmanVerdict(String(stage3.chairmanRaw ?? ''));
+      const chairmanRaw = String(stage3.chairmanRaw ?? '');
+      verdict = parseChairmanVerdict(chairmanRaw);
       // Not `verdict.raw !== undefined`: a chairman that returns `{}` parses
       // cleanly into five empty strings, and rendering that as a verdict card
       // says "the council had nothing to say", which is the opposite of what
       // happened. verdictParsed covers both shapes.
       verdictUnparsed = !verdictParsed(verdict);
+      // A contentless-but-parseable reply ({}) carries no `raw`, so the
+      // unparsed branch would render a blank block while claiming nothing was
+      // discarded. Keep the actual output, whatever shape it took.
+      if (verdictUnparsed && !verdict.raw) verdict = { ...verdict, raw: chairmanRaw };
       progress.chairmanDone = true;
     }
   } catch {

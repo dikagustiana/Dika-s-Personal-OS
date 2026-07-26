@@ -17,6 +17,8 @@
 // cycle or log entry — those go through the register's own guarded mutation
 // path, by hand. See src/data/researchGuards.ts for why that is absolute.
 
+import { checkAppKey } from '../_shared/appKeyAuth.ts';
+
 const CONFIG = {
   /** OpenAI-compatible chat-completions endpoint. */
   baseUrl: Deno.env.get('RESEARCH_MODEL_BASE_URL') ?? 'https://api.moonshot.ai/v1',
@@ -50,35 +52,6 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
 
-/**
- * The anon key ships in the public bundle, so it is not authorization. Without
- * this, anyone who views source could spend the owner's model account through
- * this endpoint. Same check the council function makes, and the same one RLS
- * makes on every table — routed through the rate-limited RPC so brute-forcing
- * here meets the lockout that already exists.
- */
-async function appKeyValid(request: Request): Promise<boolean> {
-  const candidate = request.headers.get('x-app-key');
-  if (!candidate) return false;
-  const url = Deno.env.get('SUPABASE_URL');
-  const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !serviceRole) return false;
-  try {
-    const response = await fetch(`${url}/rest/v1/rpc/os_verify_key`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: serviceRole,
-        Authorization: `Bearer ${serviceRole}`,
-      },
-      body: JSON.stringify({ candidate }),
-    });
-    if (!response.ok) return false;
-    return (await response.json()) === true;
-  } catch {
-    return false;
-  }
-}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -104,9 +77,17 @@ Deno.serve(async (request) => {
   if (request.method === 'GET') return json(capabilities());
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  // Before anything billable. The GET probe stays open: it discloses only
-  // whether a key is configured, which the client needs to render the cards.
-  if (!(await appKeyValid(request))) return json({ error: 'Unauthorized' }, 401);
+  // Before anything billable, through the SAME rate limiter as the passphrase
+  // gate — see _shared/appKeyAuth.ts for why the bare os_verify_key call was
+  // not enough. The GET probe stays open: it discloses only whether a key is
+  // configured, which the client needs to render the cards.
+  const auth = await checkAppKey(request);
+  if (!auth.ok) {
+    return json(
+      { error: auth.reason, ...(auth.retryAfter ? { retryAfter: auth.retryAfter } : {}) },
+      auth.status,
+    );
+  }
 
   let prompt = '';
   let kind = '';

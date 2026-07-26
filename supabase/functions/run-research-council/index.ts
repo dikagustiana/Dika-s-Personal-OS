@@ -15,6 +15,8 @@
 // NO CRON, NO SCHEDULER. Every run is user-initiated and explicitly confirmed.
 // loopDue is a trigger for the owner, not for a job.
 
+import { checkAppKey } from '../_shared/appKeyAuth.ts';
+
 const CONFIG = {
   baseUrl: Deno.env.get('RESEARCH_MODEL_BASE_URL') ?? 'https://api.moonshot.ai/v1',
   apiKey: Deno.env.get('RESEARCH_MODEL_API_KEY') ?? '',
@@ -50,39 +52,15 @@ const CORS = {
  */
 const MAX_SEATS = 8;
 const MAX_PROMPT_CHARS = 80_000;
-
 /**
- * The model budget is the owner's, and the anon key is in the public bundle,
- * so `configured` alone is not authorization: without this check anyone who
- * views source can spend the account. RLS protects every table this way; an
- * Edge Function that spends money needs the same door.
- *
- * Verified through the same rate-limited RPC the passphrase gate uses, rather
- * than a bespoke comparison, so brute-forcing the council endpoint runs into
- * the lockout that already exists instead of a fresh unprotected one.
+ * Aggregate stages carry the framed input PLUS every seat's bounded output
+ * (maxTokens ≈ 32k chars each), so their legitimate size is input + seats ×
+ * output — an 80k cap rejected long-but-valid runs AFTER the advisor
+ * completions were already paid for. 400k bounds abuse while never rejecting
+ * a run whose parts each passed their own limits.
  */
-async function appKeyValid(request: Request): Promise<boolean> {
-  const candidate = request.headers.get('x-app-key');
-  if (!candidate) return false;
-  const url = Deno.env.get('SUPABASE_URL');
-  const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
-  if (!url || !serviceRole) return false;
-  try {
-    const response = await fetch(`${url}/rest/v1/rpc/os_verify_key`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: serviceRole,
-        Authorization: `Bearer ${serviceRole}`,
-      },
-      body: JSON.stringify({ candidate }),
-    });
-    if (!response.ok) return false;
-    return (await response.json()) === true;
-  } catch {
-    return false;
-  }
-}
+const MAX_AGGREGATE_CHARS = 400_000;
+
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -132,11 +110,17 @@ Deno.serve(async (request) => {
   if (request.method === 'GET') return json(capabilities());
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  // Before anything that costs money. The GET probe above is deliberately
-  // outside this: it reveals only whether a key is configured, and the client
-  // needs it to decide whether to render the council at all.
-  if (!(await appKeyValid(request))) {
-    return json({ error: 'Unauthorized' }, 401);
+  // Before anything that costs money, through the SAME rate limiter as the
+  // passphrase gate — the previous check compared hashes without counting
+  // attempts, which made this endpoint an unlimited guessing oracle while
+  // the front door was locked. The GET probe above stays open: it reveals
+  // only whether a key is configured.
+  const auth = await checkAppKey(request);
+  if (!auth.ok) {
+    return json(
+      { error: auth.reason, ...(auth.retryAfter ? { retryAfter: auth.retryAfter } : {}) },
+      auth.status,
+    );
   }
 
   let body: Record<string, unknown>;
@@ -261,7 +245,7 @@ Deno.serve(async (request) => {
       if (peerPrompts.length > MAX_SEATS) {
         return json({ error: `At most ${MAX_SEATS} peer reviews per council` }, 400);
       }
-      if (peerPrompts.some((p) => (p.user ?? '').length > MAX_PROMPT_CHARS)) {
+      if (peerPrompts.some((p) => (p.user ?? '').length > MAX_AGGREGATE_CHARS)) {
         return json({ error: 'A peer prompt exceeds the allowed size' }, 400);
       }
 
@@ -297,6 +281,9 @@ Deno.serve(async (request) => {
         | undefined;
       if (!chairman?.system || !chairman?.user) {
         return json({ error: 'chairman system and user prompts are required' }, 400);
+      }
+      if (chairman.user.length > MAX_AGGREGATE_CHARS) {
+        return json({ error: 'The chairman prompt exceeds the allowed size' }, 400);
       }
       const raw = await complete(chairman.model ?? CONFIG.defaultModel, [
         { role: 'system', content: chairman.system },
