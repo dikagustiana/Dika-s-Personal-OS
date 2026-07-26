@@ -1,6 +1,6 @@
 import { format, parseISO } from 'date-fns';
-import { Check, ChevronRight, Megaphone } from 'lucide-react';
-import { useState } from 'react';
+import { Check, ChevronRight, Megaphone, Pencil, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type {
   DateConfidence,
   Domain,
@@ -143,6 +143,24 @@ export function MilestoneSection({
   defaultOpen = false,
 }: MilestoneSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
+
+  // One-way: a defaultOpen that TURNS TRUE after mount still opens the list.
+  // Cross-view navigation sets its focus flag in an effect that runs after
+  // the cards have already mounted, so the initial useState seed alone would
+  // silently ignore it — the deep link would land in front of a closed list,
+  // which is the exact failure it exists to fix. Closing stays manual.
+  useEffect(() => {
+    if (defaultOpen) setOpen(true);
+  }, [defaultOpen]);
+  // Read rows by default; the editor mounts for ONE row at a time. A
+  // 56-milestone project used to mount ~170 live form controls at once —
+  // reading and editing shared one surface, which is the whole reason long
+  // lists were unreadable. Per-row, not a list-wide toggle: a list-wide mode
+  // changes the entire surface at once, which is a cost for re-entry.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  // All / Open / Blocked. Defaults to All so nothing is hidden by surprise;
+  // 'open' is "not done", 'blocked' is the three rows the reader came for.
+  const [filter, setFilter] = useState<'all' | 'open' | 'blocked'>('all');
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
 
   const done = milestones.filter((milestone) => milestone.done).length;
@@ -163,7 +181,7 @@ export function MilestoneSection({
     }));
 
   return (
-    <section aria-label={`Milestones for ${projectTitle}`}>
+    <section aria-label={`Milestones for ${projectTitle}`} className="scroll-mt-24">
       <button
         type="button"
         className="flex w-full items-center gap-2 rounded-sm py-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -199,165 +217,233 @@ export function MilestoneSection({
       )}
 
       {open && (
-        <div className="mt-3 divide-y divide-border-subtle">
-          {milestones.length === 0 && (
-            <p className="py-3 text-xs text-foreground-muted">
-              No milestones yet — add them from the edit pencil.
-            </p>
-          )}
-          {milestones.map((milestone) => {
-            const escalated = (milestone.escalateTo ?? 'none') !== 'none';
-            const end = milestoneEnd(milestone);
-            const documents = milestone.documents ?? [];
-            return (
-              <div
-                key={milestone.id}
-                className={cn(
-                  'space-y-2 border-l-2 py-3 pl-3',
-                  milestone.status === 'blocked'
-                    ? 'border-l-destructive/60'
-                    : escalated
-                      ? 'border-l-escalate/60'
-                      : 'border-l-transparent',
-                )}
-              >
-                <div className="flex items-center gap-2">
-                  <StatusToggle
-                    milestone={milestone}
-                    onToggle={() =>
-                      void onPatch(milestone.id, (current) =>
-                        withMilestoneDone(current, !current.done),
-                      )
-                    }
-                  />
-                  <span
-                    className={cn(
-                      'min-w-0 flex-1 text-sm text-foreground-secondary',
-                      milestone.done && 'text-foreground-muted line-through',
-                    )}
-                  >
-                    {milestone.text}
-                  </span>
-                  {escalated && (
-                    <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />
-                  )}
-                  {milestone.pic && (
-                    <span
-                      className="shrink-0 rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-muted"
-                      title={`PIC: ${milestone.pic}`}
-                    >
-                      {milestone.pic}
-                    </span>
-                  )}
-                </div>
-
-                {/* Line 2 — dates, countdown, documents. Each part is simply
-                    absent when its data is: a milestone with no dates shows no
-                    range rather than a row of em dashes. */}
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8">
-                  {(milestone.startDate || end) && (
-                    <span className="text-[11px] tabular-nums text-foreground-muted">
-                      {milestone.startDate
-                        ? shortDate(milestone.startDate, milestone.dateConfidence)
-                        : '—'}
-                      {' → '}
-                      {end ? shortDate(end, milestone.dateConfidence) : '—'}
-                    </span>
-                  )}
-                  {end && !milestone.done && (
-                    <>
-                      <DaysLeftBadge
-                        endDate={end}
-                        confidence={milestone.dateConfidence}
-                        today={today}
-                      />
-                      {resolveConfidence(milestone.dateConfidence) !== 'confirmed' && (
-                        <TbcChip />
-                      )}
-                    </>
-                  )}
-                  {documents.length > 0 ? (
-                    <DocumentLinks
-                      className="w-full min-w-0"
-                      documents={documents}
-                      ariaContext={milestone.text}
-                      onRemove={(index) =>
-                        void setDocuments(milestone.id, removeDocumentAt(documents, index))
-                      }
-                    />
-                  ) : null}
-                  <DocumentUpload
-                    variant="inline"
-                    ariaContext={milestone.text}
-                    onAdd={(document) =>
-                      setDocuments(milestone.id, appendDocument(documents, document))
-                    }
-                  />
-                </div>
-
-                <div
+        <div className="mt-3">
+          {milestones.length > 3 && (
+            // Segmented filter, defaulting to All so nothing is hidden on
+            // load. The rows wanted in a 56-row list are usually "the three
+            // that are blocked"; the status is already on every milestone.
+            <div className="mb-2 flex items-center gap-1" role="group" aria-label="Filter milestones">
+              {(
+                [
+                  ['all', 'All', milestones.length],
+                  ['open', 'Open', milestones.filter((m) => !m.done).length],
+                  ['blocked', 'Blocked', milestones.filter((m) => m.status === 'blocked').length],
+                ] as const
+              ).map(([value, label, count]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFilter(value)}
+                  aria-pressed={filter === value}
                   className={cn(
-                    'grid gap-2 pl-8',
-                    domain === 'work'
-                      ? 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]'
-                      : 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)]',
+                    'min-h-8 rounded-sm border px-2.5 text-[11px] font-semibold tabular-nums transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    filter === value
+                      ? 'border-primary bg-primary/10 text-foreground'
+                      : 'border-border text-foreground-muted hover:text-foreground-secondary',
                   )}
                 >
-                  <select
-                    className="native-select text-xs"
-                    value={milestone.status}
-                    onChange={(event) =>
-                      void onPatch(milestone.id, (current) =>
-                        withMilestoneStatus(current, event.target.value as MilestoneStatus),
-                      )
-                    }
-                    aria-label={`Status for ${milestone.text}`}
+                  {label} · {count}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="divide-y divide-border-subtle">
+            {milestones.length === 0 && (
+              <p className="py-3 text-xs text-foreground-muted">
+                No milestones yet — add them from the edit pencil.
+              </p>
+            )}
+            {milestones
+              .filter((milestone) => {
+                if (filter === 'open') return !milestone.done;
+                if (filter === 'blocked') return milestone.status === 'blocked';
+                return true;
+              })
+              .map((milestone) => {
+                const escalated = (milestone.escalateTo ?? 'none') !== 'none';
+                const end = milestoneEnd(milestone);
+                const documents = milestone.documents ?? [];
+                const editing = editingId === milestone.id;
+                return (
+                  <div
+                    key={milestone.id}
+                    className={cn(
+                      'space-y-2 border-l-2 py-2 pl-3',
+                      milestone.status === 'blocked'
+                        ? 'border-l-destructive/60'
+                        : escalated
+                          ? 'border-l-escalate/60'
+                          : 'border-l-transparent',
+                    )}
                   >
-                    {MILESTONE_STATUSES.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    className="h-11 text-sm"
-                    value={noteDrafts[milestone.id] ?? milestone.note ?? ''}
-                    onChange={(event) =>
-                      setNoteDrafts((current) => ({
-                        ...current,
-                        [milestone.id]: event.target.value,
-                      }))
-                    }
-                    onBlur={() => void saveNote(milestone)}
-                    placeholder="What's left / blocker…"
-                    aria-label={`Note for ${milestone.text}`}
-                  />
-                  {/* WORK only, and the only place an escalation target can be
-                      set — the Finish line view routes here for exactly that. */}
-                  {domain === 'work' && (
-                    <select
-                      className={cn('native-select text-xs', escalated && 'text-escalate')}
-                      value={milestone.escalateTo ?? 'none'}
-                      onChange={(event) =>
-                        void onPatch(milestone.id, (current) => ({
-                          ...current,
-                          escalateTo: event.target.value as EscalateTo,
-                        }))
-                      }
-                      aria-label={`Escalation for ${milestone.text}`}
-                    >
-                      <option value="none">None</option>
-                      {ESCALATION_TARGETS.map((target) => (
-                        <option key={target.value} value={target.value}>
-                          {target.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                    <div className="flex items-center gap-2">
+                      <StatusToggle
+                        milestone={milestone}
+                        onToggle={() =>
+                          void onPatch(milestone.id, (current) =>
+                            withMilestoneDone(current, !current.done),
+                          )
+                        }
+                      />
+                      <span
+                        className={cn(
+                          'min-w-0 flex-1 text-sm text-foreground-secondary',
+                          milestone.done && 'text-foreground-muted line-through',
+                        )}
+                      >
+                        {milestone.text}
+                      </span>
+                      {escalated && (
+                        <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />
+                      )}
+                      {milestone.pic && (
+                        <span
+                          className="shrink-0 rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-muted"
+                          title={`PIC: ${milestone.pic}`}
+                        >
+                          {milestone.pic}
+                        </span>
+                      )}
+                      {/* The row's one edit affordance. Reading and editing no
+                          longer share a surface: the editor below mounts for
+                          this row only, so a 56-row list is text until a row
+                          is actually being worked. */}
+                      <button
+                        type="button"
+                        onClick={() => setEditingId(editing ? null : milestone.id)}
+                        aria-expanded={editing}
+                        aria-label={
+                          editing ? `Close editor for ${milestone.text}` : `Edit ${milestone.text}`
+                        }
+                        className="grid size-8 shrink-0 place-items-center rounded-sm text-foreground-muted hover:bg-surface-2 hover:text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {editing ? <X className="size-3.5" /> : <Pencil className="size-3.5" />}
+                      </button>
+                    </div>
+
+                    {/* Line 2 — dates, countdown, note and documents AS TEXT.
+                        Each part is simply absent when its data is. */}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 pl-8">
+                      {(milestone.startDate || end) && (
+                        <span className="text-[11px] tabular-nums text-foreground-muted">
+                          {milestone.startDate
+                            ? shortDate(milestone.startDate, milestone.dateConfidence)
+                            : '—'}
+                          {' → '}
+                          {end ? shortDate(end, milestone.dateConfidence) : '—'}
+                        </span>
+                      )}
+                      {end && !milestone.done && (
+                        <>
+                          <DaysLeftBadge
+                            endDate={end}
+                            confidence={milestone.dateConfidence}
+                            today={today}
+                          />
+                          {resolveConfidence(milestone.dateConfidence) !== 'confirmed' && (
+                            <TbcChip />
+                          )}
+                        </>
+                      )}
+                      {!editing && milestone.note && (
+                        <span className="min-w-0 text-[11px] italic text-foreground-muted">
+                          {milestone.note}
+                        </span>
+                      )}
+                      {documents.length > 0 && (
+                        <DocumentLinks
+                          className="w-full min-w-0"
+                          documents={documents}
+                          ariaContext={milestone.text}
+                          onRemove={
+                            editing
+                              ? (index) =>
+                                  void setDocuments(milestone.id, removeDocumentAt(documents, index))
+                              : undefined
+                          }
+                        />
+                      )}
+                    </div>
+
+                    {/* The editor — mounted for the row being edited, nowhere
+                        else. This is where the ~170 always-live form controls
+                        of a 56-row card went. */}
+                    {editing && (
+                      <div className="space-y-2 pl-8">
+                        <div
+                          className={cn(
+                            'grid gap-2',
+                            domain === 'work'
+                              ? 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)_minmax(150px,0.5fr)]'
+                              : 'sm:grid-cols-[minmax(120px,0.4fr)_minmax(0,1fr)]',
+                          )}
+                        >
+                          <select
+                            className="native-select text-xs"
+                            value={milestone.status}
+                            onChange={(event) =>
+                              void onPatch(milestone.id, (current) =>
+                                withMilestoneStatus(current, event.target.value as MilestoneStatus),
+                              )
+                            }
+                            aria-label={`Status for ${milestone.text}`}
+                          >
+                            {MILESTONE_STATUSES.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                          <Input
+                            className="h-11 text-sm"
+                            value={noteDrafts[milestone.id] ?? milestone.note ?? ''}
+                            onChange={(event) =>
+                              setNoteDrafts((current) => ({
+                                ...current,
+                                [milestone.id]: event.target.value,
+                              }))
+                            }
+                            onBlur={() => void saveNote(milestone)}
+                            placeholder="What's left / blocker…"
+                            aria-label={`Note for ${milestone.text}`}
+                          />
+                          {/* WORK only, and the only place an escalation target
+                              can be set — Finish line routes here for that. */}
+                          {domain === 'work' && (
+                            <select
+                              className={cn('native-select text-xs', escalated && 'text-escalate')}
+                              value={milestone.escalateTo ?? 'none'}
+                              onChange={(event) =>
+                                void onPatch(milestone.id, (current) => ({
+                                  ...current,
+                                  escalateTo: event.target.value as EscalateTo,
+                                }))
+                              }
+                              aria-label={`Escalation for ${milestone.text}`}
+                            >
+                              <option value="none">None</option>
+                              {ESCALATION_TARGETS.map((target) => (
+                                <option key={target.value} value={target.value}>
+                                  {target.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                        <DocumentUpload
+                          variant="inline"
+                          ariaContext={milestone.text}
+                          onAdd={(document) =>
+                            setDocuments(milestone.id, appendDocument(documents, document))
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
         </div>
       )}
     </section>

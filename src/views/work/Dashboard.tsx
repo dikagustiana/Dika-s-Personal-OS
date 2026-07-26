@@ -186,6 +186,7 @@ function compositionLine(breakdown: NeedsActionBreakdown): string {
 export function Dashboard() {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
+  const setProjectFocus = useAppStore((state) => state.setProjectFocus);
   const { run, isPending } = useMutation();
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -500,8 +501,21 @@ export function Dashboard() {
     replaceProject(updated);
   };
 
-  const openMilestone = (project: Project) =>
-    setWorkView(project.recurring === 'monthly' ? 'monthly-close' : 'projects');
+  /**
+   * A needs-action row knows exactly which project its milestone lives in, so
+   * the navigation carries that: Projects arrives scrolled to the card with
+   * its milestone list open, via the same scroll-and-expand mechanism the
+   * linked-project chips already use. Close-cycle milestones still go to
+   * Monthly Close, which is organised by series rather than by card.
+   */
+  const openMilestone = (project: Project) => {
+    if (project.recurring === 'monthly') {
+      setWorkView('monthly-close');
+      return;
+    }
+    setProjectFocus({ projectId: project.id, openMilestones: true });
+    setWorkView('projects');
+  };
 
   /**
    * A link chip on a pinned card. Only the pinned subset has a card here, so
