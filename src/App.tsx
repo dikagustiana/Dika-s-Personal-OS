@@ -10,6 +10,7 @@ import { Escalations } from './views/growth/Escalations';
 import { GrowthDashboard } from './views/growth/GrowthDashboard';
 import { Ielts } from './views/growth/Ielts';
 import { Initiative } from './views/growth/Initiative';
+import { ResearchArea } from './views/growth/research/ResearchArea';
 
 export default function App() {
   const workspace = useAppStore((state) => state.workspace);
@@ -32,7 +33,9 @@ export default function App() {
     else if (growthView === 'uni') view = <Initiative key="uni" initiative="uni" />;
     else if (growthView === 'chevening') view = <Initiative key="chevening" initiative="chevening" />;
     else if (growthView === 'lpdp') view = <Initiative key="lpdp" initiative="lpdp" />;
-    else if (growthView === 'research') view = <Initiative key="research" initiative="research" />;
+    // Research does not use the generic initiative page: the pipeline is the
+    // content, and a project card cannot carry gates, a register or a log.
+    else if (growthView === 'research') view = <ResearchArea key="research" />;
     else if (growthView === 'website') view = <Initiative key="website" initiative="website" />;
     else if (growthView === 'projects') view = <Projects key="growth" />;
     else view = <GrowthDashboard />;

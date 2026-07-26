@@ -47,6 +47,30 @@ export interface VerifyResult {
 }
 
 /**
+ * One Edge Function call, with the anon key attached the way every other call
+ * here attaches it. Returns the parsed body for any status the function uses
+ * to mean something — the research model function answers "not configured" and
+ * "needs confirmation" with real bodies the caller must read, so throwing on
+ * non-2xx would discard exactly the information it needs.
+ */
+export async function edgeFunctionCall<T>(
+  name: string,
+  options: { method: 'GET' | 'POST'; body?: unknown },
+): Promise<T> {
+  const { url, anonKey } = requireConfig();
+  const response = await fetch(`${url}/functions/v1/${name}`, {
+    method: options.method,
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+    },
+    ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
+  });
+  return (await response.json()) as T;
+}
+
+/**
  * Verification goes through the `verify-passphrase` Edge Function, which rate
  * limits it. The database RPC is no longer callable with the anon key — see
  * supabase/migrations/20260724000011_auth_rate_limit.sql.

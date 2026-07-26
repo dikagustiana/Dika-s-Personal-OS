@@ -245,6 +245,22 @@ button {
   outline-offset: 2px;
 }
 
+/*
+ * A gate-map cell with an open stage-00 blocker. Stripes rather than a solid
+ * fill because the cell already uses fill to mean "criteria checked": a
+ * blocked cell is not a fuller cell, it is a different kind of cell, and the
+ * texture says so without spending another colour.
+ */
+.gate-hazard {
+  background-image: repeating-linear-gradient(
+    45deg,
+    hsl(var(--destructive) / 0.18) 0,
+    hsl(var(--destructive) / 0.18) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
