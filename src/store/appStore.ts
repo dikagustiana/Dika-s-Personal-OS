@@ -31,7 +31,10 @@ export type GrowthView =
   | 'chevening'
   | 'lpdp'
   | 'research'
-  | 'website';
+  | 'website'
+  // The forest view. It already existed and already handled parent/child
+  // projects, but only WORK had a route to it.
+  | 'projects';
 
 interface AppState {
   repository: Repository;

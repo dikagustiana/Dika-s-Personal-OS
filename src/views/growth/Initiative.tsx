@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ProjectCard } from '../../components/ProjectCard';
+import { ProjectChildren } from '../../components/ProjectChildren';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { Input } from '../../components/ui/Input';
 import type { Project, TaskEntry, WebsiteCategory, WeeklyPlan } from '../../data/types';
+import { buildProjectTree, findNode, rollupMilestones } from '../../logic/hierarchy';
 import { GROWTH_INITIATIVES, type InitiativeKey } from '../../logic/initiatives';
 import { getIsoWeekKey } from '../../logic/week';
 import { useAppStore } from '../../store/appStore';
@@ -23,6 +25,11 @@ const WEBSITE_CATEGORIES: Array<{ value: WebsiteCategory; label: string }> = [
  * Chevening, LPDP, Research, Website). Reuses ProjectCard; the project is
  * matched by the initiative's fixed id. Research and Website additionally
  * show a "current piece" (workingTitle); Website adds a section category.
+ *
+ * The page resolves the initiative's own project AND its children. It used to
+ * resolve exactly one project by id, which is why child projects — correct in
+ * the database, with correct parent ids — were invisible everywhere in GROWTH:
+ * this view predates `parent_id` and was never updated when it landed.
  */
 export function Initiative({ initiative }: { initiative: InitiativeKey }) {
   const repository = useAppStore((state) => state.repository);
@@ -34,6 +41,9 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  // Expansion lives here, not in ProjectChildren, so a child can be opened
+  // programmatically — a link that scrolls to a collapsed card finds nothing.
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const meta = GROWTH_INITIATIVES.find((item) => item.key === initiative);
   const showPiece = initiative === 'research' || initiative === 'website';
@@ -55,6 +65,28 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // `listProjects` already returns sort_order ascending, so the forest keeps
+  // the owner's ordering without a second sort here.
+  const node = useMemo(() => {
+    if (!project) return undefined;
+    return findNode(buildProjectTree(allProjects), project.id);
+  }, [allProjects, project]);
+
+  const toggleChild = (projectId: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+
+  const onProjectChange = (updated: Project) => {
+    setAllProjects((current) =>
+      current.map((item) => (item.id === updated.id ? updated : item)),
+    );
+    if (updated.id === project?.id) setProject(updated);
+  };
 
   const saveWorkingTitle = async () => {
     if (!project || titleDraft === null) return;
@@ -135,13 +167,24 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
             tasks={tasks}
             goals={plan?.goals ?? []}
             projects={allProjects}
+            // The umbrella project owns no milestones of its own; without the
+            // rollup its Milestones tile reads 0 of 0 while ten children below
+            // hold two hundred.
+            rollup={node ? rollupMilestones(node) : undefined}
             updateProject={(id, patch) => repository.updateProject(id, patch)}
-            onChange={(updated) => {
-              setProject(updated);
-              setAllProjects((current) =>
-                current.map((item) => (item.id === updated.id ? updated : item)),
-              );
-            }}
+            onChange={onProjectChange}
+          />
+
+          <ProjectChildren
+            nodes={node?.children ?? []}
+            domain="growth"
+            expanded={expanded}
+            onToggle={toggleChild}
+            tasks={tasks}
+            goals={plan?.goals ?? []}
+            projects={allProjects}
+            updateProject={(id, patch) => repository.updateProject(id, patch)}
+            onChange={onProjectChange}
           />
         </div>
       ) : (

@@ -4,6 +4,7 @@ import {
   collectEscalations,
   milestoneEnd,
   milestoneRange,
+  projectAlertState,
   withMilestoneDone,
   withMilestoneStatus,
 } from './milestones';
@@ -172,5 +173,88 @@ describe('milestoneRange', () => {
     expect(
       milestoneRange(milestone({ startDate: '2026-08-09', endDate: '2026-08-01' })),
     ).toEqual({ start: '2026-08-01', end: '2026-08-01' });
+  });
+});
+
+describe('projectAlertState', () => {
+  const today = new Date(2026, 6, 26); // 2026-07-26
+
+  it('is null when nothing is late or stuck', () => {
+    expect(projectAlertState(project(), today)).toBeNull();
+    expect(
+      projectAlertState(
+        project({ milestones: [milestone({ endDate: '2026-08-01' })] }),
+        today,
+      ),
+    ).toBeNull();
+  });
+
+  it('reports overdue for a past end date, and prefers it over blocked', () => {
+    expect(
+      projectAlertState(
+        project({ milestones: [milestone({ endDate: '2026-07-25' })] }),
+        today,
+      ),
+    ).toBe('overdue');
+    // Same precedence the needs-action list uses: the collapsed row must not
+    // say "blocked" when something is already late.
+    expect(
+      projectAlertState(
+        project({
+          milestones: [
+            milestone({ id: 'm1', status: 'blocked' }),
+            milestone({ id: 'm2', endDate: '2026-07-01' }),
+          ],
+        }),
+        today,
+      ),
+    ).toBe('overdue');
+  });
+
+  it('reads a legacy dueDate as the tracked date', () => {
+    expect(
+      projectAlertState(
+        project({ milestones: [milestone({ dueDate: '2026-07-01' })] }),
+        today,
+      ),
+    ).toBe('overdue');
+  });
+
+  it('ignores completed milestones and completed projects', () => {
+    expect(
+      projectAlertState(
+        project({
+          milestones: [milestone({ done: true, status: 'done', endDate: '2026-01-01' })],
+        }),
+        today,
+      ),
+    ).toBeNull();
+    expect(
+      projectAlertState(
+        project({
+          status: 'done',
+          milestones: [milestone({ endDate: '2026-01-01' })],
+        }),
+        today,
+      ),
+    ).toBeNull();
+  });
+
+  it('reports blocked when nothing is late', () => {
+    expect(
+      projectAlertState(
+        project({ milestones: [milestone({ status: 'blocked' })] }),
+        today,
+      ),
+    ).toBe('blocked');
+  });
+
+  it('does not treat today as overdue', () => {
+    expect(
+      projectAlertState(
+        project({ milestones: [milestone({ endDate: '2026-07-26' })] }),
+        today,
+      ),
+    ).toBeNull();
   });
 });

@@ -67,6 +67,33 @@ export function withMilestoneDone(milestone: Milestone, done: boolean): Mileston
   };
 }
 
+/**
+ * The one-word state a collapsed project row reports: something is late, or
+ * something is stuck, or neither.
+ *
+ * Deliberately the same precedence the needs-action list uses — overdue beats
+ * blocked — so a project summarised in one place cannot contradict the same
+ * project summarised in another. A collapsed row is the only view of a child
+ * project until it is expanded, so this badge is the whole warning.
+ */
+export type ProjectAlert = 'overdue' | 'blocked';
+
+export function projectAlertState(
+  project: Project,
+  today: Date,
+): ProjectAlert | null {
+  if (project.status === 'done') return null;
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  let blocked = false;
+  for (const milestone of project.milestones) {
+    if (milestone.done) continue;
+    const end = milestoneEnd(milestone);
+    if (end && end < todayKey) return 'overdue';
+    if (milestone.status === 'blocked') blocked = true;
+  }
+  return blocked ? 'blocked' : null;
+}
+
 export interface EscalationItem {
   projectId: string;
   projectTitle: string;
