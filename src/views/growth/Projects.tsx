@@ -1,6 +1,7 @@
 import { Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ProjectCard } from '../../components/ProjectCard';
+import { ProjectChildren } from '../../components/ProjectChildren';
 import {
   ProjectFields,
   emptyProjectDraft,
@@ -11,6 +12,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import type { Project, TaskEntry, WeeklyPlan } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
+  ancestorIds,
   buildProjectTree,
   entityTags,
   flattenNode,
@@ -26,9 +28,11 @@ const ALL_ENTITIES = '__all__';
  * The general project list for the active domain. Recurring monthly-close
  * cycles are excluded — they live in the Monthly Close view.
  *
- * Projects render as a forest: a project with children shows each child as a
- * complete card of its own, indented under a rule. A child is not a summary
- * row — it has its own tiles, week strip, milestones, links and documents.
+ * Projects render as a forest: a root project shows its complete card, and its
+ * children are listed beneath it as compact rows that expand in place to the
+ * same complete card. Nothing about a child is unreachable — but ten or thirty
+ * full cards under one parent is a page measured in tens of thousands of
+ * pixels, and that is not a list anyone can use.
  */
 export function Projects() {
   const repository = useAppStore((state) => state.repository);
@@ -73,11 +77,30 @@ export function Projects() {
   // nothing is worse than a momentarily wider list. The scroll runs in an
   // effect so it happens after that wider list has actually rendered.
   const [scrollTarget, setScrollTarget] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
 
   const scrollToProject = (projectId: string) => {
     setEntityFilter(ALL_ENTITIES);
+    // A link may point at a collapsed child, whose card is not in the DOM at
+    // all. Expand first for the same reason the filter is cleared first — and
+    // expand the whole ancestor chain, because a collapsed row renders none of
+    // its descendants, so opening only the target would mount nothing.
+    setExpanded((current) => {
+      const next = new Set(current);
+      next.add(projectId);
+      for (const id of ancestorIds(projects, projectId)) next.add(id);
+      return next;
+    });
     setScrollTarget(projectId);
   };
+
+  const toggleChild = (projectId: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
 
   useEffect(() => {
     if (!scrollTarget) return;
@@ -149,11 +172,19 @@ export function Projects() {
         onDelete={deleteProject}
         onChange={onChange}
       />
-      {node.children.length > 0 && (
-        <div className="mt-4 space-y-4 border-l-2 border-border-subtle pl-4 sm:pl-6">
-          {node.children.map(renderNode)}
-        </div>
-      )}
+      <ProjectChildren
+        nodes={node.children}
+        domain={domain}
+        expanded={expanded}
+        onToggle={toggleChild}
+        tasks={tasks}
+        goals={plan?.goals ?? []}
+        projects={projects}
+        onNavigateToProject={scrollToProject}
+        updateProject={(id, patch) => repository.updateProject(id, patch)}
+        onDelete={deleteProject}
+        onChange={onChange}
+      />
     </div>
   );
 

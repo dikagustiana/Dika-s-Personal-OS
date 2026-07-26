@@ -51,6 +51,9 @@ const growthNav: Array<{ id: GrowthView; label: string; short: string; icon: typ
   { id: 'lpdp', label: 'LPDP', short: 'LPDP', icon: FileText },
   { id: 'research', label: 'Research', short: 'Research', icon: FlaskConical },
   { id: 'website', label: 'Website', short: 'Website', icon: Globe },
+  // Last: the initiatives are the everyday entry points, and this is the
+  // whole-forest fallback for anything not behind one of them.
+  { id: 'projects', label: 'Projects', short: 'Projects', icon: Target },
 ];
 
 function WorkspaceSwitch({

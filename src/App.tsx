@@ -34,6 +34,7 @@ export default function App() {
     else if (growthView === 'lpdp') view = <Initiative key="lpdp" initiative="lpdp" />;
     else if (growthView === 'research') view = <Initiative key="research" initiative="research" />;
     else if (growthView === 'website') view = <Initiative key="website" initiative="website" />;
+    else if (growthView === 'projects') view = <Projects key="growth" />;
     else view = <GrowthDashboard />;
   }
 
