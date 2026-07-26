@@ -20,6 +20,11 @@
 -- the existing lockout thresholds. The single write to private.os_app_secret
 -- replaces the hash in its one row; the table's shape is untouched.
 --
+-- APPLIED 2026-07-26 via the Supabase apply_migration tool, recorded in the
+-- ledger as `passphrase_recovery`. Never apply it with a supabase CLI migration
+-- command — see the note in 20260724000016_research_pipeline.sql for why those
+-- replay the entire history against live data.
+--
 -- Idempotent: create table if not exists, create or replace function, and
 -- grants re-applied rather than assumed. Safe to re-run.
 
