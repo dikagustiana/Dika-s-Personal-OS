@@ -14,12 +14,14 @@ import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import type {
   Domain,
+  FinishLineItem,
   Milestone,
   Project,
   ProjectDocument,
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
+import { linesForProject, linkedMilestoneIds } from '../logic/finishLine';
 import { appendDocument, removeDocumentAt } from '../logic/documents';
 import {
   buildProjectTree,
@@ -93,6 +95,15 @@ export interface ProjectCardProps {
   onNavigateToProject?: (projectId: string) => void;
   /** Fixed "now" so every countdown on a screen agrees. Defaults to render time. */
   today?: Date;
+  /**
+   * The finish-line pack, supplied by views that load it (WORK Projects).
+   * Powers the "Makes trustworthy" section and the milestone markers — the
+   * answer to "why does this project matter". Absent, the card renders
+   * exactly as before: no section, no marker, no empty invitation.
+   */
+  finishLineItems?: FinishLineItem[];
+  /** Navigates to the Finish line view, scrolled to and expanded at a line. */
+  onOpenFinishLine?: (itemId: string) => void;
 }
 
 /**
@@ -119,6 +130,8 @@ export function ProjectCard({
   rollup,
   onNavigateToProject,
   today,
+  finishLineItems,
+  onOpenFinishLine,
 }: ProjectCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(() => projectToDraft(project));
@@ -126,6 +139,18 @@ export function ProjectCard({
   const { run, isPending } = useMutation();
 
   const now = today ?? new Date();
+
+  // The reverse direction of the finish line: which pack lines this project's
+  // work would make trustworthy, and which of its milestones are the ones
+  // that move the pack. Both empty when the view supplied no pack.
+  const trustLines = useMemo(
+    () => (finishLineItems ? linesForProject(finishLineItems, project) : []),
+    [finishLineItems, project],
+  );
+  const packMilestoneIds = useMemo(
+    () => (finishLineItems ? linkedMilestoneIds(finishLineItems, project.id) : undefined),
+    [finishLineItems, project.id],
+  );
 
   const openEditor = () => {
     setDraft(projectToDraft(project));
@@ -318,6 +343,76 @@ export function ProjectCard({
           </div>
         )}
 
+        {/* WHY THE WORK MATTERS: the pack lines this project's milestones
+            would unblock. targetMetric was meant to carry purpose and is
+            filled on 1 of 15 one-off WORK projects; this derives it from the
+            finish-line links instead. NOTHING renders when there are no links
+            — not an empty state, not a prompt. Most projects have none at
+            first, and 21 cards each carrying an empty invitation is noise. */}
+        {trustLines.length > 0 && (
+          <section aria-label={`Pack lines ${project.title} makes trustworthy`}>
+            <p className="surface-label">Makes trustworthy</p>
+            <ul className="mt-1.5 divide-y divide-border-subtle">
+              {trustLines.map((trust) => {
+                const path = [...trust.path, trust.item.item].join(' → ');
+                const row = (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-foreground-secondary">
+                        {path}
+                      </span>
+                      <span className="block text-[11px] text-foreground-muted">
+                        {[
+                          trust.milestonesLinked > 0 &&
+                            `${trust.milestonesLinked} milestone${trust.milestonesLinked === 1 ? '' : 's'} here`,
+                          trust.projectLevel && 'whole project',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                        {trust.brokenLinks > 0 && (
+                          // A deleted milestone must not keep counting as
+                          // coverage — say the link is broken instead.
+                          <span className="text-destructive">
+                            {trust.milestonesLinked > 0 || trust.projectLevel ? ' · ' : ''}
+                            {trust.brokenLinks} broken link{trust.brokenLinks === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        'shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
+                        trust.status === 'trusted'
+                          ? 'border-success/50 text-success'
+                          : trust.status === 'blocked'
+                            ? 'border-destructive/50 text-destructive'
+                            : 'border-escalate/50 text-escalate',
+                      )}
+                    >
+                      {trust.status === 'in-progress' ? 'In progress' : trust.status}
+                    </span>
+                  </>
+                );
+                return (
+                  <li key={trust.item.id}>
+                    {onOpenFinishLine ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenFinishLine(trust.item.id)}
+                        className="flex min-h-11 w-full items-center gap-2 rounded-sm text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {row}
+                      </button>
+                    ) : (
+                      <div className="flex min-h-11 w-full items-center gap-2">{row}</div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
         {!compact && <WeekStripSection milestones={project.milestones} today={now} />}
 
         <MilestoneSection
@@ -330,6 +425,7 @@ export function ProjectCard({
           // Monthly-close cards are worked as checklists, not read as
           // dashboards, so they open expanded. Everywhere else, collapsed.
           defaultOpen={compact || defaultMilestonesOpen}
+          linkedMilestoneIds={packMilestoneIds}
         />
 
         {!compact && (

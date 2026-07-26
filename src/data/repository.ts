@@ -5,6 +5,7 @@ import type {
   Entry,
   EntryType,
   FinishLineItem,
+  FinishLineLinkInput,
   IeltsError,
   IeltsResult,
   Project,
@@ -63,13 +64,20 @@ export interface Repository {
   deleteIeltsError(id: string): Promise<void>;
 
   /**
-   * Finish line gap items (WORK). `projectIds` is written through these
-   * methods as a set — the join rows for an item are replaced wholesale
-   * whenever the patch names it — so callers never touch the link table.
-   * Ordering is NOT applied here; it is derived in src/logic/finishLine.ts.
+   * Finish line pack rows (WORK) — blocks, sections and lines alike. `links`
+   * is written through these methods as a set: the join rows for an item are
+   * replaced wholesale whenever the input names it, so callers never touch
+   * the link table. Ordering is the document's own `order`; nothing here
+   * re-ranks. Duplicate (project, milestone) pairs are deduped before write —
+   * the database's unique index would reject them anyway.
    */
   listFinishLineItems(): Promise<FinishLineItem[]>;
-  createFinishLineItem(input: Omit<FinishLineItem, 'id'>): Promise<FinishLineItem>;
-  updateFinishLineItem(id: string, patch: Partial<FinishLineItem>): Promise<FinishLineItem>;
+  createFinishLineItem(
+    input: Omit<FinishLineItem, 'id' | 'links'> & { links: FinishLineLinkInput[] },
+  ): Promise<FinishLineItem>;
+  updateFinishLineItem(
+    id: string,
+    patch: Partial<Omit<FinishLineItem, 'id' | 'links'>> & { links?: FinishLineLinkInput[] },
+  ): Promise<FinishLineItem>;
   deleteFinishLineItem(id: string): Promise<void>;
 }

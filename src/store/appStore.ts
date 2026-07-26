@@ -49,17 +49,28 @@ export interface ProjectFocus {
   openMilestones: boolean;
 }
 
+/**
+ * The same one-shot handoff, pointed the other way: "open Finish line,
+ * scrolled to THIS pack line, expanded". Set by a project card's Makes
+ * trustworthy section, consumed and cleared by FinishLine on arrival.
+ */
+export interface FinishLineFocus {
+  itemId: string;
+}
+
 interface AppState {
   repository: Repository;
   workspace: Workspace;
   workView: WorkView;
   growthView: GrowthView;
   projectFocus: ProjectFocus | null;
+  finishLineFocus: FinishLineFocus | null;
   setRepository: (repository: Repository) => void;
   setWorkspace: (workspace: Workspace) => void;
   setWorkView: (view: WorkView) => void;
   setGrowthView: (view: GrowthView) => void;
   setProjectFocus: (focus: ProjectFocus | null) => void;
+  setFinishLineFocus: (focus: FinishLineFocus | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -68,9 +79,11 @@ export const useAppStore = create<AppState>((set) => ({
   workView: 'dashboard',
   growthView: 'dashboard',
   projectFocus: null,
+  finishLineFocus: null,
   setRepository: (repository) => set({ repository }),
   setWorkspace: (workspace) => set({ workspace }),
   setWorkView: (workView) => set({ workView }),
   setGrowthView: (growthView) => set({ growthView }),
   setProjectFocus: (projectFocus) => set({ projectFocus }),
+  setFinishLineFocus: (finishLineFocus) => set({ finishLineFocus }),
 }));

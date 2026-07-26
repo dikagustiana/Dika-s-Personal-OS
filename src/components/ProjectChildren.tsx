@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ProjectCard } from './ProjectCard';
 import { Progress } from './ui/Progress';
-import type { Domain, Project, TaskEntry, WeeklyGoal } from '../data/types';
+import type { Domain, FinishLineItem, Project, TaskEntry, WeeklyGoal } from '../data/types';
 import { rollupMilestones, type ProjectNode } from '../logic/hierarchy';
 import { projectAlertState } from '../logic/milestones';
 import { cn } from '../lib/utils';
@@ -27,6 +27,9 @@ export interface ProjectChildrenProps {
    * the card, it does not open the list inside it.
    */
   milestonesOpenFor?: string | null;
+  /** The finish-line pack — forwarded so nested cards answer "why" too. */
+  finishLineItems?: FinishLineItem[];
+  onOpenFinishLine?: (itemId: string) => void;
 }
 
 function AlertBadge({ alert }: { alert: 'overdue' | 'blocked' }) {
@@ -67,6 +70,8 @@ export function ProjectChildren({
   onDelete,
   onNavigateToProject,
   milestonesOpenFor,
+  finishLineItems,
+  onOpenFinishLine,
 }: ProjectChildrenProps) {
   if (nodes.length === 0) return null;
   const now = today ?? new Date();
@@ -119,6 +124,8 @@ export function ProjectChildren({
                   updateProject={updateProject}
                   onDelete={onDelete}
                   onChange={onChange}
+                  finishLineItems={finishLineItems}
+                  onOpenFinishLine={onOpenFinishLine}
                 />
                 {/* Grandchildren keep the same treatment rather than becoming
                     full cards at depth two. */}
@@ -136,6 +143,8 @@ export function ProjectChildren({
                   updateProject={updateProject}
                   onDelete={onDelete}
                   onNavigateToProject={onNavigateToProject}
+                  finishLineItems={finishLineItems}
+                  onOpenFinishLine={onOpenFinishLine}
                 />
               </div>
             )}

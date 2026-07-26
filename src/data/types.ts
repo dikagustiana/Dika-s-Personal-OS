@@ -393,28 +393,63 @@ export interface IeltsError {
 }
 
 // ---------------------------------------------------------------------------
-// Finish line — target, gap, and who closes it
+// Finish line — the pack, rendered, with trust state per line
 //
-// The 21 WORK projects are tributaries into ONE consolidated deliverable, so
-// the unit tracked here is the gap item, not the project: one gap can hold up
-// several parts of the pack, and one project can close several gaps. Hence
-// `projectIds` (plural, many-to-many) rather than a single owner.
+// The 21 WORK projects are tributaries into ONE consolidated deliverable.
+// Every row of that pack — block, section, line — is a FinishLineItem;
+// `parentId` gives the nesting and `kind` the level. The numbers themselves
+// NEVER enter the app: the workbook holds the figures, this holds the
+// structure and whether each line can be trusted yet, and every value cell
+// renders the literal `xxx`.
 //
-// See migration 20260726000020. Nothing in this repo carries a real gap item —
-// the repo is public and the items name entities, drivers and open methodology
-// decisions.
+// See migrations 20260726000020 and 20260726000021. Nothing in this repo
+// carries a real line label or gap item — the repo is public and the real
+// pack names entities, drivers and open methodology decisions.
 // ---------------------------------------------------------------------------
 
 /** Maps onto the existing semantic tokens: destructive / escalate / success. */
 export type FinishLineStatus = 'blocked' | 'in-progress' | 'trusted';
 
+export type FinishLineKind = 'block' | 'section' | 'line';
+
+/**
+ * One link from a pack line to the work that closes it.
+ *
+ * `milestoneId` is the precise form — the LP-fulfilment gap closes via two
+ * specific milestones, not via a 50-milestone parent project as a whole. It is
+ * a plain string into `Project.milestones` (jsonb array elements, not rows),
+ * so nothing enforces that it still exists: a dangling id renders as a BROKEN
+ * link — named, visible, resolvable — never silently dropped. Null/absent
+ * means a project-level link, which coexists with milestone-level ones.
+ */
+export interface FinishLineLink {
+  id: string;
+  projectId: string;
+  milestoneId?: string;
+}
+
+/** What create/update accept: the database assigns link ids. */
+export interface FinishLineLinkInput {
+  projectId: string;
+  milestoneId?: string;
+}
+
 export interface FinishLineItem {
   id: string;
-  /** Free text, not an enum — the target grows and the list must stay cheap to extend. */
+  /** Free text, not an enum — the pack grows and must stay cheap to extend. */
   area: string;
+  /** The label as the workbook writes it — a block, section, or line name. */
   item: string;
-  /** What must be true for this part of the pack to be trustworthy. */
-  targetState: string;
+  /** Pack nesting. Absent = a top-level block (or a legacy register row). */
+  parentId?: string;
+  kind: FinishLineKind;
+  /**
+   * What must be true for this part of the pack to be trustworthy. OPTIONAL,
+   * and that is the reframe: most lines have no gap. A line that is fine is
+   * just structure — a label, a position, `status: 'trusted'`. The gap fields
+   * are an annotation on a line of the document, not the record.
+   */
+  targetState?: string;
   /** What it currently is. Absent while nobody has written it down. */
   currentState?: string;
   /**
@@ -429,10 +464,11 @@ export interface FinishLineItem {
   status: FinishLineStatus;
   order: number;
   /**
-   * Projects that close this gap. MANY, deliberately. An empty array is the
-   * loudest state in the view: a known gap nobody owns.
+   * The work that closes this line, at milestone precision where known.
+   * MANY, deliberately. An empty array on an untrusted line is the loudest
+   * state in the view: a known gap nobody owns.
    */
-  projectIds: string[];
-  // There is no priority or rank field. Ordering is derived from status,
-  // links and `blocks` at render time, like every other computed value here.
+  links: FinishLineLink[];
+  // There is no priority or rank field, and no value field. Order is the
+  // document's own (sort_order); the figures live in the workbook.
 }

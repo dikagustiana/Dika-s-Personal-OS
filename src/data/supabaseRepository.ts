@@ -9,6 +9,9 @@ import type {
   Entry,
   EntryType,
   FinishLineItem,
+  FinishLineKind,
+  FinishLineLink,
+  FinishLineLinkInput,
   FinishLineStatus,
   IeltsError,
   IeltsErrorSkill,
@@ -745,14 +748,14 @@ class SupabaseRepository implements Repository {
   /**
    * Two queries, not one embedded select. The link table is small and this
    * keeps the reader independent of PostgREST's relationship naming — and of
-   * whether migration 20260726000020 has been applied yet, since a missing
-   * link table degrades to "every item is unowned" rather than an error that
-   * takes the whole view down.
+   * whether the migrations have been applied yet, since a missing link table
+   * degrades to "every line is unowned" rather than an error that takes the
+   * whole view down.
    */
   async listFinishLineItems(): Promise<FinishLineItem[]> {
     const { data, error } = await this.client
       .from('os_finish_line_items')
-      .select('id, area, item, target_state, current_state, interim, blocks, status, sort_order')
+      .select(FINISH_LINE_COLUMNS)
       .order('sort_order', { ascending: true });
     if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
     const links = await this.listFinishLineLinks();
@@ -761,36 +764,39 @@ class SupabaseRepository implements Repository {
     );
   }
 
-  async createFinishLineItem(input: Omit<FinishLineItem, 'id'>): Promise<FinishLineItem> {
+  async createFinishLineItem(
+    input: Omit<FinishLineItem, 'id' | 'links'> & { links: FinishLineLinkInput[] },
+  ): Promise<FinishLineItem> {
     const { data, error } = await this.client
       .from('os_finish_line_items')
       .insert({
         area: input.area,
         item: input.item,
-        target_state: input.targetState,
+        parent_id: input.parentId ?? null,
+        kind: input.kind,
+        target_state: input.targetState ?? null,
         current_state: input.currentState ?? null,
         interim: input.interim ?? null,
         blocks: input.blocks ?? null,
         status: input.status,
         sort_order: input.order,
       })
-      .select('id, area, item, target_state, current_state, interim, blocks, status, sort_order')
+      .select(FINISH_LINE_COLUMNS)
       .single();
     if (error) throw new Error(`createFinishLineItem failed: ${error.message}`);
     const row = data as FinishLineItemRow;
-    const projectIds = [...new Set(input.projectIds)];
-    if (projectIds.length > 0) await this.replaceFinishLineLinks(row.id, projectIds);
-    return rowToFinishLineItem(row, projectIds);
+    const links = await this.replaceFinishLineLinks(row.id, input.links);
+    return rowToFinishLineItem(row, links);
   }
 
   async updateFinishLineItem(
     id: string,
-    patch: Partial<FinishLineItem>,
+    patch: Partial<Omit<FinishLineItem, 'id' | 'links'>> & { links?: FinishLineLinkInput[] },
   ): Promise<FinishLineItem> {
     const row = finishLinePatchToRow(patch);
-    if (patch.projectIds !== undefined) {
-      await this.replaceFinishLineLinks(id, [...new Set(patch.projectIds)]);
-      // Re-owning a gap IS a change to the gap. Without this the row's
+    if (patch.links !== undefined) {
+      await this.replaceFinishLineLinks(id, patch.links);
+      // Re-owning a line IS a change to the line. Without this the row's
       // updated_at would still claim nothing had happened since before it
       // had an owner.
       row.updated_at = new Date().toISOString();
@@ -804,7 +810,7 @@ class SupabaseRepository implements Repository {
     }
     const { data, error } = await this.client
       .from('os_finish_line_items')
-      .select('id, area, item, target_state, current_state, interim, blocks, status, sort_order')
+      .select(FINISH_LINE_COLUMNS)
       .eq('id', id)
       .maybeSingle();
     if (error) throw new Error(`updateFinishLineItem failed: ${error.message}`);
@@ -814,24 +820,30 @@ class SupabaseRepository implements Repository {
   }
 
   async deleteFinishLineItem(id: string): Promise<void> {
-    // The join rows go with it, by `on delete cascade` on item_id. Deleting a
-    // PROJECT is the asymmetric case: that cascade clears the links and leaves
-    // the gap item standing, unowned — see the migration.
+    // The join rows go with it, and so does the SUBTREE: parent_id cascades,
+    // so deleting a block takes its sections and lines. Deleting a PROJECT is
+    // the asymmetric case — that cascade clears links and leaves the line
+    // standing, unowned. Both verified against the live database on
+    // 2026-07-26 with a synthetic block/section/line structure.
     const { error } = await this.client.from('os_finish_line_items').delete().eq('id', id);
     if (error) throw new Error(`deleteFinishLineItem failed: ${error.message}`);
   }
 
-  /** item id -> project ids. Whole table by default; one item when scoped. */
-  private async listFinishLineLinks(itemId?: string): Promise<Map<string, string[]>> {
-    let query = this.client.from('os_finish_line_item_projects').select('item_id, project_id');
+  /** item id -> links. Whole table by default; one item when scoped. */
+  private async listFinishLineLinks(itemId?: string): Promise<Map<string, FinishLineLink[]>> {
+    let query = this.client
+      .from('os_finish_line_item_projects')
+      .select('id, item_id, project_id, milestone_id');
     if (itemId) query = query.eq('item_id', itemId);
     const { data, error } = await query;
     if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
-    const links = new Map<string, string[]>();
-    for (const link of data as FinishLineLinkRow[]) {
-      const existing = links.get(link.item_id);
-      if (existing) existing.push(link.project_id);
-      else links.set(link.item_id, [link.project_id]);
+    const links = new Map<string, FinishLineLink[]>();
+    for (const row of data as FinishLineLinkRow[]) {
+      const link: FinishLineLink = { id: row.id, projectId: row.project_id };
+      if (row.milestone_id) link.milestoneId = row.milestone_id;
+      const existing = links.get(row.item_id);
+      if (existing) existing.push(link);
+      else links.set(row.item_id, [link]);
     }
     return links;
   }
@@ -839,29 +851,52 @@ class SupabaseRepository implements Repository {
   /**
    * The link set is written wholesale: clear, then insert. An upsert would
    * leave removed links behind, and the caller always knows the complete set
-   * it wants — there is no partial-link edit anywhere in the UI.
+   * it wants — there is no partial-link edit anywhere in the UI. Deduped by
+   * (project, milestone) before writing, since the database's unique index
+   * would reject the batch rather than the duplicate.
    */
-  private async replaceFinishLineLinks(itemId: string, projectIds: string[]): Promise<void> {
+  private async replaceFinishLineLinks(
+    itemId: string,
+    inputs: FinishLineLinkInput[],
+  ): Promise<FinishLineLink[]> {
     const { error: clearError } = await this.client
       .from('os_finish_line_item_projects')
       .delete()
       .eq('item_id', itemId);
     if (clearError) throw new Error(`updateFinishLineItem failed: ${clearError.message}`);
-    if (projectIds.length === 0) return;
-    const { error } = await this.client
+    const deduped = dedupeFinishLineLinks(inputs);
+    if (deduped.length === 0) return [];
+    const { data, error } = await this.client
       .from('os_finish_line_item_projects')
-      .insert(projectIds.map((projectId) => ({ item_id: itemId, project_id: projectId })));
+      .insert(
+        deduped.map((link) => ({
+          item_id: itemId,
+          project_id: link.projectId,
+          milestone_id: link.milestoneId ?? null,
+        })),
+      )
+      .select('id, item_id, project_id, milestone_id');
     if (error) throw new Error(`updateFinishLineItem failed: ${error.message}`);
+    return (data as FinishLineLinkRow[]).map((row) => {
+      const link: FinishLineLink = { id: row.id, projectId: row.project_id };
+      if (row.milestone_id) link.milestoneId = row.milestone_id;
+      return link;
+    });
   }
 }
 
 // --- finish line row shapes -------------------------------------------------
 
+const FINISH_LINE_COLUMNS =
+  'id, area, item, parent_id, kind, target_state, current_state, interim, blocks, status, sort_order';
+
 interface FinishLineItemRow {
   id: string;
   area: string;
   item: string;
-  target_state: string;
+  parent_id: string | null;
+  kind: FinishLineKind;
+  target_state: string | null;
   current_state: string | null;
   interim: string | null;
   blocks: string | null;
@@ -872,35 +907,56 @@ interface FinishLineItemRow {
 }
 
 interface FinishLineLinkRow {
+  id: string;
   item_id: string;
   project_id: string;
+  milestone_id: string | null;
 }
 
-function rowToFinishLineItem(row: FinishLineItemRow, projectIds: string[]): FinishLineItem {
+/** Same (project, milestone) pair once, project-level (no milestone) distinct. */
+function dedupeFinishLineLinks(inputs: FinishLineLinkInput[]): FinishLineLinkInput[] {
+  const seen = new Set<string>();
+  const result: FinishLineLinkInput[] = [];
+  for (const input of inputs) {
+    const key = `${input.projectId}:${input.milestoneId ?? ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(input);
+  }
+  return result;
+}
+
+function rowToFinishLineItem(row: FinishLineItemRow, links: FinishLineLink[]): FinishLineItem {
   const item: FinishLineItem = {
     id: row.id,
     area: row.area,
     item: row.item,
-    targetState: row.target_state,
+    kind: row.kind,
     status: row.status,
     order: row.sort_order,
-    projectIds,
+    links,
   };
   // Nulls are dropped rather than carried, matching rowToProject: the domain
   // shape stays free of noise and readers test presence, not emptiness.
   // An empty string counts as absent for the same reason — a cleared textarea
   // must not make the view render an empty "standing in" warning.
+  if (row.parent_id) item.parentId = row.parent_id;
+  if (row.target_state) item.targetState = row.target_state;
   if (row.current_state) item.currentState = row.current_state;
   if (row.interim) item.interim = row.interim;
   if (row.blocks) item.blocks = row.blocks;
   return item;
 }
 
-function finishLinePatchToRow(patch: Partial<FinishLineItem>): Partial<FinishLineItemRow> {
+function finishLinePatchToRow(
+  patch: Partial<Omit<FinishLineItem, 'id' | 'links'>>,
+): Partial<FinishLineItemRow> {
   const row: Partial<FinishLineItemRow> = {};
   if (patch.area !== undefined) row.area = patch.area;
   if (patch.item !== undefined) row.item = patch.item;
-  if (patch.targetState !== undefined) row.target_state = patch.targetState;
+  if ('parentId' in patch) row.parent_id = patch.parentId ?? null;
+  if (patch.kind !== undefined) row.kind = patch.kind;
+  if ('targetState' in patch) row.target_state = patch.targetState ?? null;
   if ('currentState' in patch) row.current_state = patch.currentState ?? null;
   if ('interim' in patch) row.interim = patch.interim ?? null;
   if ('blocks' in patch) row.blocks = patch.blocks ?? null;

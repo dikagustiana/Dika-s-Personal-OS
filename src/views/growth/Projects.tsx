@@ -9,7 +9,7 @@ import {
 } from '../../components/ProjectEditor';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
-import type { Project, TaskEntry, WeeklyPlan } from '../../data/types';
+import type { FinishLineItem, Project, TaskEntry, WeeklyPlan } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
   ancestorIds,
@@ -39,9 +39,12 @@ export function Projects() {
   const domain = useAppStore((state) => state.workspace);
   const projectFocus = useAppStore((state) => state.projectFocus);
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
+  const setWorkView = useAppStore((state) => state.setWorkView);
+  const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
+  const [finishLineItems, setFinishLineItems] = useState<FinishLineItem[]>([]);
   const [creating, setCreating] = useState(false);
   const [entityFilter, setEntityFilter] = useState<string>(ALL_ENTITIES);
   const [draft, setDraft] = useState<ProjectDraft>(emptyProjectDraft);
@@ -56,6 +59,18 @@ export function Projects() {
     setProjects(projectData.filter((project) => project.recurring !== 'monthly'));
     setTasks(taskEntries.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setPlan(weeklyPlan);
+    // The finish-line pack is WORK-only, and its absence must not take the
+    // project list down: cards simply render without a "Makes trustworthy"
+    // section, exactly as they did before the pack existed.
+    if (domain === 'work') {
+      try {
+        setFinishLineItems(await repository.listFinishLineItems());
+      } catch {
+        setFinishLineItems([]);
+      }
+    } else {
+      setFinishLineItems([]);
+    }
   }, [domain, repository]);
 
   useEffect(() => {
@@ -171,6 +186,17 @@ export function Projects() {
       current.map((item) => (item.id === updated.id ? updated : item)),
     );
 
+  // The reverse of Finish line's "closes via": a card's Makes-trustworthy row
+  // lands on the pack, scrolled to and expanded at that line — the same
+  // one-shot handoff shape projectFocus uses in the other direction.
+  const openFinishLine =
+    domain === 'work'
+      ? (itemId: string) => {
+          setFinishLineFocus({ itemId });
+          setWorkView('finish-line');
+        }
+      : undefined;
+
   const renderNode = (node: ProjectNode) => (
     <div
       key={node.project.id}
@@ -190,6 +216,8 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
+        finishLineItems={domain === 'work' ? finishLineItems : undefined}
+        onOpenFinishLine={openFinishLine}
       />
       <ProjectChildren
         nodes={node.children}
@@ -206,6 +234,8 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
+        finishLineItems={domain === 'work' ? finishLineItems : undefined}
+        onOpenFinishLine={openFinishLine}
       />
     </div>
   );
