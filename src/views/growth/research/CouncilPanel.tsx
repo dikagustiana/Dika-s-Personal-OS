@@ -112,7 +112,7 @@ function VerdictCard({ transcript }: { transcript: CouncilTranscript }) {
               <p className="mt-1 text-xs text-foreground-muted">
                 Raw output below, unparsed. Nothing was discarded.
               </p>
-              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
                 {verdict.raw}
               </pre>
             </>
@@ -273,7 +273,7 @@ function StageProgress({ progress }: { progress: CouncilProgress }) {
   ];
 
   return (
-    <div className="space-y-1 border border-border-subtle bg-surface-2 p-3 font-mono text-xs">
+    <div className="space-y-1 border border-border-subtle bg-surface-2 p-3 text-xs">
       {rows.map(([label, dotted, status]) => (
         <div key={label} className="flex gap-3">
           <span className="w-24 shrink-0 text-foreground-muted">{label}</span>

@@ -68,7 +68,7 @@ function PatternRow({ pattern }: { pattern: ModePattern }) {
         {/* The stable identifier, never prettified — a reworded name is a
             different count, and showing a different string here is how the
             owner would learn the wrong one. */}
-        <code className="font-mono text-xs font-semibold text-foreground">{pattern.mode}</code>
+        <code className="text-xs font-semibold text-foreground">{pattern.mode}</code>
         <span className="text-xs tabular-nums text-foreground-muted">
           {occurrenceLabel(pattern.occurrences, pattern.sessions)}
         </span>
@@ -216,7 +216,7 @@ function Checklist({ errors }: { errors: readonly IeltsError[] }) {
         </Button>
       </CardHeader>
       <CardContent>
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
           {text}
         </pre>
       </CardContent>
@@ -244,7 +244,7 @@ function Proposals({ errors }: { errors: readonly IeltsError[] }) {
         {proposals.map((proposal) => (
           <div key={proposal.name} className="border-l-2 border-border py-2 pl-3">
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <code className="font-mono text-xs font-semibold text-foreground">
+              <code className="text-xs font-semibold text-foreground">
                 {proposal.name}
               </code>
               <span className="text-xs tabular-nums text-foreground-muted">

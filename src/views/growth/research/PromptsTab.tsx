@@ -130,7 +130,7 @@ function CardBody({
         </button>
 
         {open && (
-          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
             {prompt}
           </pre>
         )}
@@ -138,7 +138,7 @@ function CardBody({
         {result !== null && (
           <div className="mt-3">
             <span className="surface-label">Model response</span>
-            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-card p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-card p-3 text-[11px] leading-5 text-foreground-secondary">
               {result || '(empty)'}
             </pre>
             <p className="mt-1 text-xs text-foreground-muted">

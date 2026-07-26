@@ -95,7 +95,7 @@ function MarkingPrompt() {
           {open ? 'Hide prompt' : 'Show prompt'} ({prompt.length.toLocaleString()} chars)
         </button>
         {open && (
-          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+          <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
             {prompt}
           </pre>
         )}
@@ -336,7 +336,7 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
             rows={8}
             placeholder="Paste the whole marking response here…"
             aria-label="Marking response"
-            className="w-full resize-y border border-input bg-card px-3 py-2 font-mono text-[11px] leading-5 text-foreground placeholder:text-foreground-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="w-full resize-y border border-input bg-card px-3 py-2 text-[11px] leading-5 text-foreground placeholder:text-foreground-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={preview} disabled={!text.trim()}>
@@ -371,7 +371,7 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
               <p className="mt-1 text-xs text-foreground-secondary">
                 The parser scans every line, inside a fence or not, for this shape:
               </p>
-              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
                 {PARSER_EXPECTATION}
               </pre>
             </div>
