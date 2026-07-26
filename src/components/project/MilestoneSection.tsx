@@ -183,7 +183,7 @@ export function MilestoneSection({
         {/* success is the done colour; a project at 0% must not print in it. */}
         <span
           className={cn(
-            'font-mono text-xs tabular-nums',
+            'text-xs tabular-nums',
             progress === 100 ? 'text-success' : 'text-foreground-secondary',
           )}
         >

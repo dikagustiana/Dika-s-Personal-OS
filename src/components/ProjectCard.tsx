@@ -336,21 +336,37 @@ export function ProjectCard({
             />
 
             <section aria-label={`Documents for ${project.title}`}>
-              <p className="surface-label">Documents</p>
               {documents.length === 0 ? (
-                <p className="mt-1.5 text-xs text-foreground-muted">No documents yet</p>
+                // One row when empty, not two affordances. "No documents yet"
+                // plus a ~90px dashed drop zone cost ~120px on every card —
+                // including every pinned card on the dashboard. The zone
+                // returns once a document exists, when dragging is plausible.
+                <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                  <p className="surface-label">Documents</p>
+                  <span className="flex items-center gap-2 text-xs text-foreground-muted">
+                    none
+                    <DocumentUpload
+                      variant="inline"
+                      ariaContext={project.title}
+                      onAdd={(document) => setDocuments(appendDocument(documents, document))}
+                    />
+                  </span>
+                </div>
               ) : (
-                <DocumentLinks
-                  className="mt-1.5"
-                  documents={documents}
-                  ariaContext={project.title}
-                  onRemove={(index) => void setDocuments(removeDocumentAt(documents, index))}
-                />
+                <>
+                  <p className="surface-label">Documents</p>
+                  <DocumentLinks
+                    className="mt-1.5"
+                    documents={documents}
+                    ariaContext={project.title}
+                    onRemove={(index) => void setDocuments(removeDocumentAt(documents, index))}
+                  />
+                  <DocumentUpload
+                    ariaContext={project.title}
+                    onAdd={(document) => setDocuments(appendDocument(documents, document))}
+                  />
+                </>
               )}
-              <DocumentUpload
-                ariaContext={project.title}
-                onAdd={(document) => setDocuments(appendDocument(documents, document))}
-              />
             </section>
           </>
         )}

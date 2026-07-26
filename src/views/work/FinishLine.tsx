@@ -2,7 +2,7 @@ import { ArrowRight, Flag, Megaphone, OctagonAlert } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { EmptyState } from '../../components/ui/EmptyState';
+import { EmptyRow } from '../../components/ui/EmptyRow';
 import { Progress } from '../../components/ui/Progress';
 import type { Milestone, Project } from '../../data/types';
 import { cn } from '../../lib/utils';
@@ -129,7 +129,7 @@ export function FinishLine() {
               </div>
               <span
                 className={cn(
-                  'font-mono text-data font-semibold tabular-nums',
+                  'text-data font-semibold tabular-nums',
                   row.done === row.total ? 'text-success' : 'text-foreground-secondary',
                 )}
               >
@@ -192,15 +192,11 @@ export function FinishLine() {
         {loaded && rows.length === 0 && (
           <Card>
             <CardContent className="pt-5">
-              <EmptyState
-                title="Nothing in flight"
-                hint="Every active project is either finished or has no milestones yet — add them in Projects."
-                action={
-                  <Button variant="secondary" size="sm" onClick={() => setWorkView('projects')}>
-                    Open Projects
-                    <ArrowRight className="size-4" />
-                  </Button>
-                }
+              <EmptyRow
+                label="In flight"
+                clause="Nothing — every active project is finished or has no milestones yet"
+                action="Open Projects"
+                onAction={() => setWorkView('projects')}
               />
             </CardContent>
           </Card>

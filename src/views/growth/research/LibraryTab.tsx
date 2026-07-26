@@ -64,7 +64,7 @@ export function LibraryTab({
                         key={`${entry.projectTitle}-${index}`}
                         className="flex flex-wrap gap-x-3 gap-y-0.5 py-1.5 text-xs"
                       >
-                        <span className="font-mono font-semibold tabular-nums text-destructive">
+                        <span className="font-semibold tabular-nums text-destructive">
                           {entry.value}
                         </span>
                         <span className="text-foreground-secondary">{entry.projectTitle}</span>
@@ -72,7 +72,7 @@ export function LibraryTab({
                           <span className="text-foreground-muted">{entry.source}</span>
                         )}
                         {entry.asof && (
-                          <span className="font-mono text-foreground-muted">{entry.asof}</span>
+                          <span className="text-foreground-muted">{entry.asof}</span>
                         )}
                       </li>
                     ))}
@@ -169,12 +169,12 @@ export function LibraryTab({
               {library.map((fact) => (
                 <li key={fact.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                   <span className="text-sm font-semibold text-foreground">{fact.name}</span>
-                  <span className="font-mono text-xs tabular-nums text-foreground-secondary">
+                  <span className="text-xs tabular-nums text-foreground-secondary">
                     {fact.value}
                     {fact.unit && ` ${fact.unit}`}
                   </span>
                   {fact.asof && (
-                    <span className="font-mono text-xs text-foreground-muted">{fact.asof}</span>
+                    <span className="text-xs text-foreground-muted">{fact.asof}</span>
                   )}
                   {fact.source && (
                     <span className="min-w-0 truncate text-xs text-foreground-muted">

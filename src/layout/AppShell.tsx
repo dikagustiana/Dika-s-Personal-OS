@@ -90,7 +90,7 @@ function BuildStamp() {
   // the browser's timezone while the label still said UTC.
   const built = __BUILD_TIME__.slice(0, 16).replace('T', ' ');
   return (
-    <p className="mt-2 font-mono text-[10px] tabular-nums text-foreground-muted">
+    <p className="mt-2 text-[10px] tabular-nums text-foreground-muted">
       {__BUILD_SHA__} · {built} UTC
     </p>
   );

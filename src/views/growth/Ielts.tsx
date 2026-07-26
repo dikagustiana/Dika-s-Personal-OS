@@ -335,7 +335,7 @@ export function Ielts() {
                 <tbody className="divide-y divide-border-subtle">
                   {descending.map((result) => (
                     <tr key={result.id} className="tabular-nums text-foreground-secondary">
-                      <td className="py-2 font-mono text-xs">{result.date}</td>
+                      <td className="py-2 text-xs">{result.date}</td>
                       <td className="py-2 text-center">{formatBand(result.listening)}</td>
                       <td className="py-2 text-center">{formatBand(result.reading)}</td>
                       <td className="py-2 text-center">{formatBand(result.writing)}</td>

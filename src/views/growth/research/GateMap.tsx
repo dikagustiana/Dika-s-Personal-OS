@@ -36,7 +36,7 @@ export function GateMap({ projects, onSelect }: GateMapProps) {
               <th
                 key={index}
                 scope="col"
-                className="pb-2 pr-1 text-center font-mono text-[10px] font-normal tabular-nums text-foreground-muted"
+                className="pb-2 pr-1 text-center text-[10px] font-normal tabular-nums text-foreground-muted"
               >
                 {String(index).padStart(2, '0')}
               </th>
@@ -86,7 +86,11 @@ export function GateMap({ projects, onSelect }: GateMapProps) {
                           <span
                             className={cn(
                               'absolute inset-y-0 left-0 block',
-                              passed ? 'bg-success' : 'bg-success/35',
+                              // Neutral until passed. "Gate passed" and "two
+                              // of six ticked" must differ by more than 35%
+                              // alpha of one hue — success appears only when
+                              // the gate is actually through.
+                              passed ? 'bg-success' : 'bg-foreground-muted/30',
                             )}
                             style={{ width: `${Math.round(proportion * 100)}%` }}
                           />
