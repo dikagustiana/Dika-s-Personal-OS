@@ -401,7 +401,9 @@ export interface IeltsError {
 //
 // EVERY CELL CARRIES A STATE, NEVER A VALUE. The numbers live in Excel; a cell
 // holding one is `figure` and renders as the literal `xxx`. `figure` means A
-// NUMBER EXISTS — not verified, not agreed, not trusted.
+// NUMBER EXISTS, and NOTHING MORE — it is not a claim that anyone has checked
+// the method behind it. `figure` IS NOT TERMINAL: whether work stands behind
+// it is derived from the edges, on read.
 //
 // FINISH LINE IS THE DESTINATION; THE PROJECTS ARE THE ROAD. The target state
 // is uniform and implicit — a figure exists and the method behind it is sound
@@ -412,8 +414,14 @@ export interface IeltsError {
 // ---------------------------------------------------------------------------
 
 /**
- * Exactly five. There is deliberately no sixth for "a figure exists but the
- * method behind it is unreliable" — deferred, not forgotten.
+ * Exactly five, and NO SIXTH IS PENDING.
+ *
+ * An earlier model listed "a figure exists but the method behind it is
+ * unreliable" as a missing sixth state, deliberately deferred. That is
+ * RETRACTED: there is no sixth state and there never needed to be one. A
+ * `figure` with no edge is a figure whose method is unevidenced; a `figure`
+ * whose edges are all done is trustworthy. Both are DERIVED on read, neither
+ * is stored, neither is authored. See data/finishLineGuards.isGapEligible.
  */
 export type CellState = 'figure' | 'zero' | 'undefined' | 'input' | 'locked';
 
