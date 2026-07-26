@@ -7,7 +7,18 @@
 -- the gate matrix, the evidence register, the claims ledger, the review-cycle
 -- history and the decision log.
 --
--- WRITTEN BUT NOT APPLIED by the session that authored it — no database access.
+-- APPLIED 2026-07-26 via the Supabase apply_migration tool, recorded in the
+-- ledger as `research_pipeline`. It had been committed but left unapplied for
+-- two days while the frontend that depends on it shipped, so GROWTH → Research
+-- queried tables that did not exist. If you are reading this because something
+-- looks unapplied again: check the DATABASE, not this comment.
+--
+-- NEVER apply it with `supabase db push`, `migration up`, `db reset`, or
+-- `db remote commit`. This repo's filenames (20260724000016) and the live
+-- ledger's versions (apply-time stamps like 20260726052…) are different
+-- numbering schemes, so any of those replays the whole history from
+-- 0001_schema.sql against live production data.
+--
 -- Idempotent throughout, so applying it twice is a no-op.
 
 -- ---------------------------------------------------------------------------
