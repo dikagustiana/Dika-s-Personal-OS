@@ -333,6 +333,28 @@ describe('§9.7 could-not-check never shows a number', () => {
     expect('count' in state).toBe(false);
   });
 
+  it('a not-yet-run read is could-not-check, never confirmed-zero', () => {
+    // The first render, before any request returns. Seeding the reads as
+    // successful-and-empty would have the page say "Every pack line has work
+    // behind it. Checked" before anything was checked — the same defect as the
+    // 458-shown-as-None failure, arriving a few hundred milliseconds earlier.
+    const unread = { ok: false, reason: 'failed', detail: 'Not read yet' } as const;
+    expect(cardState(unread).kind).toBe('could-not-check');
+  });
+
+  it('a failed EDGE read must close authoring, not merely dim it', () => {
+    // rowsOf() degrades edges to [], so a picker built on it opens with every
+    // box unticked — not because the milestone closes nothing, but because we
+    // cannot see what it closes. Both authoring paths REPLACE the edge set, so
+    // saving that view deletes real links the user never saw. The UI gates on
+    // `firstFailure(...)` being absent; this pins the input to that gate.
+    const edges = readFailure('listFinishLineEdges', { code: '42P01' });
+    expect(rowsOf(edges)).toEqual([]);
+    expect(cellsForMilestone(rowsOf(edges), 'p1', 'm1').size).toBe(0);
+    // The signal the view keys on: any failure among the matrix reads.
+    expect(firstFailure(okRows<FinishLineItem>([]), edges)).toBeDefined();
+  });
+
   it('rowsOf degrades for computation without ever becoming a reportable zero', () => {
     const failed = readFailure('listFinishLineEdges', { code: '42P01' });
     expect(rowsOf(failed)).toEqual([]);

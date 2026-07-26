@@ -162,17 +162,31 @@ export function FinishLine() {
   const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const { run, isPending } = useMutation();
 
-  // Reads are held as RESULTS, not arrays: a card that counts problems has to
-  // be able to say "could not check" without inventing a zero.
-  const empty = <T,>(): ReadResult<T> => okRows<T>([]);
-  const [items, setItems] = useState<ReadResult<FinishLineItem>>(empty);
-  const [cells, setCells] = useState<ReadResult<FinishLineCell>>(empty);
-  const [deps, setDeps] = useState<ReadResult<FinishLineDep>>(empty);
-  const [edges, setEdges] = useState<ReadResult<FinishLineEdge>>(empty);
-  const [entities, setEntities] = useState<ReadResult<FinishLineEntity>>(empty);
-  const [projects, setProjects] = useState<ReadResult<Project>>(empty);
-  const [dangling, setDangling] = useState<ReadResult<DanglingLink>>(empty);
-  const [orphans, setOrphans] = useState<ReadResult<OrphanMilestone>>(empty);
+  /**
+   * Reads are held as RESULTS, not arrays: a card that counts problems has to
+   * be able to say "could not check" without inventing a zero.
+   *
+   * THE SEED IS A FAILURE, NOT AN EMPTY SUCCESS. Seeding these with
+   * `{ok: true, rows: []}` would make the very first render — before any
+   * request has come back — say "Every pack line has work behind it. Checked".
+   * That is the identical defect this whole change exists to remove, just
+   * arriving a few hundred milliseconds earlier: not-yet-checked presented as
+   * checked-and-clean. The cards are additionally gated on `loaded`, so this
+   * seed is belt and braces; it is the belt.
+   */
+  const unread = <T,>(): ReadResult<T> => ({
+    ok: false,
+    reason: 'failed',
+    detail: 'Not read yet',
+  });
+  const [items, setItems] = useState<ReadResult<FinishLineItem>>(unread);
+  const [cells, setCells] = useState<ReadResult<FinishLineCell>>(unread);
+  const [deps, setDeps] = useState<ReadResult<FinishLineDep>>(unread);
+  const [edges, setEdges] = useState<ReadResult<FinishLineEdge>>(unread);
+  const [entities, setEntities] = useState<ReadResult<FinishLineEntity>>(unread);
+  const [projects, setProjects] = useState<ReadResult<Project>>(unread);
+  const [dangling, setDangling] = useState<ReadResult<DanglingLink>>(unread);
+  const [orphans, setOrphans] = useState<ReadResult<OrphanMilestone>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -222,7 +236,22 @@ export function FinishLine() {
   }, [repository]);
 
   useEffect(() => {
-    void load();
+    // An unexpected throw must land as a FAILURE, not as a page stuck before
+    // `loaded`. Left unguarded, a rejection would freeze every card in
+    // whatever it was showing, which is the one situation where a stale
+    // "checked and clean" could sit on screen indefinitely.
+    void load().catch((error: unknown) => {
+      const failure = readThrew('finish line', error);
+      setItems(failure);
+      setCells(failure);
+      setDeps(failure);
+      setEdges(failure);
+      setEntities(failure);
+      setProjects(failure);
+      setDangling(failure);
+      setOrphans(failure);
+      setLoaded(true);
+    });
   }, [load]);
 
   const itemRows = rowsOf(items);
@@ -372,14 +401,20 @@ export function FinishLine() {
         </Card>
       )}
 
-      <GapFilterRow
-        state={unplannedCard}
-        stuckCount={stuckRows.length}
-        gapEligible={summary.gapEligible}
-        totalCells={summary.totalCells}
-        filter={filter}
-        onFilter={setFilter}
-      />
+      {/* Gated on `loaded`: before the first response there is no count and no
+          clean bill, and "checking" must not be spelled as either. */}
+      {loaded ? (
+        <GapFilterRow
+          state={unplannedCard}
+          stuckCount={stuckRows.length}
+          gapEligible={summary.gapEligible}
+          totalCells={summary.totalCells}
+          filter={filter}
+          onFilter={setFilter}
+        />
+      ) : (
+        <Checking label="Unplanned" />
+      )}
 
       {cellFocus && (
         <div className="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-sm border border-border bg-surface-2 px-3">
@@ -505,6 +540,10 @@ export function FinishLine() {
           edges={context.edgesByCell.get(openCell.id) ?? []}
           projects={linkableProjects}
           projectsById={context.projectsById}
+          // Same hazard as the milestone anchor, same answer: this picker also
+          // REPLACES the cell's edge set, so offering it over a failed edge
+          // read would let a save delete links we simply could not see.
+          canLink={!matrixFailure}
           isPending={isPending}
           onClose={() => setOpenCellId(null)}
           onSave={(picked) => void saveCellEdges(openCell.id, picked)}
@@ -537,9 +576,45 @@ export function FinishLine() {
 
       {/* THE AUTHORING ANCHOR. From a milestone, tick the cells it makes
           trustworthy — see MilestoneAnchor for why this direction and not the
-          other. Collapsed by default so it never pushes the matrix down. */}
+          other. Collapsed by default so it never pushes the matrix down.
+          =====================================================================
+          CLOSED WHENEVER A READ BEHIND IT FAILED, and the edge read especially.
+          =====================================================================
+          `edgeRows` degrades to [] on a failed read, so the picker would open
+          with every box unticked — not because the milestone closes nothing,
+          but because we could not see what it closes. Saving that view is a
+          DELETE of every real link the user never knew was there. The failure
+          is silent, destructive, and indistinguishable from ordinary use. So
+          the control is not offered at all until every read behind it landed. */}
       <section className="mt-6">
-        {linking ? (
+        {!loaded ? (
+          <Checking label="Link work to the pack" />
+        ) : matrixFailure ? (
+          <Card className={cn(matrixFailure.reason === 'failed' && 'border-destructive')}>
+            <CardContent className="py-4">
+              <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1">
+                <span className="surface-label">Link work to the pack</span>
+                <span
+                  className={cn(
+                    'flex items-center gap-2 text-xs font-semibold',
+                    matrixFailure.reason === 'failed' ? 'text-destructive' : 'text-escalate',
+                  )}
+                >
+                  <TriangleAlert className="size-3.5" />
+                  Closed while the pack cannot be read
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-foreground-muted">
+                Linking is a replace, and a picker built on a read that did not land would
+                arrive showing no existing links — saving it would delete the ones already
+                there. It reopens when the reads succeed.
+              </p>
+              <p className="mt-1 text-[11px] leading-5 text-foreground-muted">
+                {matrixFailure.detail}
+              </p>
+            </CardContent>
+          </Card>
+        ) : linking ? (
           <MilestoneAnchor
             projects={linkableProjects}
             matrix={matrix}
@@ -569,7 +644,9 @@ export function FinishLine() {
         )}
       </section>
 
-      <OrphanCard
+      {loaded ? (
+        <>
+          <OrphanCard
         state={orphanCard}
         onOpenProject={(projectId) => {
           setProjectFocus({ projectId, openMilestones: true });
@@ -578,6 +655,30 @@ export function FinishLine() {
       />
 
       <DanglingCard state={danglingCard} />
+        </>
+      ) : (
+        <div className="mt-5">
+          <Checking label="Milestones that close nothing" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The state between "not asked yet" and an answer.
+ *
+ * Its whole job is to not be either of the other two. A card that counts
+ * problems has no honest zero to show before its read returns, and no clean
+ * bill to give — so it says neither, in one 44px row.
+ */
+function Checking({ label }: { label: string }) {
+  return (
+    <div className="mb-3 rounded-lg border border-border-subtle bg-card px-4">
+      <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1">
+        <span className="surface-label">{label}</span>
+        <span className="text-xs text-foreground-muted">Checking…</span>
+      </div>
     </div>
   );
 }
@@ -841,6 +942,7 @@ function CellPanel({
   edges,
   projects,
   projectsById,
+  canLink,
   isPending,
   onClose,
   onSave,
@@ -852,6 +954,8 @@ function CellPanel({
   edges: FinishLineEdge[];
   projects: Project[];
   projectsById: Map<string, Project>;
+  /** False when a read behind the edges failed — see the caller. */
+  canLink: boolean;
   isPending: boolean;
   onClose: () => void;
   onSave: (picked: { projectId: string; milestoneId: string }[]) => void;
@@ -935,7 +1039,7 @@ function CellPanel({
                   onSave(picked);
                 }}
               />
-            ) : (
+            ) : canLink ? (
               <div className="mt-3 flex justify-end">
                 {/* SECONDARY, deliberately. This is the inverse of the primary
                     authoring path and must not be the page's filled button. */}
@@ -943,6 +1047,11 @@ function CellPanel({
                   Link milestones to this cell
                 </Button>
               </div>
+            ) : (
+              <p className="mt-3 text-xs text-foreground-muted">
+                Linking is closed while the pack cannot be read — the list above may be
+                incomplete, and saving over it would delete links nobody can see.
+              </p>
             )}
           </>
         ) : (
