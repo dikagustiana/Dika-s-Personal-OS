@@ -10,6 +10,8 @@ import type {
   EntryType,
   FinishLineItem,
   FinishLineStatus,
+  IeltsError,
+  IeltsErrorSkill,
   IeltsResult,
   LinkedProject,
   Project,
@@ -234,6 +236,23 @@ interface IeltsResultRow {
   speaking: number;
 }
 
+interface IeltsErrorRow {
+  id: string;
+  date: string;
+  skill: IeltsErrorSkill;
+  criterion: string;
+  failure_mode: string;
+  quote: string;
+  note: string | null;
+  question_type: string | null;
+  revision_of: string | null;
+  result_id: string | null;
+  created_at: string;
+}
+
+const IELTS_ERROR_COLUMNS =
+  'id, date, skill, criterion, failure_mode, quote, note, question_type, revision_of, result_id, created_at';
+
 // --- mapping ----------------------------------------------------------------
 
 // Postgres returns timestamptz as `2026-07-24 15:04:05.123+00:00`-style
@@ -333,6 +352,26 @@ function rowToProject(row: ProjectRow): Project {
   // dashboard renders an empty pinned set instead of erroring.
   if (row.dashboard_pinned) project.dashboardPinned = true;
   return project;
+}
+
+function rowToIeltsError(row: IeltsErrorRow): IeltsError {
+  const error: IeltsError = {
+    id: row.id,
+    date: row.date,
+    skill: row.skill,
+    criterion: row.criterion,
+    failureMode: row.failure_mode,
+    quote: row.quote,
+    createdAt: toIso(row.created_at),
+  };
+  // Omitted rather than set to null: the domain type uses optional fields, and
+  // `revisionOf: null` would satisfy neither `?string` nor a truthiness check
+  // the classifier relies on.
+  if (row.note) error.note = row.note;
+  if (row.question_type) error.questionType = row.question_type;
+  if (row.revision_of) error.revisionOf = row.revision_of;
+  if (row.result_id) error.resultId = row.result_id;
+  return error;
 }
 
 function rowToIeltsResult(row: IeltsResultRow): IeltsResult {
@@ -652,6 +691,50 @@ class SupabaseRepository implements Repository {
   async deleteIeltsResult(id: string): Promise<void> {
     const { error } = await this.client.from('os_ielts_results').delete().eq('id', id);
     if (error) throw new Error(`deleteIeltsResult failed: ${error.message}`);
+  }
+
+  async listIeltsErrors(): Promise<IeltsError[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_errors')
+      .select(IELTS_ERROR_COLUMNS)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(`listIeltsErrors failed: ${error.message}`);
+    return (data as IeltsErrorRow[]).map(rowToIeltsError);
+  }
+
+  /**
+   * One insert for the whole paste. PostgREST returns the inserted rows in
+   * request order, so the caller gets ids back for every row it sent without a
+   * second read.
+   */
+  async createIeltsErrors(
+    input: ReadonlyArray<Omit<IeltsError, 'id' | 'createdAt'>>,
+  ): Promise<IeltsError[]> {
+    if (input.length === 0) return [];
+    const { data, error } = await this.client
+      .from('os_ielts_errors')
+      .insert(
+        input.map((row) => ({
+          date: row.date,
+          skill: row.skill,
+          criterion: row.criterion,
+          failure_mode: row.failureMode,
+          quote: row.quote,
+          note: row.note ?? null,
+          question_type: row.questionType ?? null,
+          revision_of: row.revisionOf ?? null,
+          result_id: row.resultId ?? null,
+        })),
+      )
+      .select(IELTS_ERROR_COLUMNS);
+    if (error) throw new Error(`createIeltsErrors failed: ${error.message}`);
+    return (data as IeltsErrorRow[]).map(rowToIeltsError);
+  }
+
+  async deleteIeltsError(id: string): Promise<void> {
+    const { error } = await this.client.from('os_ielts_errors').delete().eq('id', id);
+    if (error) throw new Error(`deleteIeltsError failed: ${error.message}`);
   }
 
   // --- finish line ----------------------------------------------------------

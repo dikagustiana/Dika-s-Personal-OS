@@ -14,7 +14,9 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
 import { IELTS_SKILL_COLORS, IELTS_SKILL_DASH } from '../../components/IeltsTrendChart';
-import type { IeltsResult } from '../../data/types';
+import { ErrorLogPaste } from '../../components/ielts/ErrorLogPaste';
+import { ErrorPatterns } from '../../components/ielts/ErrorPatterns';
+import type { IeltsError, IeltsResult } from '../../data/types';
 import {
   formatBand,
   IELTS_SKILLS,
@@ -46,11 +48,17 @@ export function Ielts() {
   const repository = useAppStore((state) => state.repository);
   const { run } = useMutation();
   const [results, setResults] = useState<IeltsResult[]>([]);
+  const [errors, setErrors] = useState<IeltsError[]>([]);
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    setResults(await repository.listIeltsResults());
+    const [resultRows, errorRows] = await Promise.all([
+      repository.listIeltsResults(),
+      repository.listIeltsErrors(),
+    ]);
+    setResults(resultRows);
+    setErrors(errorRows);
   }, [repository]);
 
   useEffect(() => {
@@ -188,6 +196,17 @@ export function Ielts() {
         })}
       </div>
 
+      {/* CLASSIFICATION ABOVE THE PASTE BOX, and both above the chart and the
+          result form. The question this screen answers on opening is what
+          should I work on — "Reading 6.5" is a fact, "you dropped the Task 1
+          overview in 4 of 6 attempts" is actionable tomorrow. */}
+      <div className="mb-5 space-y-5">
+        <ErrorPatterns errors={errors} />
+        <ErrorLogPaste
+          onCommitted={(rows) => setErrors((current) => [...current, ...rows])}
+        />
+      </div>
+
       <Card className="mb-5">
         <CardHeader>
           <CardTitle>Progress</CardTitle>
@@ -262,8 +281,14 @@ export function Ielts() {
         </CardContent>
       </Card>
 
+      {/* min-w-0 on both cards, not decoration: a grid item defaults to
+          min-width:auto, so the History card's min-w-[420px] table set the
+          single-column track to 460px and pushed the whole page into
+          horizontal scroll below 460px wide. With the floor removed the track
+          fits the viewport and the table scrolls inside its own
+          overflow-x-auto, which is what that wrapper is for. */}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>Add a result</CardTitle>
           </CardHeader>
@@ -313,7 +338,7 @@ export function Ielts() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <CardHeader>
             <CardTitle>History</CardTitle>
             <span className="text-xs tabular-nums text-foreground-muted">{results.length} results</span>

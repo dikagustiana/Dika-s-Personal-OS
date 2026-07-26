@@ -12,6 +12,7 @@ import type {
   Domain,
   Entry,
   FinishLineItem,
+  IeltsError,
   IeltsResult,
   Project,
   WeeklyPlan,
@@ -196,6 +197,38 @@ export class MockRepository implements Repository {
 
   async deleteIeltsResult(id: string): Promise<void> {
     this.ieltsResults.delete(id);
+  }
+
+  /**
+   * Starts EMPTY, and stays empty. Every error row carries a verbatim quote
+   * from the owner's own unpublished practice writing; the taxonomy is generic
+   * methodology and belongs in the repo, the content does not. No seed, no
+   * fixture, no example row.
+   */
+  private readonly ieltsErrors = new Map<string, IeltsError>();
+
+  async listIeltsErrors(): Promise<IeltsError[]> {
+    return clone(
+      [...this.ieltsErrors.values()].sort(
+        (a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt),
+      ),
+    );
+  }
+
+  async createIeltsErrors(
+    input: ReadonlyArray<Omit<IeltsError, 'id' | 'createdAt'>>,
+  ): Promise<IeltsError[]> {
+    const created = input.map((row) => ({
+      ...row,
+      id: createId(),
+      createdAt: new Date().toISOString(),
+    }));
+    for (const row of created) this.ieltsErrors.set(row.id, clone(row));
+    return clone(created);
+  }
+
+  async deleteIeltsError(id: string): Promise<void> {
+    this.ieltsErrors.delete(id);
   }
 
   // --- finish line ----------------------------------------------------------

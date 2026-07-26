@@ -5,6 +5,7 @@ import type {
   Entry,
   EntryType,
   FinishLineItem,
+  IeltsError,
   IeltsResult,
   Project,
   WeeklyPlan,
@@ -48,6 +49,18 @@ export interface Repository {
   createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult>;
   updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult>;
   deleteIeltsResult(id: string): Promise<void>;
+
+  // IELTS error occurrences. Patterns are derived on read, never stored.
+  listIeltsErrors(): Promise<IeltsError[]>;
+  /**
+   * BULK, deliberately. The entry path is one paste of a whole marking
+   * response producing eight or fourteen rows; a per-row create would turn one
+   * action into fourteen round trips and fourteen chances to half-commit.
+   */
+  createIeltsErrors(
+    input: ReadonlyArray<Omit<IeltsError, 'id' | 'createdAt'>>,
+  ): Promise<IeltsError[]>;
+  deleteIeltsError(id: string): Promise<void>;
 
   /**
    * Finish line gap items (WORK). `projectIds` is written through these

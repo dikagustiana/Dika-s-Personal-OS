@@ -1,4 +1,4 @@
-import type { IeltsResult } from '../data/types';
+import type { IeltsResult } from '../../data/types';
 
 export const IELTS_TARGET = 7.0;
 
