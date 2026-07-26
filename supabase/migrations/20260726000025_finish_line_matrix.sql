@@ -5,6 +5,9 @@
 create table if not exists private.os_finish_line_items_backup_pack as
   select * from public.os_finish_line_items;
 
+delete from public.os_finish_line_item_projects;
+delete from public.os_finish_line_items;
+
 -- 2. Release the pack-era NOT NULLs so matrix rows can be inserted.
 --    These columns become genuinely unused; dropping them is deferred cleanup.
 alter table public.os_finish_line_items
@@ -18,7 +21,8 @@ alter table public.os_finish_line_items
   add column if not exists dp    smallint,
   add column if not exists agg   text,
   add column if not exists style text,
-  add column if not exists flag  text;
+  add column if not exists flag  text,
+  add column if not exists tag   text;
 
 alter table public.os_finish_line_items
   add constraint os_finish_line_items_agg_check
