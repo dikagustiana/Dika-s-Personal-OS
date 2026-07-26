@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Milestone, Project } from '../data/types';
 import {
+  ancestorIds,
   buildProjectTree,
   eligibleParents,
   entityTags,
@@ -157,5 +158,41 @@ describe('findNode', () => {
 
   it('is undefined for a project that is not there', () => {
     expect(findNode(tree, 'nope')).toBeUndefined();
+  });
+});
+
+describe('ancestorIds', () => {
+  const projects = [
+    project({ id: 'root' }),
+    project({ id: 'child', parentId: 'root' }),
+    project({ id: 'grandchild', parentId: 'child' }),
+  ];
+
+  it('returns the whole chain, nearest parent first', () => {
+    // A grandchild's card is only mounted when BOTH rows above it are open,
+    // so a link to it has to expand the chain, not just the target.
+    expect(ancestorIds(projects, 'grandchild')).toEqual(['child', 'root']);
+  });
+
+  it('is empty for a root', () => {
+    expect(ancestorIds(projects, 'root')).toEqual([]);
+  });
+
+  it('is empty for an unknown id', () => {
+    expect(ancestorIds(projects, 'nope')).toEqual([]);
+  });
+
+  it('stops at a missing parent rather than inventing one', () => {
+    expect(ancestorIds([project({ id: 'orphan', parentId: 'gone' })], 'orphan')).toEqual([
+      'gone',
+    ]);
+  });
+
+  it('terminates on a parent cycle', () => {
+    const looped = [
+      project({ id: 'a', parentId: 'b' }),
+      project({ id: 'b', parentId: 'a' }),
+    ];
+    expect(ancestorIds(looped, 'a')).toEqual(['b']);
   });
 });

@@ -131,6 +131,27 @@ export function rollupMilestones(node: ProjectNode): MilestoneRollup {
 }
 
 /**
+ * Every ancestor of `projectId`, nearest parent first.
+ *
+ * Needed because a collapsed row renders no children at all: opening a
+ * grandchild means opening the chain above it, or its card is never mounted
+ * and a link pointing at it silently does nothing. Cycle-safe on the same
+ * grounds as `buildProjectTree` — a loop here would hang the click handler.
+ */
+export function ancestorIds(projects: Project[], projectId: string): string[] {
+  const byId = new Map(projects.map((project) => [project.id, project]));
+  const chain: string[] = [];
+  const seen = new Set<string>([projectId]);
+  let cursor = byId.get(projectId)?.parentId;
+  while (cursor && !seen.has(cursor)) {
+    seen.add(cursor);
+    chain.push(cursor);
+    cursor = byId.get(cursor)?.parentId;
+  }
+  return chain;
+}
+
+/**
  * Projects that may legally become `candidate`'s parent: same domain, not
  * itself, and not one of its own descendants. Without the descendant check a
  * two-click cycle is trivially reachable from the picker.

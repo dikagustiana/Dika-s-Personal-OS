@@ -12,6 +12,7 @@ import { Card, CardContent } from '../../components/ui/Card';
 import type { Project, TaskEntry, WeeklyPlan } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
+  ancestorIds,
   buildProjectTree,
   entityTags,
   flattenNode,
@@ -81,8 +82,15 @@ export function Projects() {
   const scrollToProject = (projectId: string) => {
     setEntityFilter(ALL_ENTITIES);
     // A link may point at a collapsed child, whose card is not in the DOM at
-    // all. Expand first for the same reason the filter is cleared first.
-    setExpanded((current) => new Set(current).add(projectId));
+    // all. Expand first for the same reason the filter is cleared first — and
+    // expand the whole ancestor chain, because a collapsed row renders none of
+    // its descendants, so opening only the target would mount nothing.
+    setExpanded((current) => {
+      const next = new Set(current);
+      next.add(projectId);
+      for (const id of ancestorIds(projects, projectId)) next.add(id);
+      return next;
+    });
     setScrollTarget(projectId);
   };
 
