@@ -11,6 +11,7 @@ import type {
   DailyLog,
   Domain,
   Entry,
+  FinishLineItem,
   IeltsResult,
   Project,
   WeeklyPlan,
@@ -170,6 +171,7 @@ export class MockRepository implements Repository {
 
   async deleteProject(id: string): Promise<void> {
     this.projects.delete(id);
+    this.cascadeProjectDeletion(id);
   }
 
   async listIeltsResults(): Promise<IeltsResult[]> {
@@ -194,6 +196,63 @@ export class MockRepository implements Repository {
 
   async deleteIeltsResult(id: string): Promise<void> {
     this.ieltsResults.delete(id);
+  }
+
+  // --- finish line ----------------------------------------------------------
+
+  /**
+   * STARTS EMPTY, AND STAYS THAT WAY. Every other collection here is seeded;
+   * this one is not, and the omission is the point. The real gap items name
+   * entities, internal drivers and open methodology decisions, and this repo
+   * is public — so there is no seed, no fixture and no worked example of one
+   * anywhere in it. A bare clone renders the empty state, which is correct.
+   */
+  private readonly finishLineItems = new Map<string, FinishLineItem>();
+
+  async listFinishLineItems(): Promise<FinishLineItem[]> {
+    return clone([...this.finishLineItems.values()].sort((a, b) => a.order - b.order));
+  }
+
+  async createFinishLineItem(input: Omit<FinishLineItem, 'id'>): Promise<FinishLineItem> {
+    const item: FinishLineItem = {
+      ...input,
+      id: createId(),
+      projectIds: [...new Set(input.projectIds)],
+    };
+    this.finishLineItems.set(item.id, clone(item));
+    return clone(item);
+  }
+
+  async updateFinishLineItem(
+    id: string,
+    patch: Partial<FinishLineItem>,
+  ): Promise<FinishLineItem> {
+    const current = this.finishLineItems.get(id);
+    if (!current) throw new Error(`Finish line item not found: ${id}`);
+    const updated: FinishLineItem = { ...current, ...patch, id: current.id };
+    updated.projectIds = [...new Set(updated.projectIds)];
+    this.finishLineItems.set(id, clone(updated));
+    return clone(updated);
+  }
+
+  async deleteFinishLineItem(id: string): Promise<void> {
+    this.finishLineItems.delete(id);
+  }
+
+  /**
+   * Mirrors the database's `on delete cascade` on the join table: deleting a
+   * project clears its links and LEAVES THE GAP ITEM STANDING, now unowned.
+   * Without this the mock would disagree with production about the state the
+   * view ranks first.
+   */
+  private cascadeProjectDeletion(projectId: string): void {
+    for (const [id, item] of this.finishLineItems) {
+      if (!item.projectIds.includes(projectId)) continue;
+      this.finishLineItems.set(id, {
+        ...item,
+        projectIds: item.projectIds.filter((linked) => linked !== projectId),
+      });
+    }
   }
 }
 
