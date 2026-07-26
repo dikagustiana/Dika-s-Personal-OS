@@ -66,7 +66,7 @@ function CollapsibleBlock({
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate">{title}</span>
           {subtitle && (
-            <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] text-foreground-muted">
+            <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted">
               {subtitle}
             </span>
           )}
@@ -200,7 +200,7 @@ function TranscriptView({ transcript }: { transcript: CouncilTranscript }) {
                 <>
                   {peer.review.strongest && (
                     <p>
-                      <span className="mr-2 rounded-sm border border-success px-1.5 py-0.5 font-mono text-[10px] text-success">
+                      <span className="mr-2 rounded-sm border border-success px-1.5 py-0.5 text-[10px] text-success">
                         Strongest {peer.review.strongest.letter}
                       </span>
                       {peer.review.strongest.reason}
@@ -208,7 +208,7 @@ function TranscriptView({ transcript }: { transcript: CouncilTranscript }) {
                   )}
                   {peer.review.biggestBlindSpot && (
                     <p>
-                      <span className="mr-2 rounded-sm border border-escalate px-1.5 py-0.5 font-mono text-[10px] text-escalate">
+                      <span className="mr-2 rounded-sm border border-escalate px-1.5 py-0.5 text-[10px] text-escalate">
                         Blind spot {peer.review.biggestBlindSpot.letter}
                       </span>
                       {peer.review.biggestBlindSpot.reason}
@@ -216,7 +216,7 @@ function TranscriptView({ transcript }: { transcript: CouncilTranscript }) {
                   )}
                   {peer.review.missedByAll && (
                     <p>
-                      <span className="mr-2 rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] text-foreground-muted">
+                      <span className="mr-2 rounded-sm border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted">
                         Missed by all
                       </span>
                       {peer.review.missedByAll}

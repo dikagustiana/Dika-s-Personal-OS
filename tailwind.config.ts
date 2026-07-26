@@ -105,6 +105,12 @@ export default {
       fontFamily: {
         sans: ['Plus Jakarta Sans', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         display: ['Playfair Display', 'Georgia', 'serif'],
+        // Declared so the fallback is a decision, not an accident. font-mono
+        // is reserved for <pre> prompt/JSON blocks and the council's aligned
+        // stage-progress dots — numbers use sans + tabular-nums, which does
+        // the alignment alone. Before this declaration, font-mono fell
+        // through to Tailwind's default stack and a third typeface shipped.
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       fontSize: {
         // Type scale roles beyond Tailwind defaults (body = text-sm 14/1.5,

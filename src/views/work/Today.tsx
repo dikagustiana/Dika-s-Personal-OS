@@ -20,7 +20,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
-import { EmptyState } from '../../components/ui/EmptyState';
+import { EmptyRow } from '../../components/ui/EmptyRow';
 import { ScoreRing } from '../../components/ScoreRing';
 import { TimeboxSection } from '../../components/TimeboxSection';
 import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
@@ -453,8 +453,12 @@ export function Today() {
                   placeholder="Add an urgent task"
                   aria-label="Add an urgent task to today"
                 />
+                {/* Secondary, not filled: this submits a field that is
+                    already visible and carries no page-level intent. The
+                    timebox save below keeps the page's one fill. */}
                 <Button
                   type="submit"
+                  variant="secondary"
                   size="icon"
                   className="shrink-0"
                   disabled={isPending}
@@ -488,9 +492,9 @@ export function Today() {
                   </div>
                 ))}
                 {!isLoading && urgentTasks.length === 0 && (
-                  <EmptyState
-                    title="Clear runway"
-                    hint="Add one above, or pin a task from the inbox below — these are the tasks that count toward today's score."
+                  <EmptyRow
+                    label="Urgent tasks"
+                    clause="Clear runway — add one above, or pin from the inbox below"
                   />
                 )}
               </div>
@@ -517,6 +521,7 @@ export function Today() {
                 />
                 <Button
                   type="submit"
+                  variant="secondary"
                   size="icon"
                   className="shrink-0"
                   disabled={isPending}
@@ -548,9 +553,9 @@ export function Today() {
                   </div>
                 ))}
                 {!isLoading && inboxTasks.length === 0 && (
-                  <EmptyState
-                    title="Inbox zero"
-                    hint="Capture a task above — it waits here until you deliberately pin it to a day."
+                  <EmptyRow
+                    label="Inbox"
+                    clause="Inbox zero — a captured task waits here until pinned to a day"
                   />
                 )}
               </div>
@@ -569,7 +574,7 @@ export function Today() {
               <ol className="space-y-3">
                 {plan?.goals.map((goal, index) => (
                   <li key={goal.id} className="flex gap-3 text-sm leading-5">
-                    <span className="font-mono text-xs text-foreground-muted">0{index + 1}</span>
+                    <span className="text-xs text-foreground-muted">0{index + 1}</span>
                     <span className={goal.done ? 'text-foreground-muted line-through' : 'text-foreground-secondary'}>{goal.text}</span>
                   </li>
                 ))}

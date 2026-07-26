@@ -357,7 +357,7 @@ export function ResearchArea() {
                     <p className="mt-1 text-sm text-foreground-muted">{selected.meta.question}</p>
                   )}
                 </div>
-                <span className="font-mono text-xs tabular-nums text-foreground-muted">
+                <span className="text-xs tabular-nums text-foreground-muted">
                   stage {templateOf(selected.meta.template).stages[curStage(selected)]?.n}
                 </span>
               </div>

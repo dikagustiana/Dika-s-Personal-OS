@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ProjectCard } from '../../components/ProjectCard';
 import { ProjectChildren } from '../../components/ProjectChildren';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
-import { EmptyState } from '../../components/ui/EmptyState';
+import { EmptyRow } from '../../components/ui/EmptyRow';
 import { Input } from '../../components/ui/Input';
 import type { Project, TaskEntry, WebsiteCategory, WeeklyPlan } from '../../data/types';
 import { buildProjectTree, findNode, rollupMilestones } from '../../logic/hierarchy';
@@ -189,12 +189,10 @@ export function Initiative({ initiative }: { initiative: InitiativeKey }) {
         </div>
       ) : (
         loaded && (
-          <div className="grid min-h-52 place-items-center rounded-lg border border-dashed border-border">
-            <EmptyState
-              title="Not set up yet"
-              hint="This initiative has no project behind it — create it from the Projects view."
-            />
-          </div>
+          <EmptyRow
+            label="Project"
+            clause="Not set up yet — create it from the Projects view"
+          />
         )
       )}
     </div>

@@ -19,7 +19,10 @@ const buttonVariants = cva(
       size: {
         default: 'h-10',
         sm: 'h-9 px-3 text-xs',
-        icon: 'size-9 p-0',
+        // 40px, matching the checkbox target — 36px was the smallest hit area
+        // in the app and it was the PRIMARY control in timebox rows (three per
+        // row), Today's task rows, and the toasts.
+        icon: 'size-10 p-0',
       },
     },
     defaultVariants: {

@@ -130,7 +130,7 @@ export function TimeboxSection({
             {block ? (
               <div className="grid min-h-14 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-3 py-2 sm:grid-cols-[4rem_minmax(0,1fr)]">
                 <div>
-                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
+                  <time className={cn('text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                     {slot.start}
                   </time>
                   {isCurrent && (
@@ -146,7 +146,7 @@ export function TimeboxSection({
                   >
                     {block.label}
                   </p>
-                  <span className="font-mono text-[10px] tabular-nums text-foreground-muted">
+                  <span className="text-[10px] tabular-nums text-foreground-muted">
                     {durationLabel(block.start, block.end)}
                   </span>
                   {block.category && (
@@ -190,7 +190,7 @@ export function TimeboxSection({
               </div>
             ) : isOpen ? (
               <div className="grid gap-2 py-2 md:grid-cols-[4rem_minmax(140px,1fr)_minmax(130px,0.5fr)_minmax(150px,0.6fr)_auto]">
-                <time className="self-center font-mono text-xs tabular-nums text-foreground-muted">{slot.start}</time>
+                <time className="self-center text-xs tabular-nums text-foreground-muted">{slot.start}</time>
                 <Input
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
@@ -259,7 +259,7 @@ export function TimeboxSection({
                 className="group flex min-h-9 w-full items-center gap-3 py-1 text-left"
                 aria-label={`Add a block at ${slot.start}`}
               >
-                <time className={cn('w-[3.25rem] font-mono text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
+                <time className={cn('w-[3.25rem] text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                   {slot.start}
                 </time>
                 <span className="h-px flex-1 bg-surface-2 transition-colors group-hover:bg-surface-3" />

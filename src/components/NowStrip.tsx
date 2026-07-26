@@ -78,7 +78,7 @@ export function NowStrip({
         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">
           Now
         </span>
-        <span className="font-mono text-xs tabular-nums text-foreground-secondary">
+        <span className="text-xs tabular-nums text-foreground-secondary">
           {slot.start}–{slot.end}
         </span>
       </span>

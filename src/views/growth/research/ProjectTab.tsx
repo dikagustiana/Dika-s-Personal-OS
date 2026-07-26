@@ -202,13 +202,13 @@ export function ProjectTab({
                     ) : (
                       <ChevronRight className="size-4 shrink-0 text-foreground-muted" />
                     )}
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-foreground-muted">
+                    <span className="shrink-0 text-xs tabular-nums text-foreground-muted">
                       {stage.n}
                     </span>
                     <span className="min-w-0 flex-1 text-sm font-semibold text-foreground">
                       {stage.t}
                     </span>
-                    <span className="shrink-0 font-mono text-[10px] tabular-nums text-foreground-muted">
+                    <span className="shrink-0 text-[10px] tabular-nums text-foreground-muted">
                       {gate.filter(Boolean).length}/{gate.length}
                     </span>
                     <StageBadge state={status.state} text={status.txt} />
@@ -426,7 +426,7 @@ export function ProjectTab({
                       .reverse()
                       .map((cycle) => (
                         <li key={cycle.id} className="text-foreground-muted">
-                          <span className="font-mono tabular-nums">#{cycle.n}</span> {cycle.date} ·{' '}
+                          <span className="tabular-nums">#{cycle.n}</span> {cycle.date} ·{' '}
                           <span
                             className={
                               cycle.verdict === 'rework' ? 'text-destructive' : 'text-success'
@@ -641,7 +641,7 @@ export function ProjectTab({
                     claim.layer === 'c' && 'border-escalate',
                   )}
                 >
-                  <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase text-foreground-muted">
+                  <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] uppercase text-foreground-muted">
                     {claim.layer}
                   </span>
                   <span className="min-w-0 flex-1 text-sm text-foreground-secondary">
@@ -745,7 +745,7 @@ export function ProjectTab({
                 .sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
                 .map((entry) => (
                   <li key={entry.id} className="flex gap-3 py-2 text-sm">
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-foreground-muted">
+                    <span className="shrink-0 text-xs tabular-nums text-foreground-muted">
                       {entry.date}
                     </span>
                     <span className="text-foreground-secondary">{entry.text}</span>

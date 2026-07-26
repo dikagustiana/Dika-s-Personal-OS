@@ -151,7 +151,7 @@ export function PortfolioTab({
                     >
                       {research.project.title}
                     </button>
-                    <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 font-mono text-[10px] tabular-nums text-foreground-muted">
+                    <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] tabular-nums text-foreground-muted">
                       {action.stage.n} {action.stage.t}
                     </span>
                     <span className="min-w-0 flex-1 text-sm text-foreground-secondary">
