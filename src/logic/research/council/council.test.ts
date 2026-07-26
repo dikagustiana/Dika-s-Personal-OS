@@ -257,3 +257,44 @@ describe('validateCouncilRequest', () => {
     ).toMatch(/exceeds/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regressions from the Codex review of PR #20
+// ---------------------------------------------------------------------------
+
+describe('verdict shape validation (P2, review of #20)', () => {
+  it('treats a parseable but contentless verdict as unparsed', () => {
+    // `{}` parses cleanly into five empty strings and carries no `raw`, so a
+    // `raw !== undefined` check called it good and the UI rendered an empty
+    // verdict card — the exact empty-panel failure the brief forbids.
+    const verdict = parseChairmanVerdict('{}');
+    expect(verdict.raw).toBeUndefined();
+    expect(verdictParsed(verdict)).toBe(false);
+  });
+
+  it('accepts a verdict carrying only a recommendation', () => {
+    expect(verdictParsed(parseChairmanVerdict('{"recommendation":"do the thing"}'))).toBe(true);
+  });
+
+  it('accepts a verdict carrying only a consensus', () => {
+    expect(verdictParsed(parseChairmanVerdict('{"consensus":"they agree"}'))).toBe(true);
+  });
+
+  it('rejects a verdict whose fields are present but blank', () => {
+    expect(verdictParsed(parseChairmanVerdict('{"recommendation":"   ","consensus":""}'))).toBe(
+      false,
+    );
+  });
+});
+
+describe('seat-count ceiling (P1, review of #20)', () => {
+  it('no real council exceeds the anonymisation alphabet', () => {
+    // The server caps seats at 8; anonymizeResponses throws above 8. These two
+    // bounds must agree, or a request the server accepts would crash the client.
+    for (const mode of ['method', 'scope', 'contra'] as CouncilMode[]) {
+      expect(advisorsForMode(mode).length).toBeLessThanOrEqual(8);
+    }
+    const nine = Array.from({ length: 9 }, (_, i) => response(`a${i}`));
+    expect(() => anonymizeResponses(nine)).toThrow();
+  });
+});

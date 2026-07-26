@@ -276,6 +276,29 @@ function StageProgress({ progress }: { progress: CouncilProgress }) {
   );
 }
 
+/**
+ * A stored row back into the render shape. jsonb comes back untyped, so each
+ * field is defaulted rather than asserted — a transcript written by an older
+ * version of the seats must still open, not throw.
+ */
+function rowToTranscript(row: CouncilSessionRow): CouncilTranscript {
+  const verdict = (row.verdict ?? null) as CouncilTranscript['verdict'];
+  return {
+    mode: row.mode as CouncilMode,
+    projectId: row.projectId ?? undefined,
+    inputSnapshot: row.inputSnapshot,
+    advisorsConfig: (row.advisorsConfig ?? []) as CouncilTranscript['advisorsConfig'],
+    advisorResponses: (row.advisorResponses ?? []) as CouncilTranscript['advisorResponses'],
+    peerReviews: (row.peerReviews ?? []) as CouncilTranscript['peerReviews'],
+    verdict,
+    // A stored verdict that is present but has no recommendation is the same
+    // unparsed case as at run time, and must render the same way.
+    verdictUnparsed: Boolean(verdict) && !verdict?.recommendation && !verdict?.consensus,
+    failedSeats: [],
+    persisted: true,
+  };
+}
+
 export function CouncilPanel({
   mode,
   capabilities,
@@ -418,9 +441,16 @@ export function CouncilPanel({
               title={row.createdAt.slice(0, 16).replace('T', ' ')}
               subtitle={row.mode}
             >
-              <p className="whitespace-pre-wrap border-l-2 border-border-subtle pl-2 text-xs text-foreground-muted">
-                {row.inputSnapshot.slice(0, 400)}
-              </p>
+              <div className="space-y-3">
+                <p className="whitespace-pre-wrap border-l-2 border-border-subtle pl-2 text-xs text-foreground-muted">
+                  {row.inputSnapshot.slice(0, 400)}
+                  {row.inputSnapshot.length > 400 && '…'}
+                </p>
+                {/* The whole transcript, not just the input. Eleven completions
+                    were paid for; if they are unreadable after a reload the
+                    stored row is a receipt rather than a record. */}
+                <TranscriptView transcript={rowToTranscript(row)} />
+              </div>
             </CollapsibleBlock>
           ))}
         </div>
