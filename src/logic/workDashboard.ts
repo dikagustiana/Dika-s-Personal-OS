@@ -151,9 +151,6 @@ export interface CloseCycleSummary {
   /** Milestone counts across the whole cycle — not entity counts. */
   done: number;
   total: number;
-  /** Entities with every milestone finished, out of those present. */
-  entitiesDone: number;
-  entitiesTotal: number;
   deadline?: string;
 }
 
@@ -210,12 +207,6 @@ export function summarizeCloseCycle(
     series,
     done: series.reduce((sum, item) => sum + item.done, 0),
     total: series.reduce((sum, item) => sum + item.total, 0),
-    entitiesDone: cycle.filter(
-      (project) =>
-        project.milestones.length > 0 &&
-        project.milestones.every((milestone) => milestone.done),
-    ).length,
-    entitiesTotal: cycle.length,
   };
   if (deadlines.length > 0) summary.deadline = deadlines.sort().at(-1);
   return summary;

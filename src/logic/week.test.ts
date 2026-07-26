@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DailyLog, WeeklyPlan } from '../data/types';
 import {
+  daysElapsedInWeek,
   getIsoWeekKey,
   getNextWeekKey,
   getPreviousWeekKey,
@@ -29,27 +30,62 @@ describe('ISO week helpers', () => {
 });
 
 describe('summarizeWeek', () => {
-  it('summarizes scores, habits, and goal outcomes', () => {
-    const logs: DailyLog[] = [
-      { date: '2026-07-20', domain: 'work', score: 60, habits: { a: true, b: false } },
-      { date: '2026-07-21', domain: 'work', score: 80, habits: { a: true, b: true } },
-    ];
-    const plan: WeeklyPlan = {
-      week: '2026-W30',
-      domain: 'work',
-      goals: [
-        { id: 'a', text: 'Ship draft', done: true },
-        { id: 'b', text: 'Book exam', done: false },
-      ],
-    };
+  const logs: DailyLog[] = [
+    { date: '2026-07-20', domain: 'work', score: 60, habits: { a: true, b: false } },
+    { date: '2026-07-21', domain: 'work', score: 80, habits: { a: true, b: true } },
+  ];
+  const plan: WeeklyPlan = {
+    week: '2026-W30',
+    domain: 'work',
+    goals: [
+      { id: 'a', text: 'Ship draft', done: true },
+      { id: 'b', text: 'Book exam', done: false },
+    ],
+  };
 
-    expect(summarizeWeek(logs, plan)).toEqual({
-      averageScore: 70,
-      habitConsistency: 75,
+  it('averages over the window, counting unlogged days as zero', () => {
+    // Two logged days out of seven: 140/7 = 20, and consistency
+    // (0.5 + 1.0) / 7 ≈ 21% — a day with no log is a day nothing was earned,
+    // not a day to drop from the denominator.
+    expect(summarizeWeek(logs, plan, 7)).toEqual({
+      averageScore: 20,
+      habitConsistency: 21,
       daysLogged: 2,
       goalsHit: ['Ship draft'],
       goalsMissed: ['Book exam'],
     });
+  });
+
+  it('reads as a plain average when every window day is logged', () => {
+    const summary = summarizeWeek(logs, plan, 2);
+    expect(summary.averageScore).toBe(70);
+    expect(summary.habitConsistency).toBe(75);
+  });
+
+  it('never divides by less than the days actually logged', () => {
+    // A caller passing a too-small window cannot inflate the figures.
+    expect(summarizeWeek(logs, plan, 1).averageScore).toBe(70);
+  });
+
+  it('one perfect logged day no longer reads as a perfect week', () => {
+    const oneDay: DailyLog[] = [
+      { date: '2026-07-20', domain: 'work', score: 100, habits: { a: true } },
+    ];
+    const summary = summarizeWeek(oneDay, null, 7);
+    expect(summary.averageScore).toBe(14);
+    expect(summary.habitConsistency).toBe(14);
+  });
+});
+
+describe('daysElapsedInWeek', () => {
+  it('counts Monday through today inclusive for the current week', () => {
+    // 2026-07-22 is the Wednesday of ISO week 2026-W30.
+    expect(daysElapsedInWeek('2026-W30', new Date('2026-07-22T10:00:00'))).toBe(3);
+  });
+
+  it('is 7 for a finished week and 1 before the week starts', () => {
+    expect(daysElapsedInWeek('2026-W30', new Date('2026-08-05T10:00:00'))).toBe(7);
+    expect(daysElapsedInWeek('2026-W30', new Date('2026-07-01T10:00:00'))).toBe(1);
   });
 });
 

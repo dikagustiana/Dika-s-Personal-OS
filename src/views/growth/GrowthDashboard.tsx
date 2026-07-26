@@ -103,7 +103,7 @@ export function GrowthDashboard() {
     setTasks(entries.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setLog(log);
     setPlan(weeklyPlan);
-    const summary = summarizeWeek(previousLogs, previousPlan);
+    const summary = summarizeWeek(previousLogs, previousPlan, 7);
     setRecap({
       averageScore: summary.averageScore,
       habitConsistency: summary.habitConsistency,
