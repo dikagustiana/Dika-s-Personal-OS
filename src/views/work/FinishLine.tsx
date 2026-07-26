@@ -1,6 +1,6 @@
 import {
-  AlertTriangle,
   ArrowRight,
+  Check,
   ChevronDown,
   ChevronRight,
   Flag,
@@ -8,54 +8,56 @@ import {
   OctagonAlert,
   Pencil,
   Plus,
-  Trash2,
+  ShieldCheck,
   TriangleAlert,
+  Unlink,
+  X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { EmptyRow } from '../../components/ui/EmptyRow';
-import { Input } from '../../components/ui/Input';
 import { Progress } from '../../components/ui/Progress';
-import type { FinishLineItem, FinishLineStatus, Project } from '../../data/types';
+import type {
+  FinishLineItem,
+  FinishLineLinkInput,
+  FinishLineStatus,
+  Project,
+} from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import { cn } from '../../lib/utils';
 import {
-  buildFinishLine,
-  summarize,
-  type FinishLineArea,
-  type FinishLineGapRow,
+  ancestorPath,
+  buildPack,
+  summarizePack,
+  type PackLine,
+  type PackNode,
+  type ResolvedLink,
 } from '../../logic/finishLine';
 import { useAppStore } from '../../store/appStore';
 
 /**
- * The question this view answers: "What must be true for the group financial
- * pack to be trustworthy, what is it now, and which project closes the
- * difference?"
+ * THE PACK, RENDERED — not a register describing it.
  *
- *     TARGET  ──▶  NOW  ──▶  GAP → PROJECT
+ * One consolidated group pack: five business blocks running NET SALES →
+ * GROSS PROFIT → OPERATING PROFIT → NIBT → NPAT, volume & capacity inputs, a
+ * balance sheet, ratios. This view renders that document with every value
+ * replaced by `xxx` and every untrusted line clickable: click it and it says
+ * what is missing, what would fix it, and which work closes it.
  *
- * THE UNIT IS THE GAP ITEM, NOT THE PROJECT. The 21 WORK projects are
- * tributaries into one consolidated deliverable: one gap can hold up several
- * parts of the pack, and one project can close several gaps. A per-project
- * list cannot express either direction — which is why this view is keyed by
- * gap and resolves projects into it, and why the schema behind it carries a
- * real many-to-many rather than an owner column.
+ * The mental model is GateMap: rows, one state per cell, refusing to become a
+ * progress bar. THE NUMBERS NEVER ENTER THE APP — the workbook holds the
+ * figures; this holds the structure and whether each line can be trusted yet.
+ * `xxx` is the deliberate marker that this is a coverage map, not a report.
+ * There is no importer, no paste path, no value field, anywhere.
  *
- * WHAT THIS VIEW CANNOT SEE: the target itself lives in a workbook outside
- * Personal OS, so the list below is a hand-maintained representation of it.
- * When the pack gains a section or a gap closes in Excel, this list does not
- * know. That is acceptable rather than fatal because the items are structural
- * and slow-moving — several have been open for months — and because the list
- * already exists as a standing blocker register kept outside the app; this
- * relocates something stable rather than inventing new upkeep. There is
- * deliberately no importer and no sync: a half-working one would produce a
- * list that looks authoritative and is quietly stale.
+ * The structure itself is seeded from the workbook by a session with database
+ * access (§4 of the brief) — this view renders and annotates it, and never
+ * invents a line.
  */
 
 const STATUS_CHIP: Record<FinishLineStatus, { label: string; className: string }> = {
-  // The app's existing three-colour vocabulary, unchanged — 383 milestones are
-  // already read with it. No new colours are introduced here.
+  // The app's existing three-colour vocabulary, unchanged. No new colours.
   blocked: { label: 'Blocked', className: 'border-destructive/50 text-destructive' },
   'in-progress': { label: 'In progress', className: 'border-escalate/50 text-escalate' },
   trusted: { label: 'Trusted', className: 'border-success/50 text-success' },
@@ -66,62 +68,33 @@ const STATUSES: FinishLineStatus[] = ['blocked', 'in-progress', 'trusted'];
 const CHIP =
   'shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]';
 
-interface Draft {
-  area: string;
-  item: string;
-  targetState: string;
-  currentState: string;
-  interim: string;
-  blocks: string;
-  status: FinishLineStatus;
-  projectIds: string[];
-}
-
-const BLANK_DRAFT: Draft = {
-  area: '',
-  item: '',
-  targetState: '',
-  currentState: '',
-  interim: '',
-  blocks: '',
-  status: 'blocked',
-  projectIds: [],
-};
-
-function draftOf(item: FinishLineItem): Draft {
-  return {
-    area: item.area,
-    item: item.item,
-    targetState: item.targetState,
-    currentState: item.currentState ?? '',
-    interim: item.interim ?? '',
-    blocks: item.blocks ?? '',
-    status: item.status,
-    projectIds: [...item.projectIds],
-  };
-}
-
-/** Blank text clears the column rather than storing an empty string. */
-function optional(value: string): string | undefined {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+/**
+ * Subtotal weight comes from the workbook's own labels: NET SALES, GROSS
+ * PROFIT, NIBT are written in caps there, and those are the lines that get
+ * quoted. Deriving weight from the label keeps "the weight the workbook gives
+ * them" literal — no second field to maintain, nothing to drift.
+ */
+function isSubtotalLabel(label: string): boolean {
+  return /[A-Z]/.test(label) && label === label.toUpperCase();
 }
 
 export function FinishLine() {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
-  const { run, isPending } = useMutation();
+  const finishLineFocus = useAppStore((state) => state.finishLineFocus);
+  const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
 
   const [items, setItems] = useState<FinishLineItem[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [openAreas, setOpenAreas] = useState<Record<string, boolean>>({});
-  const [showClosed, setShowClosed] = useState<Record<string, boolean>>({});
-  /** Item id being edited, or 'new' for the add form. Null when neither. */
-  const [editing, setEditing] = useState<string | null>(null);
-  const [draft, setDraft] = useState<Draft>(BLANK_DRAFT);
+  /** Block collapse. Keyed by item id; absent falls back to defaultOpen. */
+  const [openBlocks, setOpenBlocks] = useState<Record<string, boolean>>({});
+  /** Untrusted lines whose annotation panel is open. */
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -133,9 +106,9 @@ export function FinishLine() {
       setItems(loadedItems);
       setLoadError(null);
     } catch (error) {
-      // A read failure here is most likely a database that has not run
-      // migration 20260726000020. Say that instead of rendering an empty list,
-      // which would read as "no gaps" — the one wrong thing this view can say.
+      // A read failure must not render as an empty pack — "no structure" and
+      // "could not read the structure" are different statements, and the
+      // second one must not masquerade as the first.
       setLoadError(error instanceof Error ? error.message : String(error));
     } finally {
       setLoaded(true);
@@ -146,89 +119,90 @@ export function FinishLine() {
     void load();
   }, [load]);
 
-  const areas = useMemo(() => buildFinishLine(items, projects), [items, projects]);
-  const summary = useMemo(() => summarize(areas), [areas]);
+  const pack = useMemo(() => buildPack(items, projects), [items, projects]);
+  const summary = useMemo(() => summarizePack(pack), [pack]);
 
-  const isAreaOpen = (area: FinishLineArea) => openAreas[area.area] ?? area.defaultOpen;
+  // The cross-view handoff: a project card's "Makes trustworthy" row lands
+  // here. Same clear→expand→scroll shape Projects.tsx uses — expand the
+  // ancestor blocks, open the line's panel, then scroll once it is in the DOM.
+  useEffect(() => {
+    if (!finishLineFocus || items.length === 0) return;
+    const target = items.find((item) => item.id === finishLineFocus.itemId);
+    if (!target) return;
+    const path = ancestorPath(items, target.id);
+    setOpenBlocks((current) => {
+      const next = { ...current };
+      for (const id of path) next[id] = true;
+      return next;
+    });
+    if (target.status !== 'trusted') {
+      setExpanded((current) => new Set(current).add(target.id));
+    }
+    setScrollTarget(target.id);
+    setFinishLineFocus(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishLineFocus, items]);
 
-  const toggleArea = (area: FinishLineArea) =>
-    setOpenAreas((current) => ({ ...current, [area.area]: !(current[area.area] ?? area.defaultOpen) }));
+  useEffect(() => {
+    if (!scrollTarget) return;
+    document
+      .getElementById(`finish-line-${scrollTarget}`)
+      // 'auto', never 'smooth': an explicit behavior overrides CSS
+      // scroll-behavior, which is where the reduced-motion block lives.
+      ?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    setScrollTarget(null);
+  }, [scrollTarget]);
+
+  const toggleLine = (id: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const openProject = (projectId: string) => {
     setProjectFocus({ projectId, openMilestones: true });
     setWorkView('projects');
   };
 
-  const startAdd = () => {
-    setDraft(BLANK_DRAFT);
-    setEditing('new');
-  };
-
-  const startEdit = (item: FinishLineItem) => {
-    setDraft(draftOf(item));
-    setEditing(item.id);
-  };
-
-  const save = async () => {
-    const payload = {
-      area: draft.area.trim(),
-      item: draft.item.trim(),
-      targetState: draft.targetState.trim(),
-      currentState: optional(draft.currentState),
-      interim: optional(draft.interim),
-      blocks: optional(draft.blocks),
-      status: draft.status,
-      projectIds: draft.projectIds,
-    };
-    const saved =
-      editing === 'new'
-        ? await run('Add gap item', () =>
-            repository.createFinishLineItem({ ...payload, order: items.length }),
-          )
-        : await run('Save gap item', () =>
-            repository.updateFinishLineItem(editing as string, payload),
-          );
-    // The draft stays on screen when the write failed, so a transient failure
-    // never swallows typed text. useMutation has already raised the toast.
-    if (!saved) return;
-    setEditing(null);
+  const onSaved = async () => {
+    setEditingId(null);
     await load();
   };
-
-  const remove = async (item: FinishLineItem) => {
-    const done = await run('Delete gap item', () => repository.deleteFinishLineItem(item.id));
-    if (done === undefined) return;
-    setEditing(null);
-    await load();
-  };
-
-  const canSave =
-    draft.area.trim().length > 0 &&
-    draft.item.trim().length > 0 &&
-    draft.targetState.trim().length > 0;
 
   return (
     <div className="page-shell">
       <header className="mb-7 border-b border-border-subtle pb-7">
         <p className="page-kicker">Work / Finish line</p>
-        <h1 className="page-title">The target and the gap</h1>
+        <h1 className="page-title">The pack, line by line</h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
-          What must be true for the pack to be trustworthy, what it currently is, and
-          which project closes the difference. One gap can hold up several parts of the
-          pack; one project can close several gaps.
+          The consolidated deliverable as a document: every value is <code>xxx</code> because the
+          figures live in the workbook — this map holds whether each line can be trusted yet, and
+          which work closes the ones that cannot.
         </p>
       </header>
 
-      <div className="mb-5 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-5 grid gap-px overflow-hidden rounded-lg border border-border-subtle bg-border-subtle sm:grid-cols-2 lg:grid-cols-5">
+        <div className="bg-card p-5">
+          <ShieldCheck className="size-4 text-foreground-muted" />
+          <p className="metric-hero mt-4 tabular-nums">
+            {summary.trusted}
+            <span className="text-foreground-muted">/{summary.totalLines}</span>
+          </p>
+          {/* Trusted lines over total lines — the only progress number this
+              view can honestly offer. */}
+          <p className="surface-label mt-1.5">Of the pack trustworthy</p>
+        </div>
         <div className="bg-card p-5">
           <Flag className="size-4 text-foreground-muted" />
-          <p className="metric-hero mt-4">{summary.open}</p>
-          <p className="surface-label mt-1.5">Open gaps · {summary.blocked} blocked</p>
+          <p className="metric-hero mt-4">{summary.needsWork}</p>
+          <p className="surface-label mt-1.5">Lines need work · {summary.blocked} blocked</p>
         </div>
         <div className="bg-card p-5">
           <OctagonAlert className="size-4 text-foreground-muted" />
           <p className="metric-hero mt-4">{summary.unowned}</p>
-          <p className="surface-label mt-1.5">Open with no project</p>
+          <p className="surface-label mt-1.5">With no project</p>
         </div>
         <div className="bg-card p-5">
           <TriangleAlert className="size-4 text-foreground-muted" />
@@ -251,34 +225,11 @@ export function FinishLine() {
         </button>
       </div>
 
-      <div className="mb-4 flex justify-end">
-        <Button onClick={startAdd} disabled={editing === 'new'}>
-          <Plus className="size-4" />
-          Add gap item
-        </Button>
-      </div>
-
-      {editing === 'new' && (
-        <Card className="mb-5">
-          <CardContent className="pt-5">
-            <GapEditor
-              draft={draft}
-              projects={projects}
-              onChange={setDraft}
-              onSave={() => void save()}
-              onCancel={() => setEditing(null)}
-              canSave={canSave}
-              isPending={isPending}
-            />
-          </CardContent>
-        </Card>
-      )}
-
       {loadError && (
         <Card className="mb-5 border-destructive">
           <CardContent className="pt-5">
             <EmptyRow
-              label="Gap items"
+              label="Pack structure"
               clause={`Could not be read — ${loadError}`}
               action="Retry"
               onAction={() => void load()}
@@ -288,123 +239,36 @@ export function FinishLine() {
       )}
 
       <div className="space-y-4">
-        {areas.map((area) => {
-          const open = isAreaOpen(area);
-          const closedShown = showClosed[area.area] ?? false;
-          return (
-            <Card key={area.area}>
-              <button
-                type="button"
-                onClick={() => toggleArea(area)}
-                aria-expanded={open}
-                className="flex min-h-11 w-full items-center gap-3 rounded-lg p-5 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {open ? (
-                  <ChevronDown className="size-4 shrink-0 text-foreground-muted" />
-                ) : (
-                  <ChevronRight className="size-4 shrink-0 text-foreground-muted" />
-                )}
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-display text-card-heading font-semibold text-foreground">
-                    {area.area}
-                  </span>
-                  <span className="mt-1 block text-xs tabular-nums text-foreground-muted">
-                    {area.open.length} open
-                    {area.blockedCount > 0 && ` · ${area.blockedCount} blocked`}
-                    {area.unownedCount > 0 && ` · ${area.unownedCount} unowned`}
-                    {area.closed.length > 0 && ` · ${area.closed.length} trusted`}
-                  </span>
-                </span>
-                {area.unownedCount > 0 && (
-                  <span className={cn(CHIP, 'border-destructive bg-destructive text-destructive-foreground')}>
-                    Unowned
-                  </span>
-                )}
-              </button>
+        {pack.map((block) => (
+          <BlockCard
+            key={block.item.id}
+            block={block}
+            open={openBlocks[block.item.id] ?? block.defaultOpen}
+            onToggle={() =>
+              setOpenBlocks((current) => ({
+                ...current,
+                [block.item.id]: !(current[block.item.id] ?? block.defaultOpen),
+              }))
+            }
+            expanded={expanded}
+            onToggleLine={toggleLine}
+            editingId={editingId}
+            onEdit={setEditingId}
+            onSaved={onSaved}
+            projects={projects}
+            onOpenProject={openProject}
+          />
+        ))}
 
-              {open && (
-                <CardContent className="pt-0">
-                  <ul className="divide-y divide-border-subtle border-t border-border-subtle">
-                    {area.open.map((row) => (
-                      <GapRow
-                        key={row.item.id}
-                        row={row}
-                        editing={editing === row.item.id}
-                        draft={draft}
-                        projects={projects}
-                        isPending={isPending}
-                        canSave={canSave}
-                        onDraftChange={setDraft}
-                        onEdit={() => startEdit(row.item)}
-                        onCancel={() => setEditing(null)}
-                        onSave={() => void save()}
-                        onDelete={() => void remove(row.item)}
-                        onOpenProject={openProject}
-                      />
-                    ))}
-                  </ul>
-
-                  {area.closed.length > 0 && (
-                    <>
-                      {/* Trusted items are what has actually been closed — the
-                          only evidence of progress this view can offer — but
-                          they must not compete with open items for attention,
-                          so they stay behind one more click. */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setShowClosed((current) => ({
-                            ...current,
-                            [area.area]: !(current[area.area] ?? false),
-                          }))
-                        }
-                        aria-expanded={closedShown}
-                        className="flex min-h-11 w-full items-center gap-2 border-t border-border-subtle text-left text-xs font-semibold text-foreground-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {closedShown ? (
-                          <ChevronDown className="size-3.5 text-foreground-muted" />
-                        ) : (
-                          <ChevronRight className="size-3.5 text-foreground-muted" />
-                        )}
-                        {area.closed.length} trusted
-                      </button>
-                      {closedShown && (
-                        <ul className="divide-y divide-border-subtle border-t border-border-subtle">
-                          {area.closed.map((row) => (
-                            <GapRow
-                              key={row.item.id}
-                              row={row}
-                              editing={editing === row.item.id}
-                              draft={draft}
-                              projects={projects}
-                              isPending={isPending}
-                              canSave={canSave}
-                              onDraftChange={setDraft}
-                              onEdit={() => startEdit(row.item)}
-                              onCancel={() => setEditing(null)}
-                              onSave={() => void save()}
-                              onDelete={() => void remove(row.item)}
-                              onOpenProject={openProject}
-                            />
-                          ))}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                </CardContent>
-              )}
-            </Card>
-          );
-        })}
-
-        {loaded && !loadError && areas.length === 0 && (
+        {loaded && !loadError && pack.length === 0 && (
           <Card>
             <CardContent className="pt-5">
+              {/* No structure is the state until the skeleton is loaded from
+                  the workbook by a session with database access — a fact, not
+                  a call to action, so there is no button here. */}
               <EmptyRow
-                label="Target"
-                clause="Nothing recorded — no gap item has been entered yet"
-                action="Add gap item"
-                onAction={startAdd}
+                label="Pack structure"
+                clause="Nothing loaded yet — the skeleton comes from the workbook"
               />
             </CardContent>
           </Card>
@@ -415,365 +279,688 @@ export function FinishLine() {
 }
 
 // ---------------------------------------------------------------------------
-// One gap item: TARGET · NOW · CLOSES VIA
+// One block — a collapsible card holding sections and lines
 // ---------------------------------------------------------------------------
 
-interface GapRowProps {
-  row: FinishLineGapRow;
-  editing: boolean;
-  draft: Draft;
+interface BlockCardProps {
+  block: PackNode;
+  open: boolean;
+  onToggle: () => void;
+  expanded: ReadonlySet<string>;
+  onToggleLine: (id: string) => void;
+  editingId: string | null;
+  onEdit: (id: string | null) => void;
+  onSaved: () => void;
   projects: Project[];
-  isPending: boolean;
-  canSave: boolean;
-  onDraftChange: (draft: Draft) => void;
-  onEdit: () => void;
-  onCancel: () => void;
-  onSave: () => void;
-  onDelete: () => void;
   onOpenProject: (projectId: string) => void;
 }
 
-function GapRow({
-  row,
-  editing,
-  draft,
-  projects,
-  isPending,
-  canSave,
-  onDraftChange,
+function BlockCard({
+  block,
+  open,
+  onToggle,
+  expanded,
+  onToggleLine,
+  editingId,
   onEdit,
-  onCancel,
-  onSave,
-  onDelete,
+  onSaved,
+  projects,
   onOpenProject,
-}: GapRowProps) {
-  const { item } = row;
-  const chip = STATUS_CHIP[item.status];
-  // A closed item needs no owner, so the unowned marker is an OPEN-item
-  // finding only.
-  const unowned = row.unowned && item.status !== 'trusted';
+}: BlockCardProps) {
+  return (
+    <Card>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex min-h-11 w-full items-center gap-3 rounded-lg p-5 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {open ? (
+          <ChevronDown className="size-4 shrink-0 text-foreground-muted" />
+        ) : (
+          <ChevronRight className="size-4 shrink-0 text-foreground-muted" />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-display text-card-heading font-semibold text-foreground">
+            {block.item.item}
+          </span>
+        </span>
+        {block.needsWork > 0 ? (
+          <span className="shrink-0 text-xs font-semibold tabular-nums text-escalate">
+            ● {block.needsWork} {block.needsWork === 1 ? 'line needs' : 'lines need'} work
+          </span>
+        ) : (
+          block.totalLines > 0 && (
+            <Check aria-label="All lines trusted" className="size-4 shrink-0 text-success" />
+          )
+        )}
+      </button>
 
-  if (editing) {
+      {open && (
+        <CardContent className="pt-0">
+          <div className="border-t border-border-subtle pt-2">
+            {block.children.map((child) => (
+              <PackRows
+                key={child.item.id}
+                node={child}
+                depth={0}
+                expanded={expanded}
+                onToggleLine={onToggleLine}
+                editingId={editingId}
+                onEdit={onEdit}
+                onSaved={onSaved}
+                projects={projects}
+                onOpenProject={onOpenProject}
+              />
+            ))}
+            {block.children.length === 0 && (
+              <EmptyRow label={block.item.item} clause="No lines under this block yet" />
+            )}
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recursive rows — sections as subheads, lines as document rows
+// ---------------------------------------------------------------------------
+
+interface PackRowsProps {
+  node: PackNode;
+  depth: number;
+  expanded: ReadonlySet<string>;
+  onToggleLine: (id: string) => void;
+  editingId: string | null;
+  onEdit: (id: string | null) => void;
+  onSaved: () => void;
+  projects: Project[];
+  onOpenProject: (projectId: string) => void;
+}
+
+function PackRows(props: PackRowsProps) {
+  const { node, depth } = props;
+
+  if (node.item.kind !== 'line') {
+    // A section (or a nested block) is a subhead, not a row: no value cell,
+    // no state marker — its state is its lines'.
     return (
-      <li className="py-4">
-        <GapEditor
-          draft={draft}
-          projects={projects}
-          onChange={onDraftChange}
-          onSave={onSave}
-          onCancel={onCancel}
-          onDelete={onDelete}
-          canSave={canSave}
-          isPending={isPending}
-        />
-      </li>
+      <div className="mt-2">
+        <p
+          className="surface-label truncate py-1.5"
+          style={{ paddingLeft: depth > 0 ? depth * 16 : undefined }}
+        >
+          {node.item.item}
+        </p>
+        {node.children.map((child) => (
+          <PackRows key={child.item.id} {...props} node={child} depth={depth + 1} />
+        ))}
+      </div>
     );
   }
 
   return (
-    <li
+    <>
+      <LineRow {...props} />
+      {node.children.map((child) => (
+        <PackRows key={child.item.id} {...props} node={child} depth={depth + 1} />
+      ))}
+    </>
+  );
+}
+
+function LineRow({
+  node,
+  depth,
+  expanded,
+  onToggleLine,
+  editingId,
+  onEdit,
+  onSaved,
+  projects,
+  onOpenProject,
+}: PackRowsProps) {
+  const { item } = node;
+  const line = node.line as PackLine;
+  const trusted = item.status === 'trusted';
+  const isOpen = expanded.has(item.id);
+  const subtotal = isSubtotalLabel(item.item);
+
+  const label = (
+    <span
       className={cn(
-        'border-l-2 py-4 pl-3',
-        unowned ? 'border-l-destructive' : 'border-l-transparent',
+        'min-w-0 flex-1 truncate text-sm',
+        subtotal ? 'font-semibold text-foreground' : 'text-foreground-secondary',
       )}
     >
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)_minmax(0,0.95fr)]">
-        {/* TARGET */}
-        <div className="min-w-0">
-          <p className="surface-label">Target</p>
-          <p className="mt-1.5 text-sm font-semibold text-foreground">{item.item}</p>
-          <p className="mt-1 text-sm leading-6 text-foreground-secondary">{item.targetState}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className={cn(CHIP, chip.className)}>{chip.label}</span>
-            {unowned && (
-              <span className={cn(CHIP, 'border-destructive bg-destructive text-destructive-foreground')}>
-                No project
-              </span>
-            )}
-          </div>
-        </div>
+      {item.item}
+    </span>
+  );
 
-        {/* NOW */}
+  // The value column is ALWAYS the literal xxx — scaffolding, not data. It is
+  // muted so it cannot read as a number; the figures live in the workbook.
+  const value = (
+    <span className="w-10 shrink-0 text-right font-sans text-sm tabular-nums text-foreground-muted">
+      xxx
+    </span>
+  );
+
+  const rowPadding = { paddingLeft: depth > 0 ? depth * 16 : undefined };
+
+  if (trusted) {
+    // NOT A BUTTON, ON PURPOSE — no click target, no hover, no chrome. Most
+    // lines are trusted; if each carried an affordance, the ones that matter
+    // would stop standing out. This is the density decision of the view.
+    return (
+      <div
+        id={`finish-line-${item.id}`}
+        className="flex min-h-8 items-center gap-3 py-1 scroll-mt-24"
+        style={rowPadding}
+      >
+        {label}
+        {value}
+        <Check aria-label="Trusted" className="size-3.5 shrink-0 text-success" />
+      </div>
+    );
+  }
+
+  const marker =
+    item.status === 'blocked' ? (
+      <OctagonAlert aria-label="Blocked" className="size-3.5 shrink-0 text-destructive" />
+    ) : (
+      <TriangleAlert aria-label="In progress" className="size-3.5 shrink-0 text-escalate" />
+    );
+
+  return (
+    <div id={`finish-line-${item.id}`} className="scroll-mt-24">
+      <button
+        type="button"
+        onClick={() => onToggleLine(item.id)}
+        aria-expanded={isOpen}
+        className="flex min-h-11 w-full items-center gap-3 rounded-sm py-1 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={rowPadding}
+      >
+        {label}
+        {value}
+        {marker}
+      </button>
+      {isOpen && (
+        <LinePanel
+          line={line}
+          editing={editingId === item.id}
+          onEdit={() => onEdit(item.id)}
+          onCancelEdit={() => onEdit(null)}
+          onSaved={onSaved}
+          projects={projects}
+          onOpenProject={onOpenProject}
+          depth={depth}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The annotation panel — the register, relocated behind the line
+// ---------------------------------------------------------------------------
+
+interface LinePanelProps {
+  line: PackLine;
+  editing: boolean;
+  onEdit: () => void;
+  onCancelEdit: () => void;
+  onSaved: () => void;
+  projects: Project[];
+  onOpenProject: (projectId: string) => void;
+  depth: number;
+}
+
+function LinePanel({
+  line,
+  editing,
+  onEdit,
+  onCancelEdit,
+  onSaved,
+  projects,
+  onOpenProject,
+  depth,
+}: LinePanelProps) {
+  const { item } = line;
+
+  if (editing) {
+    return (
+      <div
+        className="mb-2 rounded-sm border border-border bg-surface-2 p-4"
+        style={{ marginLeft: depth > 0 ? depth * 16 : undefined }}
+      >
+        <LineEditor line={line} projects={projects} onSaved={onSaved} onCancel={onCancelEdit} />
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="mb-2 rounded-sm border border-border-subtle bg-surface-2 p-4"
+      style={{ marginLeft: depth > 0 ? depth * 16 : undefined }}
+    >
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="min-w-0">
-          <p className="surface-label">Now</p>
+          <p className="surface-label">What is missing</p>
           <p className="mt-1.5 text-sm leading-6 text-foreground-secondary">
-            {item.currentState ?? (
-              <span className="text-foreground-muted">Not recorded</span>
-            )}
+            {item.currentState ?? <span className="text-foreground-muted">Not recorded</span>}
           </p>
+
+          <p className="surface-label mt-4">What it would take</p>
+          <p className="mt-1.5 text-sm leading-6 text-foreground-secondary">
+            {item.targetState ?? <span className="text-foreground-muted">Not recorded</span>}
+          </p>
+
           {item.interim && (
             // A proxy is NOT a value, and rendering it like one is the exact
             // failure this field exists to prevent: a figure resting on a
             // driver known to be wrong gets quoted back in a board meeting.
-            <div className="mt-2 rounded-sm border border-escalate/50 bg-surface-2 p-2.5">
+            <div className="mt-4 rounded-sm border border-escalate/50 bg-card p-2.5">
               <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-escalate">
                 <TriangleAlert className="size-3.5" />
-                Standing in
+                Standing in meanwhile
               </p>
               <p className="mt-1 text-sm leading-6 text-foreground-secondary">{item.interim}</p>
             </div>
           )}
+
+          {item.blocks && (
+            <p className="mt-4 text-xs leading-5 text-foreground-muted">
+              <span
+                className={cn(
+                  'font-semibold uppercase tracking-[0.08em]',
+                  line.provisional && 'text-escalate',
+                )}
+              >
+                {line.provisional ? 'Provisional downstream' : 'Holds up'}
+              </span>{' '}
+              {item.blocks}
+            </p>
+          )}
         </div>
 
-        {/* CLOSES VIA */}
         <div className="min-w-0">
           <p className="surface-label">Closes via</p>
-          {row.projects.length === 0 ? (
-            <p className={cn('mt-1.5 text-sm', unowned ? 'text-destructive' : 'text-foreground-muted')}>
-              {unowned ? 'No project closes this.' : 'Closed without a project on file.'}
+          {line.links.length === 0 ? (
+            // A known-broken line nobody owns is the most expensive state in
+            // the view; it does not get to whisper.
+            <p className="mt-1.5 text-sm font-semibold text-destructive">
+              Nothing assigned — no work closes this.
             </p>
           ) : (
-            <ul className="mt-1.5 space-y-2">
-              {row.projects.map((project) => {
-                const total = project.milestones.length;
-                const done = project.milestones.filter((milestone) => milestone.done).length;
-                const percent = total > 0 ? (100 * done) / total : 0;
-                return (
-                  <li key={project.id}>
-                    <button
-                      type="button"
-                      onClick={() => onOpenProject(project.id)}
-                      className="flex min-h-11 w-full items-center gap-2 rounded-sm px-1 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm text-foreground-secondary">
-                          {project.title}
-                        </span>
-                        <Progress value={percent} className="mt-1.5 h-1" />
-                      </span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-foreground-muted">
-                        {done}/{total}
-                      </span>
-                      <ArrowRight className="size-3.5 shrink-0 text-foreground-muted" />
-                    </button>
-                  </li>
-                );
-              })}
+            <ul className="mt-1.5 space-y-1.5">
+              {line.links.map((resolved) => (
+                <LinkRow key={resolved.link.id} resolved={resolved} onOpenProject={onOpenProject} />
+              ))}
             </ul>
           )}
-          {row.silentBlockers > 0 && (
-            // The silent-blocker signal, moved off the project list and onto
-            // the gap: this gap is stuck AND nobody outside has been told.
-            <p className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-escalate">
+
+          {line.silentBlockers > 0 && (
+            // The silent-blocker flag, survived from the register: this line
+            // is stuck AND nobody outside has been told.
+            <p className="mt-3 flex items-start gap-1.5 text-xs font-semibold text-escalate">
               <Megaphone className="mt-0.5 size-3.5 shrink-0" />
-              {row.silentBlockers === 1
+              {line.silentBlockers === 1
                 ? 'Stuck on 1 blocked milestone, escalated to no one'
-                : `Stuck on ${row.silentBlockers} blocked milestones, escalated to no one`}
+                : `Stuck on ${line.silentBlockers} blocked milestones, escalated to no one`}
             </p>
           )}
         </div>
       </div>
 
-      {item.blocks && (
-        <p
-          className={cn(
-            'mt-3 text-xs leading-5',
-            row.provisional ? 'text-escalate' : 'text-foreground-muted',
-          )}
-        >
-          <span className="font-semibold uppercase tracking-[0.08em]">
-            {/* Downstream of a proxy is provisional, not missing — the two are
-                different kinds of thing and the label says which. */}
-            {row.provisional ? 'Provisional downstream' : 'Blocks'}
-          </span>{' '}
-          {item.blocks}
-        </p>
-      )}
-
-      <div className="mt-2 flex justify-end">
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <span className={cn(CHIP, STATUS_CHIP[item.status].className)}>
+          {STATUS_CHIP[item.status].label}
+        </span>
         <Button variant="ghost" size="sm" onClick={onEdit}>
           <Pencil className="size-3.5" />
           Edit
         </Button>
       </div>
+    </div>
+  );
+}
+
+function LinkRow({
+  resolved,
+  onOpenProject,
+}: {
+  resolved: ResolvedLink;
+  onOpenProject: (projectId: string) => void;
+}) {
+  const { project, milestone, broken } = resolved;
+
+  if (broken) {
+    // THE BROKEN LINK, NAMED AND VISIBLE. The milestone this line pointed at
+    // no longer exists on the project — without this row the line would look
+    // owned while nothing closes it, or the link would vanish and the line
+    // would look unowned while someone believes it is covered.
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => onOpenProject(project.id)}
+          className="flex min-h-11 w-full items-center gap-2 rounded-sm border border-destructive/50 bg-destructive/5 px-2 text-left transition-colors duration-150 hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Unlink className="size-3.5 shrink-0 text-destructive" />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-destructive">
+              Broken link — milestone no longer on {project.title}
+            </span>
+            <span className="block text-[11px] text-foreground-muted">
+              It was deleted or rewritten. Re-link this line or clear the entry.
+            </span>
+          </span>
+          <ArrowRight className="size-3.5 shrink-0 text-foreground-muted" />
+        </button>
+      </li>
+    );
+  }
+
+  if (milestone) {
+    const chip = STATUS_CHIP[milestone.status === 'blocked' ? 'blocked' : 'in-progress'];
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={() => onOpenProject(project.id)}
+          className="flex min-h-11 w-full items-center gap-2 rounded-sm px-1 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm text-foreground-secondary">
+              {milestone.text}
+            </span>
+            <span className="block truncate text-[11px] text-foreground-muted">
+              {project.title}
+            </span>
+          </span>
+          {milestone.done ? (
+            <Check aria-label="Done" className="size-3.5 shrink-0 text-success" />
+          ) : (
+            <span className={cn(CHIP, chip.className)}>
+              {milestone.status === 'blocked' ? 'Blocked' : 'Open'}
+            </span>
+          )}
+          <ArrowRight className="size-3.5 shrink-0 text-foreground-muted" />
+        </button>
+      </li>
+    );
+  }
+
+  const total = project.milestones.length;
+  const done = project.milestones.filter((candidate) => candidate.done).length;
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={() => onOpenProject(project.id)}
+        className="flex min-h-11 w-full items-center gap-2 rounded-sm px-1 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm text-foreground-secondary">{project.title}</span>
+          <Progress value={total > 0 ? (100 * done) / total : 0} className="mt-1.5 h-1" />
+        </span>
+        <span className="shrink-0 text-[11px] tabular-nums text-foreground-muted">
+          {done}/{total}
+        </span>
+        <ArrowRight className="size-3.5 shrink-0 text-foreground-muted" />
+      </button>
     </li>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Editor
+// The annotation editor — status, gap fields, and links at milestone precision
 // ---------------------------------------------------------------------------
 
-interface GapEditorProps {
-  draft: Draft;
+const FIELD =
+  'mt-2 w-full rounded-sm border border-border bg-card p-3 text-base text-foreground outline-none placeholder:text-foreground-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background md:text-sm';
+
+interface LineEditorProps {
+  line: PackLine;
   projects: Project[];
-  onChange: (draft: Draft) => void;
-  onSave: () => void;
+  onSaved: () => void;
   onCancel: () => void;
-  onDelete?: () => void;
-  canSave: boolean;
-  isPending: boolean;
 }
 
-const FIELD =
-  'mt-2 w-full rounded-sm border border-border bg-surface-2 p-3 text-base text-foreground outline-none placeholder:text-foreground-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background md:text-sm';
+function LineEditor({ line, projects, onSaved, onCancel }: LineEditorProps) {
+  const repository = useAppStore((state) => state.repository);
+  const { run, isPending } = useMutation();
+  const { item } = line;
 
-function GapEditor({
-  draft,
-  projects,
-  onChange,
-  onSave,
-  onCancel,
-  onDelete,
-  canSave,
-  isPending,
-}: GapEditorProps) {
-  const patch = (next: Partial<Draft>) => onChange({ ...draft, ...next });
+  const [status, setStatus] = useState<FinishLineStatus>(item.status);
+  const [targetState, setTargetState] = useState(item.targetState ?? '');
+  const [currentState, setCurrentState] = useState(item.currentState ?? '');
+  const [interim, setInterim] = useState(item.interim ?? '');
+  const [blocks, setBlocks] = useState(item.blocks ?? '');
+  // Broken links load as-is: saving without touching them keeps them, so a
+  // save made to fix a typo cannot silently discard the evidence of a gap
+  // that looks owned. Removing one is an explicit click.
+  const [links, setLinks] = useState<FinishLineLinkInput[]>(
+    item.links.map((link) =>
+      link.milestoneId
+        ? { projectId: link.projectId, milestoneId: link.milestoneId }
+        : { projectId: link.projectId },
+    ),
+  );
+  const [addProject, setAddProject] = useState('');
+  const [addMilestone, setAddMilestone] = useState('');
 
-  const toggleProject = (projectId: string) =>
-    patch({
-      projectIds: draft.projectIds.includes(projectId)
-        ? draft.projectIds.filter((id) => id !== projectId)
-        : [...draft.projectIds, projectId],
-    });
+  const sorted = useMemo(
+    () => [...projects].sort((a, b) => a.title.localeCompare(b.title)),
+    [projects],
+  );
+  const byId = useMemo(() => new Map(projects.map((project) => [project.id, project])), [projects]);
+  const addable = addProject ? byId.get(addProject) : undefined;
 
-  const sorted = [...projects].sort((a, b) => a.title.localeCompare(b.title));
+  const optional = (value: string) => {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  };
+
+  const addLink = () => {
+    if (!addProject) return;
+    const next: FinishLineLinkInput = addMilestone
+      ? { projectId: addProject, milestoneId: addMilestone }
+      : { projectId: addProject };
+    const key = `${next.projectId}:${next.milestoneId ?? ''}`;
+    if (links.some((link) => `${link.projectId}:${link.milestoneId ?? ''}` === key)) return;
+    setLinks((current) => [...current, next]);
+    setAddMilestone('');
+  };
+
+  const save = async () => {
+    const saved = await run('Save pack line', () =>
+      repository.updateFinishLineItem(item.id, {
+        status,
+        targetState: optional(targetState),
+        currentState: optional(currentState),
+        interim: optional(interim),
+        blocks: optional(blocks),
+        links,
+      }),
+    );
+    if (!saved) return;
+    onSaved();
+  };
+
+  const describeLink = (link: FinishLineLinkInput): { title: string; sub?: string; broken: boolean } => {
+    const project = byId.get(link.projectId);
+    if (!project) return { title: 'Unknown project', broken: true };
+    if (!link.milestoneId) return { title: project.title, broken: false };
+    const milestone = project.milestones.find((candidate) => candidate.id === link.milestoneId);
+    if (!milestone)
+      return { title: `Broken link — milestone no longer on ${project.title}`, broken: true };
+    return { title: milestone.text, sub: project.title, broken: false };
+  };
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-sm font-semibold text-foreground">{item.item}</p>
         <label className="block">
-          <span className="surface-label">Area</span>
-          <Input
-            className="mt-2"
-            value={draft.area}
-            onChange={(event) => patch({ area: event.target.value })}
-            placeholder="Free text — a block, a schedule, a ratio"
-            aria-label="Gap item area"
-          />
-        </label>
-        <label className="block">
-          <span className="surface-label">Status</span>
+          <span className="sr-only">Line status</span>
           <select
-            className="native-select mt-2"
-            value={draft.status}
-            onChange={(event) => patch({ status: event.target.value as FinishLineStatus })}
-            aria-label="Gap item status"
+            className="native-select text-xs"
+            value={status}
+            onChange={(event) => setStatus(event.target.value as FinishLineStatus)}
+            aria-label="Line status"
           >
-            {STATUSES.map((status) => (
-              <option key={status} value={status}>
-                {STATUS_CHIP[status].label}
+            {STATUSES.map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {STATUS_CHIP[candidate].label}
               </option>
             ))}
           </select>
         </label>
       </div>
 
-      <label className="block">
-        <span className="surface-label">Item</span>
-        <Input
-          className="mt-2"
-          value={draft.item}
-          onChange={(event) => patch({ item: event.target.value })}
-          aria-label="Gap item"
-        />
-      </label>
-
-      <label className="block">
-        <span className="surface-label">Target state</span>
-        <textarea
-          className={FIELD}
-          rows={2}
-          value={draft.targetState}
-          onChange={(event) => patch({ targetState: event.target.value })}
-          placeholder="What must be true for this to be trustworthy"
-          aria-label="Gap item target state"
-        />
-      </label>
-
-      <label className="block">
-        <span className="surface-label">Current state</span>
-        <textarea
-          className={FIELD}
-          rows={2}
-          value={draft.currentState}
-          onChange={(event) => patch({ currentState: event.target.value })}
-          aria-label="Gap item current state"
-        />
-      </label>
-
-      <label className="block">
-        <span className="surface-label">Interim proxy</span>
-        <textarea
-          className={FIELD}
-          rows={2}
-          value={draft.interim}
-          onChange={(event) => patch({ interim: event.target.value })}
-          placeholder="What is standing in while the real input is unavailable"
-          aria-label="Gap item interim proxy"
-        />
-        <span className="mt-1.5 block text-xs text-foreground-muted">
-          Filled in, everything downstream renders as provisional rather than settled.
-        </span>
-      </label>
-
-      <label className="block">
-        <span className="surface-label">Blocks</span>
-        <textarea
-          className={FIELD}
-          rows={2}
-          value={draft.blocks}
-          onChange={(event) => patch({ blocks: event.target.value })}
-          placeholder="What else stops being trustworthy while this is open"
-          aria-label="Gap item downstream consequence"
-        />
-      </label>
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="block">
+          <span className="surface-label">What is missing</span>
+          <textarea
+            className={FIELD}
+            rows={2}
+            value={currentState}
+            onChange={(event) => setCurrentState(event.target.value)}
+            aria-label="What is missing"
+          />
+        </label>
+        <label className="block">
+          <span className="surface-label">What it would take</span>
+          <textarea
+            className={FIELD}
+            rows={2}
+            value={targetState}
+            onChange={(event) => setTargetState(event.target.value)}
+            aria-label="What it would take"
+          />
+        </label>
+        <label className="block">
+          <span className="surface-label">Standing in meanwhile</span>
+          <textarea
+            className={FIELD}
+            rows={2}
+            value={interim}
+            onChange={(event) => setInterim(event.target.value)}
+            placeholder="The proxy in use while the real input is unavailable"
+            aria-label="Interim proxy"
+          />
+        </label>
+        <label className="block">
+          <span className="surface-label">What else this holds up</span>
+          <textarea
+            className={FIELD}
+            rows={2}
+            value={blocks}
+            onChange={(event) => setBlocks(event.target.value)}
+            aria-label="Downstream consequence"
+          />
+        </label>
+      </div>
 
       <fieldset>
-        <legend className="surface-label">Closed by</legend>
-        <p className="mt-1.5 text-xs text-foreground-muted">
-          Several projects can close one gap, and one project can appear under several gaps.
-        </p>
-        {sorted.length === 0 ? (
-          <p className="mt-2 text-xs text-foreground-muted">No WORK projects to link.</p>
-        ) : (
-          <div className="mt-2 max-h-56 overflow-y-auto rounded-sm border border-border">
-            {sorted.map((project) => (
-              <label
-                key={project.id}
-                className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-border-subtle px-3 last:border-b-0 hover:bg-surface-2"
-              >
-                <input
-                  type="checkbox"
-                  className="size-4 accent-primary"
-                  checked={draft.projectIds.includes(project.id)}
-                  onChange={() => toggleProject(project.id)}
-                />
-                <span className="min-w-0 flex-1 truncate text-sm text-foreground-secondary">
-                  {project.title}
-                </span>
-              </label>
-            ))}
-          </div>
+        <legend className="surface-label">Closes via</legend>
+        {links.length > 0 && (
+          <ul className="mt-2 space-y-1">
+            {links.map((link) => {
+              const described = describeLink(link);
+              return (
+                <li
+                  key={`${link.projectId}:${link.milestoneId ?? ''}`}
+                  className="flex min-h-11 items-center gap-2 rounded-sm border border-border-subtle bg-card px-2"
+                >
+                  {described.broken && <Unlink className="size-3.5 shrink-0 text-destructive" />}
+                  <span className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        'block truncate text-sm',
+                        described.broken ? 'font-semibold text-destructive' : 'text-foreground-secondary',
+                      )}
+                    >
+                      {described.title}
+                    </span>
+                    {described.sub && (
+                      <span className="block truncate text-[11px] text-foreground-muted">
+                        {described.sub}
+                      </span>
+                    )}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() =>
+                      setLinks((current) =>
+                        current.filter(
+                          (candidate) =>
+                            `${candidate.projectId}:${candidate.milestoneId ?? ''}` !==
+                            `${link.projectId}:${link.milestoneId ?? ''}`,
+                        ),
+                      )
+                    }
+                    aria-label={`Remove link to ${described.title}`}
+                  >
+                    <X className="size-4" />
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
         )}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <select
+            className="native-select min-w-0 flex-1 text-xs"
+            value={addProject}
+            onChange={(event) => {
+              setAddProject(event.target.value);
+              setAddMilestone('');
+            }}
+            aria-label="Project to link"
+          >
+            <option value="">Link a project…</option>
+            {sorted.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.title}
+              </option>
+            ))}
+          </select>
+          {addable && addable.milestones.length > 0 && (
+            <select
+              className="native-select min-w-0 flex-1 text-xs"
+              value={addMilestone}
+              onChange={(event) => setAddMilestone(event.target.value)}
+              aria-label="Milestone to link"
+            >
+              {/* The precise pairing is the milestone; whole-project is the
+                  fallback for gaps that genuinely need all of it. */}
+              <option value="">Whole project</option>
+              {addable.milestones.map((milestone) => (
+                <option key={milestone.id} value={milestone.id}>
+                  {milestone.text}
+                </option>
+              ))}
+            </select>
+          )}
+          <Button variant="secondary" size="sm" onClick={addLink} disabled={!addProject}>
+            <Plus className="size-3.5" />
+            Add
+          </Button>
+        </div>
       </fieldset>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {onDelete && (
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={onDelete}
-            disabled={isPending}
-            className="mr-auto"
-          >
-            <Trash2 className="size-3.5" />
-            Delete
-          </Button>
-        )}
+      <div className="flex items-center justify-end gap-2">
         <Button variant="ghost" size="sm" onClick={onCancel} disabled={isPending}>
           Cancel
         </Button>
-        <Button size="sm" onClick={onSave} disabled={!canSave || isPending}>
+        <Button size="sm" onClick={() => void save()} disabled={isPending}>
           Save
         </Button>
       </div>
-      {!canSave && (
-        <p className="flex items-center justify-end gap-1.5 text-xs text-foreground-muted">
-          <AlertTriangle className="size-3.5" />
-          Area, item and target state are required.
-        </p>
-      )}
     </div>
   );
 }

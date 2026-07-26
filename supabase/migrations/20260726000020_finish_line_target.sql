@@ -13,23 +13,12 @@
 -- session holds …019. Picking "the next free slot" off `main` would have made
 -- both sessions choose the same prefix.
 --
--- NOT YET APPLIED AS OF THIS COMMIT, and that is a statement of fact rather
--- than an intention. The session that wrote this had no Supabase MCP tool and
--- no database credentials attached, so it could not run the statements. Every
--- earlier migration here records the opposite (`APPLIED 2026-07-26 via the
--- Supabase apply_migration tool`); this one deliberately does not, because
--- writing that line without having run anything is how a frontend ships
--- against a schema that does not exist — which has already happened twice in
--- this project.
---
--- TO APPLY: run the statements below verbatim through the Supabase
--- apply_migration tool (or the SQL editor), recorded in the ledger as
--- `finish_line_target`, then replace this paragraph with the APPLIED line the
--- other migrations carry. Check the DATABASE, not this comment.
---
--- Until then WORK → Finish line renders an explicit "could not be read" row
--- with a Retry, NOT an empty list — an empty list would read as "no gaps",
--- which is the one wrong thing this view can say.
+-- APPLIED 2026-07-26 via the Supabase apply_migration tool, recorded in the
+-- ledger as `finish_line_target`. The session that wrote this file had no
+-- database access and said so here rather than claiming otherwise; the pack
+-- rebuild session (migration 20260726000021) ran the statements verbatim and
+-- verified the tables, indexes, trigger and policies against the live
+-- database before shipping any frontend that reads them.
 --
 -- NEVER apply with `supabase db push`, `migration up`, `db reset`, or
 -- `db remote commit`. This repo's filenames and the live ledger's versions are

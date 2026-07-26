@@ -1,5 +1,5 @@
 import { format, parseISO } from 'date-fns';
-import { Check, ChevronRight, Megaphone, Pencil, X } from 'lucide-react';
+import { Check, ChevronRight, Flag, Megaphone, Pencil, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type {
   DateConfidence,
@@ -124,6 +124,13 @@ export interface MilestoneSectionProps {
   rollup?: { done: number; total: number; childCount: number };
   /** Monthly-close cards open expanded; they are worked as checklists. */
   defaultOpen?: boolean;
+  /**
+   * Milestones a finish-line pack line links to. A small marker, not a badge:
+   * on a 50-milestone parent these are the handful that actually move the
+   * deliverable, and this is the only thing in the app that says which. The
+   * list order is untouched — the marker is enough.
+   */
+  linkedMilestoneIds?: ReadonlySet<string>;
 }
 
 /**
@@ -141,6 +148,7 @@ export function MilestoneSection({
   onPatch,
   rollup,
   defaultOpen = false,
+  linkedMilestoneIds,
 }: MilestoneSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -294,6 +302,16 @@ export function MilestoneSection({
                       >
                         {milestone.text}
                       </span>
+                      {linkedMilestoneIds?.has(milestone.id) && (
+                        // The finish-line marker: this milestone moves the
+                        // pack. Muted and small — it must not compete with the
+                        // status colouring, and the list order stays exactly
+                        // as it is.
+                        <Flag
+                          className="size-3.5 shrink-0 text-foreground-muted"
+                          aria-label="Linked to the finish line pack"
+                        />
+                      )}
                       {escalated && (
                         <Megaphone className="size-4 shrink-0 text-escalate" aria-label="Escalated" />
                       )}

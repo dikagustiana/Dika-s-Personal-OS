@@ -1,81 +1,44 @@
-import type { FinishLineItem, FinishLineStatus, Milestone, Project } from '../data/types';
+import type {
+  FinishLineItem,
+  FinishLineLink,
+  FinishLineStatus,
+  Milestone,
+  Project,
+} from '../data/types';
 
 /**
- * Derivations for the Finish line view.
+ * Derivations for the Finish line view — the pack, rendered.
  *
- * The view answers three questions in one row: what must be true (TARGET),
- * what it currently is (NOW), and which project closes the difference
- * (GAP → PROJECT). The unit is the gap item, not the project — one gap can
- * hold up several parts of the pack and one project can close several gaps —
- * so everything here is keyed by item and resolves projects into it, never
- * the other way round.
+ * The mental model is GateMap, not a register: rows and columns, one state per
+ * cell, refusing to become a progress bar. Every row of the pack — block,
+ * section, line — is a FinishLineItem; this module builds the tree, resolves
+ * each line's links down to MILESTONE precision, and derives the counts the
+ * header tiles show. Nothing here is stored, and nothing here holds a value:
+ * the figures live in the workbook, the app holds structure and trust.
  *
- * Nothing here is stored. There is deliberately no priority column and no
- * rank column in the schema: order falls out of status, links and `blocks`,
- * the same way project progress and the daily score fall out of their inputs.
+ * BROKEN LINKS ARE A FIRST-CLASS STATE. milestone ids are plain strings into
+ * a jsonb array, so nothing in the database can guarantee they still resolve.
+ * A link whose milestone is gone is returned as `broken` — named and visible —
+ * never filtered out. Silently dropping it produces the two worst outcomes
+ * available: a gap that looks unowned when it is not, or one that looks owned
+ * after the milestone that would have closed it was deleted.
  */
 
-export interface FinishLineGapRow {
-  item: FinishLineItem;
-  /** Linked projects, resolved. Ids that no longer resolve are dropped. */
-  projects: Project[];
-  /**
-   * No project closes this. The loudest state in the view when the item is
-   * still open — something known to be broken that nobody owns. Callers
-   * combine it with `item.status !== 'trusted'` before marking it: a closed
-   * item needs no owner.
-   */
-  unowned: boolean;
-  /**
-   * A proxy is standing in. Everything the item names downstream is therefore
-   * provisional, and must not be rendered as a settled value.
-   */
-  provisional: boolean;
-  /**
-   * Blocked, unescalated milestones across the linked projects.
-   *
-   * THE SILENT-BLOCKER SIGNAL, RELOCATED. It used to sit on the project list
-   * as a count of blocked milestones with no `escalateTo`. On a gap item it
-   * says something sharper: this gap is stuck AND nobody outside has been
-   * told. The live data is 29 blocked milestones and zero escalation targets,
-   * so the mechanism is load-bearing, not theoretical.
-   */
-  silentBlockers: number;
-  /** Milestones on the linked projects still open and blocked. */
-  blockedMilestones: number;
-  /** Completed / total milestones across the linked projects. */
-  done: number;
-  total: number;
-}
+// ---------------------------------------------------------------------------
+// Resolved links
+// ---------------------------------------------------------------------------
 
-export interface FinishLineArea {
-  area: string;
-  /** Blocked and in-progress items, ordered by blast radius. */
-  open: FinishLineGapRow[];
-  /** Trusted items, ordered the same way. Collapsed by default. */
-  closed: FinishLineGapRow[];
-  blockedCount: number;
-  /** Open items with no project on them. */
-  unownedCount: number;
+export interface ResolvedLink {
+  link: FinishLineLink;
+  project: Project;
+  /** The milestone, when the link is milestone-level and the id still resolves. */
+  milestone?: Milestone;
   /**
-   * Areas holding a blocked item arrive expanded; everything else arrives
-   * collapsed. An area of nothing but closed items is evidence of progress,
-   * not something to read today.
+   * Milestone-level link whose id no longer exists in the project's current
+   * milestone array — the milestone was deleted or the project rewritten.
+   * Rendered as a broken link, never dropped.
    */
-  defaultOpen: boolean;
-}
-
-export interface FinishLineSummary {
-  /** Blocked + in-progress. */
-  open: number;
-  blocked: number;
-  /** Open items nobody owns. */
-  unowned: number;
-  /** Open items resting on a proxy. */
-  provisional: number;
-  /** Open items whose linked projects are stuck with nobody told. */
-  silent: number;
-  trusted: number;
+  broken: boolean;
 }
 
 /**
@@ -94,107 +57,277 @@ export function silentBlockers(project: Project): Milestone[] {
   );
 }
 
-const STATUS_RANK: Record<FinishLineStatus, number> = {
-  blocked: 0,
-  'in-progress': 1,
-  trusted: 2,
-};
-
 /**
- * Order by blast radius — how much of the target an item holds up — not
- * alphabetically and not by area.
+ * Resolves an item's links against the live project list.
  *
- *  1. blocked with NO project. Broken and unowned outranks everything.
- *  2. blocked with projects, most projects first: a gap needing three
- *     projects is structurally harder than one needing one.
- *  3. in-progress.
- *  4. trusted.
- *
- * Within a tie, an item that names its downstream consequence outranks one
- * that does not — `blocks` being filled in is the difference between a known
- * radius and an unmeasured one. `sort_order` then the item text break the
- * rest, only so the order is stable between renders.
+ * A link whose PROJECT is gone is dropped — the database cascades project
+ * deletion through the join table, so such a link can only be a stale cache
+ * and will disappear on the next read. A link whose MILESTONE is gone is the
+ * case nothing can cascade, and it comes back `broken: true`.
  */
-export function compareGapRows(a: FinishLineGapRow, b: FinishLineGapRow): number {
-  const status = STATUS_RANK[a.item.status] - STATUS_RANK[b.item.status];
-  if (status !== 0) return status;
-  if (a.unowned !== b.unowned) return a.unowned ? -1 : 1;
-  const links = b.projects.length - a.projects.length;
-  if (links !== 0) return links;
-  const named = Number(Boolean(b.item.blocks)) - Number(Boolean(a.item.blocks));
-  if (named !== 0) return named;
-  return a.item.order - b.item.order || a.item.item.localeCompare(b.item.item);
+export function resolveLinks(item: FinishLineItem, projects: Project[]): ResolvedLink[] {
+  const byId = new Map(projects.map((project) => [project.id, project]));
+  const resolved: ResolvedLink[] = [];
+  for (const link of item.links) {
+    const project = byId.get(link.projectId);
+    if (!project) continue;
+    if (!link.milestoneId) {
+      resolved.push({ link, project, broken: false });
+      continue;
+    }
+    const milestone = project.milestones.find((candidate) => candidate.id === link.milestoneId);
+    resolved.push(
+      milestone ? { link, project, milestone, broken: false } : { link, project, broken: true },
+    );
+  }
+  return resolved;
 }
 
-/** Resolves one item against the project list. Unknown ids are dropped. */
-export function buildGapRow(item: FinishLineItem, projects: Project[]): FinishLineGapRow {
-  const byId = new Map(projects.map((project) => [project.id, project]));
-  const linked = item.projectIds
-    .map((id) => byId.get(id))
-    .filter((project): project is Project => project !== undefined);
-  const milestones = linked.flatMap((project) => project.milestones);
+// ---------------------------------------------------------------------------
+// The line annotation — what the expanded panel shows
+// ---------------------------------------------------------------------------
+
+export interface PackLine {
+  item: FinishLineItem;
+  links: ResolvedLink[];
+  /** No work is linked at all. On an untrusted line, the loudest state. */
+  unowned: boolean;
+  /** A proxy is standing in; everything downstream is provisional. */
+  provisional: boolean;
+  /** Milestone-level links whose milestone no longer exists. */
+  brokenLinks: number;
+  /**
+   * Blocked, unescalated milestones across the linked work. Milestone-level
+   * links count only their own milestone — a line linked to one milestone of
+   * a 50-milestone parent is not stuck on the other 49.
+   */
+  silentBlockers: number;
+}
+
+export function buildPackLine(item: FinishLineItem, projects: Project[]): PackLine {
+  const links = resolveLinks(item, projects);
+  // DISTINCT milestones, not link count: a line holding both a project-level
+  // link and a milestone-level link into the same project must not count that
+  // milestone's silence twice. Milestone-level links contribute only their own
+  // milestone — a line linked to one milestone of a 50-milestone parent is not
+  // stuck on the other 49 — while a project-level link contributes them all.
+  const silent = new Set<string>();
+  for (const resolved of links) {
+    if (resolved.broken) continue;
+    if (resolved.milestone) {
+      const m = resolved.milestone;
+      if (!m.done && m.status === 'blocked' && (m.escalateTo ?? 'none') === 'none') {
+        silent.add(`${resolved.project.id}:${m.id}`);
+      }
+    } else {
+      for (const m of silentBlockers(resolved.project)) {
+        silent.add(`${resolved.project.id}:${m.id}`);
+      }
+    }
+  }
   return {
     item,
-    projects: linked,
-    unowned: linked.length === 0,
+    links,
+    unowned: links.length === 0,
     provisional: Boolean(item.interim),
-    silentBlockers: linked.reduce((sum, project) => sum + silentBlockers(project).length, 0),
-    blockedMilestones: milestones.filter(
-      (milestone) => !milestone.done && milestone.status === 'blocked',
-    ).length,
-    done: milestones.filter((milestone) => milestone.done).length,
-    total: milestones.length,
+    brokenLinks: links.filter((resolved) => resolved.broken).length,
+    silentBlockers: silent.size,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The tree
+// ---------------------------------------------------------------------------
+
+export interface PackNode {
+  item: FinishLineItem;
+  children: PackNode[];
+  /** Present on lines (kind === 'line'); structural rows carry none. */
+  line?: PackLine;
+  /** Lines in this subtree that are not trusted. */
+  needsWork: number;
+  /** Trusted lines in this subtree. */
+  trusted: number;
+  /** All lines in this subtree. */
+  totalLines: number;
+  /**
+   * Blocks arrive expanded when they contain a non-trusted line, collapsed
+   * when everything inside is fine — the document opens to where the work is.
+   */
+  defaultOpen: boolean;
+}
+
+const byDocumentOrder = (a: FinishLineItem, b: FinishLineItem) =>
+  a.order - b.order || a.item.localeCompare(b.item);
+
+/**
+ * Builds the pack tree in document order.
+ *
+ * STATUS ON STRUCTURAL ROWS IS IGNORED. Blocks and sections are structure;
+ * whether a block "needs work" is derived from the lines inside it, exactly
+ * the way project progress is derived from milestones. A block seeded with
+ * the schema's default status must not paint the whole pack red.
+ *
+ * An item whose parent id does not resolve becomes a root rather than
+ * disappearing — same posture as the broken milestone link: structure the
+ * owner entered must stay visible even when its wiring is wrong.
+ */
+export function buildPack(items: FinishLineItem[], projects: Project[]): PackNode[] {
+  const ids = new Set(items.map((item) => item.id));
+  const childrenOf = new Map<string, FinishLineItem[]>();
+  const roots: FinishLineItem[] = [];
+  for (const item of items) {
+    if (item.parentId && ids.has(item.parentId)) {
+      const siblings = childrenOf.get(item.parentId);
+      if (siblings) siblings.push(item);
+      else childrenOf.set(item.parentId, [item]);
+    } else {
+      roots.push(item);
+    }
+  }
+
+  const build = (item: FinishLineItem): PackNode => {
+    const children = (childrenOf.get(item.id) ?? []).sort(byDocumentOrder).map(build);
+    const line = item.kind === 'line' ? buildPackLine(item, projects) : undefined;
+    const own = item.kind === 'line' ? 1 : 0;
+    const ownTrusted = item.kind === 'line' && item.status === 'trusted' ? 1 : 0;
+    const totalLines = own + children.reduce((sum, child) => sum + child.totalLines, 0);
+    const trusted = ownTrusted + children.reduce((sum, child) => sum + child.trusted, 0);
+    const needsWork = totalLines - trusted;
+    return { item, children, line, needsWork, trusted, totalLines, defaultOpen: needsWork > 0 };
+  };
+
+  return roots.sort(byDocumentOrder).map(build);
+}
+
+/** Depth-first line walk, for anything that needs every line once. */
+export function packLines(nodes: PackNode[]): PackNode[] {
+  return nodes.flatMap((node) => [
+    ...(node.item.kind === 'line' ? [node] : []),
+    ...packLines(node.children),
+  ]);
+}
+
+/** Root ids on the path to an item — what has to be expanded to reach it. */
+export function ancestorPath(items: FinishLineItem[], itemId: string): string[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const path: string[] = [];
+  let current = byId.get(itemId);
+  const guard = new Set<string>();
+  while (current?.parentId && byId.has(current.parentId) && !guard.has(current.parentId)) {
+    guard.add(current.parentId);
+    path.unshift(current.parentId);
+    current = byId.get(current.parentId);
+  }
+  return path;
+}
+
+// ---------------------------------------------------------------------------
+// Header tiles
+// ---------------------------------------------------------------------------
+
+export interface PackSummary {
+  /** Lines that are not trusted. */
+  needsWork: number;
+  blocked: number;
+  /** Untrusted lines with no work linked. */
+  unowned: number;
+  /** Untrusted lines resting on a proxy. */
+  provisional: number;
+  /** Untrusted lines whose linked work is stuck with nobody told. */
+  silent: number;
+  /** The only progress number this view can honestly offer. */
+  trusted: number;
+  totalLines: number;
+}
+
+export function summarizePack(nodes: PackNode[]): PackSummary {
+  const lines = packLines(nodes);
+  const open = lines.filter((node) => node.item.status !== 'trusted');
+  return {
+    needsWork: open.length,
+    blocked: open.filter((node) => node.item.status === 'blocked').length,
+    unowned: open.filter((node) => node.line?.unowned).length,
+    provisional: open.filter((node) => node.line?.provisional).length,
+    silent: open.filter((node) => (node.line?.silentBlockers ?? 0) > 0).length,
+    trusted: lines.length - open.length,
+    totalLines: lines.length,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The reverse direction — project back to the pack
+// ---------------------------------------------------------------------------
+
+export interface TrustLine {
+  item: FinishLineItem;
+  /** Ancestor labels, root first — the Function → Nature → Account path. */
+  path: string[];
+  status: FinishLineStatus;
+  /** How many of THIS project's milestones are linked to the line — RESOLVED
+   *  ones only. A dangling id is counted under `brokenLinks` instead: telling
+   *  the owner "2 milestones here" when one was deleted is the looks-owned
+   *  failure the broken-link state exists to prevent. */
+  milestonesLinked: number;
+  /** Milestone links from this project whose milestone no longer exists. */
+  brokenLinks: number;
+  /** A project-level link (no milestone) also exists. */
+  projectLevel: boolean;
 }
 
 /**
- * Groups by area, splits open from closed, and orders both.
- *
- * Areas themselves are ordered by their most severe row, so the area holding
- * an unowned blocker leads regardless of its name. An area whose rows are all
- * closed sinks to the bottom and arrives collapsed.
+ * The pack lines this project's work would make trustworthy — the answer to
+ * "why does this project matter". Returns [] when nothing is linked, and the
+ * card renders NOTHING in that case: no empty state, no prompt. Most projects
+ * have no links at first, and 21 cards each carrying an empty invitation is
+ * noise.
  */
-export function buildFinishLine(
-  items: FinishLineItem[],
-  projects: Project[],
-): FinishLineArea[] {
-  const rows = items.map((item) => buildGapRow(item, projects));
-  const byArea = new Map<string, FinishLineGapRow[]>();
-  for (const row of rows) {
-    const existing = byArea.get(row.item.area);
-    if (existing) existing.push(row);
-    else byArea.set(row.item.area, [row]);
+export function linesForProject(items: FinishLineItem[], project: Project): TrustLine[] {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const milestoneIds = new Set(project.milestones.map((milestone) => milestone.id));
+  const result: TrustLine[] = [];
+  for (const item of items) {
+    if (item.kind !== 'line') continue;
+    const mine = item.links.filter((link) => link.projectId === project.id);
+    if (mine.length === 0) continue;
+    const path: string[] = [];
+    let cursor = item.parentId ? byId.get(item.parentId) : undefined;
+    const guard = new Set<string>();
+    while (cursor && !guard.has(cursor.id)) {
+      guard.add(cursor.id);
+      path.unshift(cursor.item);
+      cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
+    }
+    const milestoneLevel = mine.filter((link) => link.milestoneId);
+    result.push({
+      item,
+      path,
+      status: item.status,
+      milestonesLinked: milestoneLevel.filter((link) => milestoneIds.has(link.milestoneId!))
+        .length,
+      brokenLinks: milestoneLevel.filter((link) => !milestoneIds.has(link.milestoneId!)).length,
+      projectLevel: mine.some((link) => !link.milestoneId),
+    });
   }
-
-  const areas: FinishLineArea[] = [...byArea.entries()].map(([area, areaRows]) => {
-    const ordered = [...areaRows].sort(compareGapRows);
-    const open = ordered.filter((row) => row.item.status !== 'trusted');
-    return {
-      area,
-      open,
-      closed: ordered.filter((row) => row.item.status === 'trusted'),
-      blockedCount: open.filter((row) => row.item.status === 'blocked').length,
-      unownedCount: open.filter((row) => row.unowned).length,
-      defaultOpen: open.some((row) => row.item.status === 'blocked'),
-    };
-  });
-
-  return areas.sort((a, b) => {
-    const leadA = a.open[0] ?? a.closed[0];
-    const leadB = b.open[0] ?? b.closed[0];
-    if (!leadA || !leadB) return leadA ? -1 : leadB ? 1 : 0;
-    return compareGapRows(leadA, leadB) || a.area.localeCompare(b.area);
+  // Untrusted first — the reason to look — then document order.
+  return result.sort((a, b) => {
+    const openA = a.status !== 'trusted' ? 0 : 1;
+    const openB = b.status !== 'trusted' ? 0 : 1;
+    return openA - openB || a.item.order - b.item.order;
   });
 }
 
-export function summarize(areas: FinishLineArea[]): FinishLineSummary {
-  const open = areas.flatMap((area) => area.open);
-  return {
-    open: open.length,
-    blocked: open.filter((row) => row.item.status === 'blocked').length,
-    unowned: open.filter((row) => row.unowned).length,
-    provisional: open.filter((row) => row.provisional).length,
-    silent: open.filter((row) => row.silentBlockers > 0).length,
-    trusted: areas.reduce((sum, area) => sum + area.closed.length, 0),
-  };
+/**
+ * The milestone ids of one project that any pack line links to — the marker
+ * set for the milestone list. On a 50-milestone parent, these are the ones
+ * that actually move the deliverable.
+ */
+export function linkedMilestoneIds(items: FinishLineItem[], projectId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const item of items) {
+    for (const link of item.links) {
+      if (link.projectId === projectId && link.milestoneId) ids.add(link.milestoneId);
+    }
+  }
+  return ids;
 }

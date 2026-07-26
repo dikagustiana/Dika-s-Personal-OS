@@ -484,3 +484,4 @@ export const seedDailyLogs: DailyLog[] = Array.from({ length: 24 }, (_, index) =
     score: Math.min(96, 38 + completed * 11 + (index % 9)),
   };
 });
+
