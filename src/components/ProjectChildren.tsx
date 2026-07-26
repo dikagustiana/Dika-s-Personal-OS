@@ -20,6 +20,13 @@ export interface ProjectChildrenProps {
   updateProject: (id: string, patch: Partial<Project>) => Promise<Project>;
   onDelete?: (id: string) => Promise<void>;
   onNavigateToProject?: (projectId: string) => void;
+  /**
+   * Project whose milestone list should arrive open — the cross-view deep
+   * link's target. Passed down at every depth: a needs-action milestone can
+   * belong to a nested project, and expanding the ancestor chain only mounts
+   * the card, it does not open the list inside it.
+   */
+  milestonesOpenFor?: string | null;
 }
 
 function AlertBadge({ alert }: { alert: 'overdue' | 'blocked' }) {
@@ -59,6 +66,7 @@ export function ProjectChildren({
   updateProject,
   onDelete,
   onNavigateToProject,
+  milestonesOpenFor,
 }: ProjectChildrenProps) {
   if (nodes.length === 0) return null;
   const now = today ?? new Date();
@@ -106,6 +114,7 @@ export function ProjectChildren({
                   projects={projects}
                   rollup={rollup}
                   today={today}
+                  defaultMilestonesOpen={node.project.id === milestonesOpenFor}
                   onNavigateToProject={onNavigateToProject}
                   updateProject={updateProject}
                   onDelete={onDelete}
@@ -116,6 +125,7 @@ export function ProjectChildren({
                 <ProjectChildren
                   nodes={node.children}
                   domain={domain}
+                  milestonesOpenFor={milestonesOpenFor}
                   expanded={expanded}
                   onToggle={onToggle}
                   tasks={tasks}
