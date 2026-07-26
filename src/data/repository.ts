@@ -4,6 +4,7 @@ import type {
   Domain,
   Entry,
   EntryType,
+  FinishLineItem,
   IeltsResult,
   Project,
   WeeklyPlan,
@@ -47,4 +48,15 @@ export interface Repository {
   createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult>;
   updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult>;
   deleteIeltsResult(id: string): Promise<void>;
+
+  /**
+   * Finish line gap items (WORK). `projectIds` is written through these
+   * methods as a set — the join rows for an item are replaced wholesale
+   * whenever the patch names it — so callers never touch the link table.
+   * Ordering is NOT applied here; it is derived in src/logic/finishLine.ts.
+   */
+  listFinishLineItems(): Promise<FinishLineItem[]>;
+  createFinishLineItem(input: Omit<FinishLineItem, 'id'>): Promise<FinishLineItem>;
+  updateFinishLineItem(id: string, patch: Partial<FinishLineItem>): Promise<FinishLineItem>;
+  deleteFinishLineItem(id: string): Promise<void>;
 }
