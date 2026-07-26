@@ -13,6 +13,7 @@ import {
   probeModel,
   type ModelCapabilities,
 } from '../../../data/researchModel';
+import { probeCouncil, type CouncilCapabilities } from '../../../data/researchCouncil';
 import { PROJECT_IDS } from '../../../data/seed';
 import { curStage, invalidateFrom, citeCount } from '../../../logic/research/pipeline';
 import { LOOPS } from '../../../logic/research/loops';
@@ -57,11 +58,15 @@ export function ResearchArea() {
   const [tab, setTab] = useState<Tab>('portfolio');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [capabilities, setCapabilities] = useState<ModelCapabilities>(MODEL_UNCONFIGURED);
+  // Probed separately from the prompt seam: the council can be unavailable
+  // while single-pass prompts still work, and the UI must reflect that.
+  const [council, setCouncil] = useState<CouncilCapabilities | undefined>();
   const [scopeQuestion, setScopeQuestion] = useState('');
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
 
   useEffect(() => {
     void probeModel().then(setCapabilities);
+    void probeCouncil().then(setCouncil);
   }, []);
 
   const selected = useMemo(
@@ -335,6 +340,7 @@ export function ResearchArea() {
                 onSelect={openProject}
                 onCreate={createResearch}
                 onScope={goToScope}
+                councilCapabilities={council}
                 isPending={isPending}
               />
             </>
@@ -367,6 +373,7 @@ export function ResearchArea() {
                 onCreateClaim={createClaim}
                 onDeleteClaim={deleteClaim}
                 onAppendLog={appendLog}
+                councilCapabilities={council}
                 isPending={isPending}
               />
             </>

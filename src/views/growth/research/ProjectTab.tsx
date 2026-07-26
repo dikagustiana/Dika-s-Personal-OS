@@ -26,7 +26,25 @@ import {
 } from '../../../logic/research/pipeline';
 import { LOOPS, LOOP_KEYS, type LoopKey } from '../../../logic/research/loops';
 import { templateOf } from '../../../logic/research/templates';
+import { prBrief, prContra } from '../../../logic/research/prompts';
+import type { CouncilCapabilities } from '../../../data/researchCouncil';
+import { CouncilPanel } from './CouncilPanel';
 import { cn } from '../../../lib/utils';
+
+/**
+ * What the method council is shown. The brief it already builds carries the
+ * question, template, register and claims; the decision log is appended
+ * because rejected paths are exactly what the Replication Adversary and the
+ * Circularity Auditor need and the brief alone does not include them.
+ */
+function methodCouncilInput(research: ResearchProject): string {
+  const log = research.log
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((entry) => `- ${entry.date}: ${entry.text}`)
+    .join('\n');
+  return log ? `${prBrief(research)}\n\nDECISION LOG\n${log}` : prBrief(research);
+}
 
 const ITEM_TYPES: ResearchItemType[] = [
   'parameter',
@@ -63,6 +81,8 @@ export interface ProjectTabProps {
   onCreateClaim: (input: Omit<ResearchClaim, 'id'>) => Promise<void>;
   onDeleteClaim: (id: string) => Promise<void>;
   onAppendLog: (text: string) => Promise<void>;
+  /** Absent until the capability probe returns; the council is optional. */
+  councilCapabilities?: CouncilCapabilities;
   isPending: boolean;
 }
 
@@ -98,6 +118,7 @@ export function ProjectTab({
   onCreateClaim,
   onDeleteClaim,
   onAppendLog,
+  councilCapabilities,
   isPending,
 }: ProjectTabProps) {
   const template = templateOf(research.meta.template);
@@ -303,6 +324,24 @@ export function ProjectTab({
                   </ul>
                   <p className="mt-2 text-foreground-muted">{meta.ref}</p>
                 </details>
+
+                {/* THE COUNCIL APPEARS ON METHOD REVIEW ONLY.
+                    Data and cite review ask whether a specific document says a
+                    specific thing today. Five models agreeing about one number
+                    is waste; those loops need one careful pass with web access.
+                    So the option is ABSENT here, not disabled — an offered-then-
+                    refused control implies the choice exists. */}
+                {loop === 'method' && councilCapabilities && (
+                  <div className="border-t border-border-subtle pt-3">
+                    <CouncilPanel
+                      mode="method"
+                      capabilities={councilCapabilities}
+                      projectId={research.project.id}
+                      topic={research.meta.question}
+                      getContent={() => methodCouncilInput(research)}
+                    />
+                  </div>
+                )}
 
                 <div className="space-y-2 border-t border-border-subtle pt-3">
                   <span className="surface-label">Record a cycle</span>
@@ -622,6 +661,21 @@ export function ProjectTab({
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* Contra council sits with the claims, because claims are what it
+              attacks. Unavailable without browsing — it hunts real published
+              counter-evidence, and without web access it would invent it. */}
+          {councilCapabilities && research.claims.length > 0 && (
+            <div className="mt-4 border-t border-border-subtle pt-4">
+              <CouncilPanel
+                mode="contra"
+                capabilities={councilCapabilities}
+                projectId={research.project.id}
+                topic={research.meta.question}
+                getContent={() => prContra(research)}
+              />
+            </div>
           )}
 
           <div className="mt-4 flex flex-wrap gap-2 border-t border-border-subtle pt-4">
