@@ -393,25 +393,27 @@ export interface IeltsError {
 }
 
 // ---------------------------------------------------------------------------
-// Finish line — the entity matrix
+// Finish line — the entity matrix, and the road to it
 //
 // The 21 WORK projects are tributaries into ONE consolidated group pack.
 // Finish line renders that pack as a MATRIX: line items down, consolidation
 // entities across. The grain is the CELL — one (line item x entity) pair.
 //
-// EVERY CELL CARRIES A STATE, NEVER A VALUE. The numbers live in Excel and do
-// not enter this app; a cell that has a number is `figure` and renders as the
-// literal `xxx`. `figure` means A NUMBER EXISTS — not verified, not agreed,
-// not trusted. Nothing here may claim verification.
+// EVERY CELL CARRIES A STATE, NEVER A VALUE. The numbers live in Excel; a cell
+// holding one is `figure` and renders as the literal `xxx`. `figure` means A
+// NUMBER EXISTS — not verified, not agreed, not trusted.
 //
-// See migration 20260726000022. Nothing in this repo carries a financial
-// figure, and none may be added to seed data, fixtures, tests or comments.
+// FINISH LINE IS THE DESTINATION; THE PROJECTS ARE THE ROAD. The target state
+// is uniform and implicit — a figure exists and the method behind it is sound
+// — so there is deliberately NO per-cell "ideal state" field. Only two things
+// are authored: the cell's current state, and the edges.
+//
+// See migrations 20260726000023 and 20260726000024.
 // ---------------------------------------------------------------------------
 
 /**
- * Exactly five, and there is deliberately no sixth for "a figure exists but
- * the methodology behind it is unreliable" — that judgement is deferred, and
- * encoding it here would put an opinion in the schema nobody has formed.
+ * Exactly five. There is deliberately no sixth for "a figure exists but the
+ * method behind it is unreliable" — deferred, not forgotten.
  */
 export type CellState = 'figure' | 'zero' | 'undefined' | 'input' | 'locked';
 
@@ -432,42 +434,38 @@ export interface FinishLineEntity {
 }
 
 export interface FinishLineCell {
+  id: string;
   itemId: string;
   entityCode: string;
-  state: CellState;
   /**
-   * One line saying what is missing FOR THIS ENTITY. The same line item can be
-   * a `figure` for one entity and an `input` for two others for entirely
-   * different reasons; without a per-cell note that difference has nowhere to
-   * live. This is what the click target shows.
+   * CHANGEABLE ONLY BY A DIRECT HUMAN EDIT. No inference, no rollup, no
+   * linked-milestone completion may write it — enforced in the mutation path
+   * by finishLineGuards, not merely in the UI.
    */
+  state: CellState;
+  /** One line on what is missing FOR THIS ENTITY. */
   note?: string;
 }
 
-/**
- * One link from a line item to the work that closes it.
- *
- * `milestoneId` is the precise form — a gap closes via specific milestones,
- * not via a 50-milestone parent project as a whole. It is a plain string into
- * `Project.milestones` (jsonb array elements, not rows), so nothing enforces
- * that it still exists: a dangling id renders as a BROKEN link — named,
- * visible, resolvable — never silently dropped.
- *
- * `entityCode` absent means the link is row-level (it closes the line item for
- * every entity); set means it closes one specific cell.
- */
-export interface FinishLineLink {
-  id: string;
-  projectId: string;
-  milestoneId?: string;
-  entityCode?: string;
+/** A locked cell's inputs, within the same entity column. */
+export interface FinishLineDep {
+  cellId: string;
+  inputId: string;
 }
 
-/** What create/update accept: the database assigns link ids. */
-export interface FinishLineLinkInput {
+/**
+ * One edge on the road: which milestone closes which cell.
+ *
+ * `milestoneId` is a plain string into `Project.milestones` (jsonb array
+ * elements, not rows), so nothing enforces that it still exists — a dangling
+ * edge is NAMED, never silently dropped. Absent means a project-level link,
+ * allowed and sharpened later.
+ */
+export interface FinishLineEdge {
+  id: string;
+  cellId: string;
   projectId: string;
   milestoneId?: string;
-  entityCode?: string;
 }
 
 export interface FinishLineItem {
@@ -480,9 +478,7 @@ export interface FinishLineItem {
   order: number;
   /** Muted qualifier beside a section title — 'butuh input', 'terkunci'. */
   tag?: string;
-  /** Display unit (Rp jt, %, CBM, hari). Never a value. */
   unit?: string;
-  /** Decimal places for display. Never a value. */
   dp?: number;
   agg?: FinishLineAgg;
   style?: FinishLineStyle;
@@ -490,8 +486,22 @@ export interface FinishLineItem {
   flag?: string;
   /** What else stops being trustworthy while this row is open. */
   blocks?: string;
-  /** The work that closes this row, at milestone and cell precision. */
-  links: FinishLineLink[];
-  // No value field, and no status: trust is per CELL now, and even there it is
-  // a state rather than a verdict. Order is the document's own (sort_order).
+}
+
+/** An edge whose milestone no longer exists. Surfaced, never auto-deleted. */
+export interface DanglingLink {
+  id: string;
+  cellId?: string;
+  projectId: string;
+  projectTitle?: string;
+  milestoneId: string;
+}
+
+/** A milestone that closes no cell. Of 458, how many make nothing trustworthy. */
+export interface OrphanMilestone {
+  projectId: string;
+  projectTitle: string;
+  milestoneId: string;
+  milestoneText: string;
+  done: boolean;
 }

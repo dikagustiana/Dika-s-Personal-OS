@@ -1,195 +1,315 @@
 import { describe, expect, it } from 'vitest';
+import { guardCellState, FinishLineGuardError } from '../data/finishLineGuards';
 import type {
   CellState,
   FinishLineCell,
+  FinishLineDep,
+  FinishLineEdge,
   FinishLineEntity,
   FinishLineItem,
+  Milestone,
+  Project,
 } from '../data/types';
 import {
-  ancestorPath,
+  buildContext,
   buildMatrix,
-  linksForCell,
-  needsInput,
+  cellsByMilestone,
+  cellsClosedByProject,
+  inputSubState,
+  isGap,
+  resolveAll,
+  resolveCell,
+  resolveEdges,
   STATE_GLYPH,
   summarizeMatrix,
+  worst,
 } from './finishLine';
 
-// Placeholder structure only. The real matrix names consolidation entities and
-// pack line items, and it is seeded into the database, never into this repo.
-// THERE ARE NO FIGURES ANYWHERE IN THIS FILE and none may be added: a cell
-// carries a state, and the numbers live in Excel.
+// Synthetic labels only. The real matrix names consolidation entities and pack
+// line items and is seeded into the database, never into this repo.
+// THERE ARE NO FIGURES ANYWHERE IN THIS FILE and none may be added.
 
 const ENTITIES: FinishLineEntity[] = [
   { code: 'E1', label: 'E1', order: 1 },
   { code: 'E2', label: 'E2', order: 2 },
-  { code: 'E3', label: 'E3', order: 3 },
 ];
 
-function item(overrides: Partial<FinishLineItem> & { id: string }): FinishLineItem {
-  return { item: overrides.id, kind: 'metric', order: 1, links: [], ...overrides };
+let n = 0;
+const nextId = () => `id-${(n += 1)}`;
+
+function cell(state: CellState, over: Partial<FinishLineCell> = {}): FinishLineCell {
+  return { id: nextId(), itemId: 'row', entityCode: 'E1', state, ...over };
 }
 
-function cell(itemId: string, entityCode: string, state: CellState, note?: string): FinishLineCell {
-  return note ? { itemId, entityCode, state, note } : { itemId, entityCode, state };
+function milestone(over: Partial<Milestone> = {}): Milestone {
+  return { id: nextId(), text: 'm', done: false, status: 'in-progress', ...over };
 }
 
-const section = (id: string, order = 1) => item({ id, kind: 'section', order });
+function project(milestones: Milestone[], id = 'p1'): Project {
+  return {
+    id,
+    domain: 'work',
+    title: 'Project',
+    type: 'other',
+    status: 'active',
+    milestones,
+    order: 1,
+  };
+}
 
-describe('buildMatrix', () => {
-  it('resolves every row across every entity column, in column order', () => {
-    const items = [section('s1'), item({ id: 'm1', parentId: 's1' })];
-    const cells = [
-      cell('m1', 'E2', 'zero'),
-      cell('m1', 'E1', 'figure'),
-      cell('m1', 'E3', 'input'),
-    ];
-    const [built] = buildMatrix(items, cells, ENTITIES);
-    expect(built.rows[0].cells.map((c) => c.entity.code)).toEqual(['E1', 'E2', 'E3']);
-    expect(built.rows[0].cells.map((c) => c.cell?.state)).toEqual(['figure', 'zero', 'input']);
+function edge(cellId: string, over: Partial<FinishLineEdge> = {}): FinishLineEdge {
+  return { id: nextId(), cellId, projectId: 'p1', ...over };
+}
+
+function item(over: Partial<FinishLineItem> & { id: string }): FinishLineItem {
+  return { item: over.id, kind: 'metric', order: 1, ...over };
+}
+
+describe('severity order', () => {
+  it('ranks a cycle above everything — wrong data must not be averaged away', () => {
+    expect(worst('cycle', 'unplanned')).toBe('cycle');
+    expect(worst('figure', 'cycle')).toBe('cycle');
   });
 
-  it('respects entity sort_order rather than array order', () => {
-    const shuffled = [...ENTITIES].reverse();
-    const [built] = buildMatrix(
-      [section('s1'), item({ id: 'm1', parentId: 's1' })],
-      [cell('m1', 'E1', 'figure')],
-      shuffled,
-    );
-    expect(built.rows[0].cells.map((c) => c.entity.code)).toEqual(['E1', 'E2', 'E3']);
+  it('ranks unplanned worst among the real gap states', () => {
+    expect(worst('unplanned', 'stuck')).toBe('unplanned');
+    expect(worst('stuck', 'in-progress')).toBe('stuck');
+    expect(worst('in-progress', 'contradiction')).toBe('in-progress');
+    expect(worst('contradiction', 'pending')).toBe('contradiction');
+    expect(worst('undefined', 'zero')).toBe('undefined');
+    expect(worst('zero', 'figure')).toBe('zero');
   });
 
-  it('leaves a gap — not a state — where the seed wrote no cell', () => {
-    const [built] = buildMatrix(
-      [section('s1'), item({ id: 'm1', parentId: 's1' })],
-      [cell('m1', 'E1', 'figure')],
-      ENTITIES,
-    );
-    expect(built.rows[0].cells[1].cell).toBeUndefined();
-    expect(summarizeMatrix([built]).missing).toBe(2);
-  });
-
-  it('gives a note row no cells at all', () => {
-    const [built] = buildMatrix(
-      [section('s1'), item({ id: 'n1', parentId: 's1', kind: 'note' })],
-      [],
-      ENTITIES,
-    );
-    expect(built.rows[0].cells).toEqual([]);
-  });
-
-  it('orders sections and rows by their own sort_order', () => {
-    const items = [
-      section('s2', 2),
-      section('s1', 1),
-      item({ id: 'b', parentId: 's1', order: 2 }),
-      item({ id: 'a', parentId: 's1', order: 1 }),
-    ];
-    const built = buildMatrix(items, [], ENTITIES);
-    expect(built.map((s) => s.section.id)).toEqual(['s1', 's2']);
-    expect(built[0].rows.map((r) => r.item.id)).toEqual(['a', 'b']);
-  });
-
-  it('drops a row whose parent names no section rather than floating it', () => {
-    const built = buildMatrix(
-      [section('s1'), item({ id: 'orphan', parentId: 'gone' })],
-      [],
-      ENTITIES,
-    );
-    expect(built).toHaveLength(1);
-    expect(built[0].rows).toEqual([]);
-  });
-
-  it('opens a section holding an input cell and collapses one without', () => {
-    const items = [
-      section('s1', 1),
-      item({ id: 'm1', parentId: 's1' }),
-      section('s2', 2),
-      item({ id: 'm2', parentId: 's2' }),
-    ];
-    const cells = [cell('m1', 'E1', 'input'), cell('m2', 'E1', 'locked')];
-    const built = buildMatrix(items, cells, ENTITIES);
-    expect(built[0].defaultOpen).toBe(true);
-    expect(built[1].defaultOpen).toBe(false);
+  it('never counts undefined, zero or figure as a gap', () => {
+    expect(isGap('undefined')).toBe(false);
+    expect(isGap('zero')).toBe(false);
+    expect(isGap('figure')).toBe(false);
+    expect(isGap('unplanned')).toBe(true);
+    expect(isGap('stuck')).toBe(true);
   });
 });
 
-describe('cell states', () => {
+describe('inputSubState — layer 2', () => {
+  const p = (ms: Milestone[]) => new Map([['p1', project(ms)]]);
+
+  it('is unplanned with no edge at all', () => {
+    expect(inputSubState(resolveEdges([], p([])))).toBe('unplanned');
+  });
+
+  it('is stuck when every linked milestone is blocked', () => {
+    const m1 = milestone({ status: 'blocked' });
+    const m2 = milestone({ status: 'blocked' });
+    const edges = [edge('c', { milestoneId: m1.id }), edge('c', { milestoneId: m2.id })];
+    expect(inputSubState(resolveEdges(edges, p([m1, m2])))).toBe('stuck');
+  });
+
+  it('is in-progress when at least one is open and not blocked', () => {
+    const m1 = milestone({ status: 'blocked' });
+    const m2 = milestone({ status: 'in-progress' });
+    const edges = [edge('c', { milestoneId: m1.id }), edge('c', { milestoneId: m2.id })];
+    expect(inputSubState(resolveEdges(edges, p([m1, m2])))).toBe('in-progress');
+  });
+
+  it('is a contradiction when every linked milestone is done and the cell is still input', () => {
+    const m1 = milestone({ done: true, status: 'done' });
+    const edges = [edge('c', { milestoneId: m1.id })];
+    expect(inputSubState(resolveEdges(edges, p([m1])))).toBe('contradiction');
+  });
+
+  it('does not count a broken edge as coverage', () => {
+    const edges = [edge('c', { milestoneId: 'deleted' })];
+    const resolved = resolveEdges(edges, p([]));
+    expect(resolved[0].broken).toBe(true);
+    expect(inputSubState(resolved)).toBe('unplanned');
+  });
+});
+
+describe('resolveCell — layer 3 rollup', () => {
+  it('passes through the non-gap states untouched', () => {
+    for (const state of ['figure', 'zero', 'undefined'] as CellState[]) {
+      const c = cell(state);
+      const ctx = buildContext([c], [], [], []);
+      expect(resolveCell(c.id, ctx)).toBe(state);
+    }
+  });
+
+  it('takes the worst sub-state among a locked cell inputs', () => {
+    const blocked = milestone({ status: 'blocked' });
+    const open = milestone({ status: 'in-progress' });
+    const inA = cell('input');
+    const inB = cell('input');
+    const locked = cell('locked');
+    const deps: FinishLineDep[] = [
+      { cellId: locked.id, inputId: inA.id },
+      { cellId: locked.id, inputId: inB.id },
+    ];
+    const edges = [
+      edge(inA.id, { milestoneId: blocked.id }),
+      edge(inB.id, { milestoneId: open.id }),
+    ];
+    const ctx = buildContext([inA, inB, locked], deps, edges, [project([blocked, open])]);
+    // inA is stuck, inB is in-progress -> the locked cell is stuck.
+    expect(resolveCell(locked.id, ctx)).toBe('stuck');
+  });
+
+  it('recurses: an unplanned input at the bottom makes the top read unplanned', () => {
+    const bottom = cell('input');
+    const middle = cell('locked');
+    const top = cell('locked');
+    const deps: FinishLineDep[] = [
+      { cellId: middle.id, inputId: bottom.id },
+      { cellId: top.id, inputId: middle.id },
+    ];
+    const ctx = buildContext([bottom, middle, top], deps, [], []);
+    expect(resolveCell(top.id, ctx)).toBe('unplanned');
+  });
+
+  it('resolves to undefined — not a gap — when every input is zero or undefined', () => {
+    const a = cell('zero');
+    const b = cell('undefined');
+    const locked = cell('locked');
+    const deps: FinishLineDep[] = [
+      { cellId: locked.id, inputId: a.id },
+      { cellId: locked.id, inputId: b.id },
+    ];
+    const ctx = buildContext([a, b, locked], deps, [], []);
+    expect(resolveCell(locked.id, ctx)).toBe('undefined');
+    expect(isGap(resolveCell(locked.id, ctx))).toBe(false);
+  });
+
+  it('reports a cycle as a hard error rather than breaking silently', () => {
+    const a = cell('locked');
+    const b = cell('locked');
+    const deps: FinishLineDep[] = [
+      { cellId: a.id, inputId: b.id },
+      { cellId: b.id, inputId: a.id },
+    ];
+    const ctx = buildContext([a, b], deps, [], []);
+    expect(resolveCell(a.id, ctx)).toBe('cycle');
+  });
+
+  it('is pending when a locked cell has nothing recorded to wait on', () => {
+    const locked = cell('locked');
+    const ctx = buildContext([locked], [], [], []);
+    expect(resolveCell(locked.id, ctx)).toBe('pending');
+  });
+
+  it('walks a diamond once and gets the same answer', () => {
+    const shared = cell('input');
+    const left = cell('locked');
+    const right = cell('locked');
+    const top = cell('locked');
+    const deps: FinishLineDep[] = [
+      { cellId: left.id, inputId: shared.id },
+      { cellId: right.id, inputId: shared.id },
+      { cellId: top.id, inputId: left.id },
+      { cellId: top.id, inputId: right.id },
+    ];
+    const ctx = buildContext([shared, left, right, top], deps, [], []);
+    expect(resolveCell(top.id, ctx)).toBe('unplanned');
+    expect(resolveAll(ctx).get(top.id)).toBe('unplanned');
+  });
+});
+
+describe('cell state is human-only', () => {
+  it('rejects a rollup writing a state', () => {
+    expect(() => guardCellState('figure', 'rollup')).toThrow(FinishLineGuardError);
+  });
+
+  it('rejects a model writing a state', () => {
+    expect(() => guardCellState('figure', 'model')).toThrow(FinishLineGuardError);
+  });
+
+  it('accepts a human edit', () => {
+    expect(guardCellState('figure', 'human')).toBe('figure');
+  });
+
+  it('rejects a state outside the five', () => {
+    expect(() => guardCellState('unreliable' as CellState, 'human')).toThrow(
+      FinishLineGuardError,
+    );
+  });
+});
+
+describe('buildMatrix', () => {
+  const items = [
+    item({ id: 's1', kind: 'section', order: 1 }),
+    item({ id: 'm1', parentId: 's1', order: 1 }),
+    item({ id: 'n1', parentId: 's1', kind: 'note', order: 2 }),
+  ];
+
+  it('resolves every row across every entity column, in sort_order', () => {
+    const c1 = cell('figure', { itemId: 'm1', entityCode: 'E1' });
+    const c2 = cell('zero', { itemId: 'm1', entityCode: 'E2' });
+    const [section] = buildMatrix(items, [c1, c2], [...ENTITIES].reverse());
+    expect(section.rows[0].cells.map((c) => c.entity.code)).toEqual(['E1', 'E2']);
+    expect(section.rows[0].cells.map((c) => c.cell?.state)).toEqual(['figure', 'zero']);
+  });
+
+  it('leaves a gap — not a state — where the seed wrote no cell', () => {
+    const [section] = buildMatrix(items, [], ENTITIES);
+    expect(section.rows[0].cells.every((c) => c.cell === undefined)).toBe(true);
+    expect(summarizeMatrix([section]).missing).toBe(2);
+  });
+
+  it('gives a note row no cells', () => {
+    const [section] = buildMatrix(items, [], ENTITIES);
+    expect(section.rows[1].cells).toEqual([]);
+  });
+
+  it('opens a section holding a gap and collapses one whose cells are all settled', () => {
+    const gapCell = cell('input', { itemId: 'm1', entityCode: 'E1' });
+    const settled = cell('figure', { itemId: 'm1', entityCode: 'E1' });
+    const withGap = buildMatrix(items, [gapCell], ENTITIES, new Map([[gapCell.id, 'unplanned']]));
+    const without = buildMatrix(items, [settled], ENTITIES, new Map([[settled.id, 'figure']]));
+    expect(withGap[0].defaultOpen).toBe(true);
+    expect(without[0].defaultOpen).toBe(false);
+  });
+
+  it('does not open a section whose only non-figure cells are undefined', () => {
+    const c = cell('undefined', { itemId: 'm1', entityCode: 'E1' });
+    const [section] = buildMatrix(items, [c], ENTITIES, new Map([[c.id, 'undefined']]));
+    expect(section.defaultOpen).toBe(false);
+  });
+});
+
+describe('cell glyphs', () => {
   it('renders zero and locked differently — they are not the same fact', () => {
-    expect(STATE_GLYPH.zero).not.toBe(STATE_GLYPH.locked);
     expect(STATE_GLYPH.zero).toBe('–');
     expect(STATE_GLYPH.locked).toBe('·');
+    expect(STATE_GLYPH.zero).not.toBe(STATE_GLYPH.locked);
   });
 
   it('renders a figure as xxx — the number stays in Excel', () => {
     expect(STATE_GLYPH.figure).toBe('xxx');
   });
 
-  it('has exactly five states and no verified/trusted among them', () => {
-    const states = Object.keys(STATE_GLYPH);
-    expect(states.sort()).toEqual(['figure', 'input', 'locked', 'undefined', 'zero']);
+  it('has exactly the five states', () => {
+    expect(Object.keys(STATE_GLYPH).sort()).toEqual([
+      'figure',
+      'input',
+      'locked',
+      'undefined',
+      'zero',
+    ]);
   });
 });
 
-describe('summarizeMatrix', () => {
-  it('counts every state separately', () => {
-    const items = [section('s1'), item({ id: 'm1', parentId: 's1' })];
-    const cells = [
-      cell('m1', 'E1', 'figure'),
-      cell('m1', 'E2', 'undefined'),
-      cell('m1', 'E3', 'locked'),
+describe('project -> pack direction', () => {
+  it('counts the cells a project closes', () => {
+    const edges = [edge('c1'), edge('c2'), edge('c1', { projectId: 'other' })];
+    expect(cellsClosedByProject(edges, 'p1').size).toBe(2);
+  });
+
+  it('counts cells per milestone and omits one that closes nothing', () => {
+    const edges = [
+      edge('c1', { milestoneId: 'm1' }),
+      edge('c2', { milestoneId: 'm1' }),
+      edge('c3', { milestoneId: 'm2' }),
     ];
-    const s = summarizeMatrix(buildMatrix(items, cells, ENTITIES));
-    expect(s).toEqual({
-      figure: 1,
-      zero: 0,
-      undefinedCells: 1,
-      input: 0,
-      locked: 1,
-      missing: 0,
-      totalCells: 3,
-    });
-  });
-});
-
-describe('linksForCell', () => {
-  it('includes row-level links and excludes links naming another entity', () => {
-    const row = item({
-      id: 'm1',
-      links: [
-        { id: 'l1', projectId: 'p1' },
-        { id: 'l2', projectId: 'p2', entityCode: 'E1' },
-        { id: 'l3', projectId: 'p3', entityCode: 'E2' },
-      ],
-    });
-    expect(linksForCell(row, 'E1').map((l) => l.id)).toEqual(['l1', 'l2']);
-    expect(linksForCell(row, 'E3').map((l) => l.id)).toEqual(['l1']);
-  });
-});
-
-describe('ancestorPath', () => {
-  it('returns the section a row sits under, for the deep link', () => {
-    const items = [section('s1'), item({ id: 'm1', parentId: 's1' })];
-    expect(ancestorPath(items, 'm1')).toEqual(['s1']);
-  });
-
-  it('terminates on a cycle instead of hanging the render', () => {
-    const items = [
-      item({ id: 'a', parentId: 'b', kind: 'section' }),
-      item({ id: 'b', parentId: 'a', kind: 'section' }),
-    ];
-    expect(() => ancestorPath(items, 'a')).not.toThrow();
-  });
-});
-
-describe('needsInput', () => {
-  it('lists only the rows a person can act on today', () => {
-    const items = [
-      section('s1'),
-      item({ id: 'actionable', parentId: 's1', order: 1 }),
-      item({ id: 'waiting', parentId: 's1', order: 2 }),
-    ];
-    const cells = [cell('actionable', 'E1', 'input'), cell('waiting', 'E1', 'locked')];
-    const [built] = buildMatrix(items, cells, ENTITIES);
-    expect(needsInput(built).map((r) => r.item.id)).toEqual(['actionable']);
+    const counts = cellsByMilestone(edges, 'p1');
+    expect(counts.get('m1')).toBe(2);
+    expect(counts.get('m2')).toBe(1);
+    expect(counts.get('m3')).toBeUndefined();
   });
 });
