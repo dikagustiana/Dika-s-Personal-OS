@@ -28,7 +28,7 @@ import {
   type Workspace,
 } from '../store/appStore';
 import { Button } from '../components/ui/Button';
-import { LanternMark } from '../components/ui/LanternMark';
+import { LANTERN_ALT, LanternPhoto } from '../components/ui/LanternPhoto';
 
 // `short` is the compact label used in the mobile bottom strip.
 const workNav: Array<{ id: WorkView; label: string; short: string; icon: typeof Focus }> = [
@@ -202,10 +202,21 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-dvh bg-background text-foreground">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border-subtle bg-card p-5 lg:flex lg:flex-col">
         <div className="mb-8 flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-md border border-border bg-surface-2">
-            {/* Width only — the mark is wider than tall, so a square size
-                utility would shrink it inside the tile. */}
-            <LanternMark className="w-5" />
+          {/* The photograph fills the tile rather than sitting inside it as a
+              20px mark did: at 40px the figure, the raised arms and the
+              lantern all read, and shrinking it back to 20px is exactly the
+              size at which they stop. The tile is the mask — the PNG has no
+              alpha, so without the clipped radius its square corners read as
+              an unstyled asset on the light card.
+              The fallback mark keeps `w-5` and the width-only sizing it always
+              had: it is wider than tall, so a square utility would shrink it. */}
+          <div className="grid size-10 place-items-center overflow-hidden rounded-md border border-border bg-surface-2">
+            <LanternPhoto
+              size={40}
+              alt={LANTERN_ALT}
+              className="size-full object-cover"
+              markClassName="w-5"
+            />
           </div>
           <div>
             <p className="font-display text-base font-semibold tracking-tight">Personal OS</p>
@@ -259,7 +270,19 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border-subtle bg-background/95 px-4 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2.5">
-          <LanternMark className="w-5" />
+          {/* 28px, not the 20px the mark used. The header is 56px tall, so the
+              room was already there, and 20px is below the size at which the
+              photograph resolves into a figure and a lantern — it reads as a
+              murky square instead. The mark, which is legible at 20px, keeps
+              that size when it stands in. */}
+          <div className="grid size-7 shrink-0 place-items-center overflow-hidden rounded-sm">
+            <LanternPhoto
+              size={28}
+              alt={LANTERN_ALT}
+              className="size-full object-cover"
+              markClassName="w-5"
+            />
+          </div>
           <span className="font-display text-sm font-semibold">Personal OS</span>
         </div>
         <Button
