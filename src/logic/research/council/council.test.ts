@@ -298,3 +298,29 @@ describe('seat-count ceiling (P1, review of #20)', () => {
     expect(() => anonymizeResponses(nine)).toThrow();
   });
 });
+
+describe('regressions from the Codex review of #21', () => {
+  it('a contentless verdict keeps its raw source once the caller re-attaches it', () => {
+    // parseChairmanVerdict('{}') itself carries no raw — the CALLER must keep
+    // the original string, which runCouncil now does. This pins the parser
+    // half of that contract.
+    const verdict = parseChairmanVerdict('{}');
+    expect(verdict.raw).toBeUndefined();
+    expect(verdictParsed(verdict)).toBe(false);
+    const preserved = { ...verdict, raw: '{}' };
+    expect(preserved.raw).toBe('{}');
+  });
+
+  it('aggregate peer prompts legitimately exceed the per-part input cap', () => {
+    // A near-60k framed input plus five bounded advisor answers pushes the
+    // peer user prompt past 80k while every constituent is within its own
+    // limit. The server's aggregate ceiling (400k) must sit above the
+    // legitimate maximum: input (60k) + 8 seats × ~32k output ≈ 316k.
+    const input = 60_000;
+    const maxSeats = 8;
+    const maxOutputChars = 32_000; // 8000 tokens ≈ 4 chars each
+    expect(input + maxSeats * maxOutputChars).toBeLessThanOrEqual(400_000);
+    // And the old cap really was too small for even one long advisor answer:
+    expect(input + maxOutputChars).toBeGreaterThan(80_000);
+  });
+});

@@ -107,12 +107,21 @@ function VerdictCard({ transcript }: { transcript: CouncilTranscript }) {
             <AlertTriangle className="size-4 text-escalate" />
             The chairman did not answer in the expected shape
           </p>
-          <p className="mt-1 text-xs text-foreground-muted">
-            Raw output below, unparsed. Nothing was discarded.
-          </p>
-          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
-            {verdict.raw}
-          </pre>
+          {verdict.raw?.trim() ? (
+            <>
+              <p className="mt-1 text-xs text-foreground-muted">
+                Raw output below, unparsed. Nothing was discarded.
+              </p>
+              <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 font-mono text-[11px] leading-5 text-foreground-secondary">
+                {verdict.raw}
+              </pre>
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-foreground-muted">
+              The chairman returned effectively empty output ({verdict.raw?.trim() === '' ? 'blank' : 'an empty object'}).
+              The completion was spent; retry the chairman alone rather than the council.
+            </p>
+          )}
         </CardContent>
       </Card>
     );
@@ -283,18 +292,31 @@ function StageProgress({ progress }: { progress: CouncilProgress }) {
  */
 function rowToTranscript(row: CouncilSessionRow): CouncilTranscript {
   const verdict = (row.verdict ?? null) as CouncilTranscript['verdict'];
+  const config = (row.advisorsConfig ?? []) as CouncilTranscript['advisorsConfig'];
+  const responses = (row.advisorResponses ?? []) as CouncilTranscript['advisorResponses'];
+  const peers = (row.peerReviews ?? []) as CouncilTranscript['peerReviews'];
+  // Derived, since failures were never persisted as their own column: any
+  // configured seat with no advisor response and no peer review failed. A
+  // stored partial council must not reload looking complete.
+  const answered = new Set([
+    ...responses.map((r) => r.advisorId),
+    ...peers.map((p) => p.reviewerId),
+  ]);
+  const failedSeats = config
+    .filter((seat) => !answered.has(seat.id))
+    .map((seat) => ({ id: seat.id, name: seat.name }));
   return {
     mode: row.mode as CouncilMode,
     projectId: row.projectId ?? undefined,
     inputSnapshot: row.inputSnapshot,
-    advisorsConfig: (row.advisorsConfig ?? []) as CouncilTranscript['advisorsConfig'],
-    advisorResponses: (row.advisorResponses ?? []) as CouncilTranscript['advisorResponses'],
-    peerReviews: (row.peerReviews ?? []) as CouncilTranscript['peerReviews'],
+    advisorsConfig: config,
+    advisorResponses: responses,
+    peerReviews: peers,
     verdict,
     // A stored verdict that is present but has no recommendation is the same
     // unparsed case as at run time, and must render the same way.
     verdictUnparsed: Boolean(verdict) && !verdict?.recommendation && !verdict?.consensus,
-    failedSeats: [],
+    failedSeats,
     persisted: true,
   };
 }
