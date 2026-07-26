@@ -14,7 +14,11 @@ export function ToastViewport() {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed inset-x-3 bottom-3 z-50 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96">
+    // flex-col-reverse: the container is bottom-anchored, so appending a
+    // toast used to push every existing one up by its full height — the retry
+    // button moved out from under the cursor exactly when a second write
+    // failed. Newest renders nearest the edge; existing toasts hold position.
+    <div className="fixed inset-x-3 bottom-3 z-50 flex flex-col-reverse gap-2 sm:inset-x-auto sm:right-4 sm:w-96">
       {toasts.map((toast) => (
         // The role sits on each toast, per tone: a failed write ("nothing was
         // saved") must interrupt the screen reader, and role="alert" is
