@@ -191,8 +191,11 @@ export function Projects() {
   // one-shot handoff shape projectFocus uses in the other direction.
   const openFinishLine =
     domain === 'work'
-      ? (itemId: string) => {
-          setFinishLineFocus({ itemId });
+      ? (itemId: string, entityCode?: string) => {
+          // Repointed at the cell: the matrix's grain is (line item x entity),
+          // so a link that names an entity lands on that entity's cell rather
+          // than on the whole row.
+          setFinishLineFocus(entityCode ? { itemId, entityCode } : { itemId });
           setWorkView('finish-line');
         }
       : undefined;

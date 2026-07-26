@@ -29,7 +29,7 @@ export interface ProjectChildrenProps {
   milestonesOpenFor?: string | null;
   /** The finish-line pack — forwarded so nested cards answer "why" too. */
   finishLineItems?: FinishLineItem[];
-  onOpenFinishLine?: (itemId: string) => void;
+  onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
 }
 
 function AlertBadge({ alert }: { alert: 'overdue' | 'blocked' }) {

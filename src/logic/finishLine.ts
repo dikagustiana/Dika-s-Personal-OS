@@ -1,312 +1,237 @@
 import type {
+  CellState,
+  FinishLineCell,
+  FinishLineEntity,
   FinishLineItem,
-  FinishLineLink,
-  FinishLineStatus,
-  Milestone,
-  Project,
 } from '../data/types';
 
 /**
- * Derivations for the Finish line view — the pack, rendered.
+ * Derivations for the Finish line entity matrix.
  *
- * The mental model is GateMap, not a register: rows and columns, one state per
- * cell, refusing to become a progress bar. Every row of the pack — block,
- * section, line — is a FinishLineItem; this module builds the tree, resolves
- * each line's links down to MILESTONE precision, and derives the counts the
- * header tiles show. Nothing here is stored, and nothing here holds a value:
- * the figures live in the workbook, the app holds structure and trust.
+ * Line items down, consolidation entities across; the grain is the CELL, one
+ * (line item x entity) pair. Every cell carries a STATE and never a value —
+ * the numbers live in the Excel pack and do not enter this app.
  *
- * BROKEN LINKS ARE A FIRST-CLASS STATE. milestone ids are plain strings into
- * a jsonb array, so nothing in the database can guarantee they still resolve.
- * A link whose milestone is gone is returned as `broken` — named and visible —
- * never filtered out. Silently dropping it produces the two worst outcomes
- * available: a gap that looks unowned when it is not, or one that looks owned
- * after the milestone that would have closed it was deleted.
+ * `figure` means A NUMBER EXISTS. It does not mean verified, agreed or
+ * trusted, and nothing here may present it as though it did.
+ *
+ * Nothing is stored that could be derived: section membership comes from
+ * `parentId`, column order from the entities table, row order from
+ * `sort_order`. There is no rank, no score, and no computed aggregate — `agg`
+ * records how a future aggregate column WOULD compute and nothing reads it yet.
  */
 
-// ---------------------------------------------------------------------------
-// Resolved links
-// ---------------------------------------------------------------------------
-
-export interface ResolvedLink {
-  link: FinishLineLink;
-  project: Project;
-  /** The milestone, when the link is milestone-level and the id still resolves. */
-  milestone?: Milestone;
+/** A cell resolved against the entity column it belongs to. */
+export interface MatrixCell {
+  entity: FinishLineEntity;
   /**
-   * Milestone-level link whose id no longer exists in the project's current
-   * milestone array — the milestone was deleted or the project rewritten.
-   * Rendered as a broken link, never dropped.
+   * Absent when the seed never wrote a cell for this (row, entity). That is a
+   * DATA GAP, not a state: it renders as a gap and is counted by
+   * `missingCells` so a row silently missing an entity is visible rather than
+   * looking like an empty-by-design cell.
    */
-  broken: boolean;
+  cell?: FinishLineCell;
 }
 
-/**
- * Blocked milestones that were never escalated to anyone.
- *
- * `done` milestones are excluded: a blocker that was overcome without ever
- * being escalated is history, not a live silence. Absent `escalateTo` means
- * 'none', matching how the field is read everywhere else.
- */
-export function silentBlockers(project: Project): Milestone[] {
-  return project.milestones.filter(
-    (milestone) =>
-      !milestone.done &&
-      milestone.status === 'blocked' &&
-      (milestone.escalateTo ?? 'none') === 'none',
-  );
-}
-
-/**
- * Resolves an item's links against the live project list.
- *
- * A link whose PROJECT is gone is dropped — the database cascades project
- * deletion through the join table, so such a link can only be a stale cache
- * and will disappear on the next read. A link whose MILESTONE is gone is the
- * case nothing can cascade, and it comes back `broken: true`.
- */
-export function resolveLinks(item: FinishLineItem, projects: Project[]): ResolvedLink[] {
-  const byId = new Map(projects.map((project) => [project.id, project]));
-  const resolved: ResolvedLink[] = [];
-  for (const link of item.links) {
-    const project = byId.get(link.projectId);
-    if (!project) continue;
-    if (!link.milestoneId) {
-      resolved.push({ link, project, broken: false });
-      continue;
-    }
-    const milestone = project.milestones.find((candidate) => candidate.id === link.milestoneId);
-    resolved.push(
-      milestone ? { link, project, milestone, broken: false } : { link, project, broken: true },
-    );
-  }
-  return resolved;
-}
-
-// ---------------------------------------------------------------------------
-// The line annotation — what the expanded panel shows
-// ---------------------------------------------------------------------------
-
-export interface PackLine {
+export interface MatrixRow {
   item: FinishLineItem;
-  links: ResolvedLink[];
-  /** No work is linked at all. On an untrusted line, the loudest state. */
-  unowned: boolean;
-  /** A proxy is standing in; everything downstream is provisional. */
-  provisional: boolean;
-  /** Milestone-level links whose milestone no longer exists. */
-  brokenLinks: number;
-  /**
-   * Blocked, unescalated milestones across the linked work. Milestone-level
-   * links count only their own milestone — a line linked to one milestone of
-   * a 50-milestone parent is not stuck on the other 49.
-   */
-  silentBlockers: number;
+  /** One entry per entity, in column order. Never sparse. */
+  cells: MatrixCell[];
 }
 
-export function buildPackLine(item: FinishLineItem, projects: Project[]): PackLine {
-  const links = resolveLinks(item, projects);
-  // DISTINCT milestones, not link count: a line holding both a project-level
-  // link and a milestone-level link into the same project must not count that
-  // milestone's silence twice. Milestone-level links contribute only their own
-  // milestone — a line linked to one milestone of a 50-milestone parent is not
-  // stuck on the other 49 — while a project-level link contributes them all.
-  const silent = new Set<string>();
-  for (const resolved of links) {
-    if (resolved.broken) continue;
-    if (resolved.milestone) {
-      const m = resolved.milestone;
-      if (!m.done && m.status === 'blocked' && (m.escalateTo ?? 'none') === 'none') {
-        silent.add(`${resolved.project.id}:${m.id}`);
-      }
-    } else {
-      for (const m of silentBlockers(resolved.project)) {
-        silent.add(`${resolved.project.id}:${m.id}`);
-      }
-    }
-  }
-  return {
-    item,
-    links,
-    unowned: links.length === 0,
-    provisional: Boolean(item.interim),
-    brokenLinks: links.filter((resolved) => resolved.broken).length,
-    silentBlockers: silent.size,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// The tree
-// ---------------------------------------------------------------------------
-
-export interface PackNode {
-  item: FinishLineItem;
-  children: PackNode[];
-  /** Present on lines (kind === 'line'); structural rows carry none. */
-  line?: PackLine;
-  /** Lines in this subtree that are not trusted. */
-  needsWork: number;
-  /** Trusted lines in this subtree. */
-  trusted: number;
-  /** All lines in this subtree. */
-  totalLines: number;
+export interface MatrixSection {
+  section: FinishLineItem;
+  rows: MatrixRow[];
   /**
-   * Broken links in this subtree. Rolled up so a block of nominally trusted
-   * lines cannot hide a dangling link behind its collapsed header — the
-   * broken link is a first-class state at every level, not just on the line.
-   */
-  brokenLinks: number;
-  /**
-   * Blocks arrive expanded when they contain a non-trusted line OR a broken
-   * link — the document opens to where the work is.
+   * Sections holding a cell that needs an input arrive open; the rest arrive
+   * collapsed. `input` is the only state a person can act on today — `locked`
+   * is waiting on those inputs and `undefined` is arithmetic.
    */
   defaultOpen: boolean;
 }
 
-const byDocumentOrder = (a: FinishLineItem, b: FinishLineItem) =>
-  a.order - b.order || a.item.localeCompare(b.item);
+export interface MatrixSummary {
+  figure: number;
+  zero: number;
+  undefinedCells: number;
+  input: number;
+  locked: number;
+  /** (row, entity) pairs with no cell at all. Should be 0 after a clean seed. */
+  missing: number;
+  totalCells: number;
+}
+
+const cellKey = (itemId: string, entityCode: string) => `${itemId}:${entityCode}`;
 
 /**
- * Builds the pack tree in document order.
+ * Groups metric and note rows under their section, resolving every row across
+ * every entity column.
  *
- * STATUS ON STRUCTURAL ROWS IS IGNORED. Blocks and sections are structure;
- * whether a block "needs work" is derived from the lines inside it, exactly
- * the way project progress is derived from milestones. A block seeded with
- * the schema's default status must not paint the whole pack red.
- *
- * An item whose parent id does not resolve becomes a root rather than
- * disappearing — same posture as the broken milestone link: structure the
- * owner entered must stay visible even when its wiring is wrong.
+ * Rows whose `parentId` names no section are dropped rather than floated to
+ * the top: the matrix is the pack's own structure, and a row outside it is
+ * data corruption, not a row to invent a home for.
  */
-export function buildPack(items: FinishLineItem[], projects: Project[]): PackNode[] {
-  const ids = new Set(items.map((item) => item.id));
-  const childrenOf = new Map<string, FinishLineItem[]>();
-  const roots: FinishLineItem[] = [];
-  for (const item of items) {
-    if (item.parentId && ids.has(item.parentId)) {
-      const siblings = childrenOf.get(item.parentId);
-      if (siblings) siblings.push(item);
-      else childrenOf.set(item.parentId, [item]);
-    } else {
-      roots.push(item);
+export function buildMatrix(
+  items: FinishLineItem[],
+  cells: FinishLineCell[],
+  entities: FinishLineEntity[],
+): MatrixSection[] {
+  const columns = [...entities].sort((a, b) => a.order - b.order);
+  const byKey = new Map(cells.map((cell) => [cellKey(cell.itemId, cell.entityCode), cell]));
+
+  const sections = items
+    .filter((item) => item.kind === 'section')
+    .sort((a, b) => a.order - b.order);
+
+  return sections.map((section) => {
+    const rows = items
+      .filter((item) => item.parentId === section.id && item.kind !== 'section')
+      .sort((a, b) => a.order - b.order)
+      .map<MatrixRow>((item) => ({
+        item,
+        // A note row carries no cells by design — it is a sentence in the
+        // document, not a measured line.
+        cells:
+          item.kind === 'note'
+            ? []
+            : columns.map((entity) => {
+                const cell = byKey.get(cellKey(item.id, entity.code));
+                return cell ? { entity, cell } : { entity };
+              }),
+      }));
+
+    return {
+      section,
+      rows,
+      defaultOpen: rows.some((row) =>
+        row.cells.some((cell) => cell.cell?.state === 'input'),
+      ),
+    };
+  });
+}
+
+export function summarizeMatrix(sections: MatrixSection[]): MatrixSummary {
+  const summary: MatrixSummary = {
+    figure: 0,
+    zero: 0,
+    undefinedCells: 0,
+    input: 0,
+    locked: 0,
+    missing: 0,
+    totalCells: 0,
+  };
+  for (const section of sections) {
+    for (const row of section.rows) {
+      for (const slot of row.cells) {
+        summary.totalCells += 1;
+        if (!slot.cell) {
+          summary.missing += 1;
+          continue;
+        }
+        if (slot.cell.state === 'undefined') summary.undefinedCells += 1;
+        else summary[slot.cell.state] += 1;
+      }
     }
   }
-
-  const build = (item: FinishLineItem): PackNode => {
-    const children = (childrenOf.get(item.id) ?? []).sort(byDocumentOrder).map(build);
-    const line = item.kind === 'line' ? buildPackLine(item, projects) : undefined;
-    const own = item.kind === 'line' ? 1 : 0;
-    const ownTrusted = item.kind === 'line' && item.status === 'trusted' ? 1 : 0;
-    const totalLines = own + children.reduce((sum, child) => sum + child.totalLines, 0);
-    const trusted = ownTrusted + children.reduce((sum, child) => sum + child.trusted, 0);
-    const needsWork = totalLines - trusted;
-    const brokenLinks =
-      (line?.brokenLinks ?? 0) + children.reduce((sum, child) => sum + child.brokenLinks, 0);
-    return {
-      item,
-      children,
-      line,
-      needsWork,
-      trusted,
-      totalLines,
-      brokenLinks,
-      defaultOpen: needsWork > 0 || brokenLinks > 0,
-    };
-  };
-
-  return roots.sort(byDocumentOrder).map(build);
+  return summary;
 }
 
-/** Depth-first line walk, for anything that needs every line once. */
-export function packLines(nodes: PackNode[]): PackNode[] {
-  return nodes.flatMap((node) => [
-    ...(node.item.kind === 'line' ? [node] : []),
-    ...packLines(node.children),
-  ]);
+/**
+ * The links that close one cell.
+ *
+ * A link with no `entityCode` is row-level and therefore closes this cell too;
+ * a link naming a different entity does not. Both directions matter: the
+ * project side of the app deep-links here, and it must land on the same set.
+ */
+export function linksForCell(item: FinishLineItem, entityCode: string) {
+  return item.links.filter(
+    (link) => link.entityCode === undefined || link.entityCode === entityCode,
+  );
 }
 
-/** Root ids on the path to an item — what has to be expanded to reach it. */
+/** Every section id an item sits under, for expanding on a deep link. */
 export function ancestorPath(items: FinishLineItem[], itemId: string): string[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const path: string[] = [];
   let current = byId.get(itemId);
-  const guard = new Set<string>();
-  while (current?.parentId && byId.has(current.parentId) && !guard.has(current.parentId)) {
-    guard.add(current.parentId);
-    path.unshift(current.parentId);
-    current = byId.get(current.parentId);
+  // Bounded by the map size so a cycle in the data cannot hang the render.
+  for (let guard = 0; current && guard <= byId.size; guard += 1) {
+    if (current.kind === 'section') path.push(current.id);
+    current = current.parentId ? byId.get(current.parentId) : undefined;
   }
   return path;
 }
 
-// ---------------------------------------------------------------------------
-// Header tiles
-// ---------------------------------------------------------------------------
-
-export interface PackSummary {
-  /** Lines that are not trusted. */
-  needsWork: number;
-  blocked: number;
-  /** Untrusted lines with no work linked. */
-  unowned: number;
-  /** Untrusted lines resting on a proxy. */
-  provisional: number;
-  /** Untrusted lines whose linked work is stuck with nobody told. */
-  silent: number;
-  /** The only progress number this view can honestly offer. */
-  trusted: number;
-  totalLines: number;
+/** Rows in a section that carry at least one cell needing an input. */
+export function needsInput(section: MatrixSection): MatrixRow[] {
+  return section.rows.filter((row) =>
+    row.cells.some((cell) => cell.cell?.state === 'input'),
+  );
 }
 
-export function summarizePack(nodes: PackNode[]): PackSummary {
-  const lines = packLines(nodes);
-  const open = lines.filter((node) => node.item.status !== 'trusted');
-  return {
-    needsWork: open.length,
-    blocked: open.filter((node) => node.item.status === 'blocked').length,
-    unowned: open.filter((node) => node.line?.unowned).length,
-    provisional: open.filter((node) => node.line?.provisional).length,
-    silent: open.filter((node) => (node.line?.silentBlockers ?? 0) > 0).length,
-    trusted: lines.length - open.length,
-    totalLines: lines.length,
-  };
-}
+/**
+ * How a state renders. Kept here rather than in the view so the `zero` /
+ * `locked` distinction cannot drift: they rendered identically once, which
+ * made "reported nil" and "waiting on its inputs" look like the same fact.
+ */
+export const STATE_GLYPH: Record<CellState, string> = {
+  figure: 'xxx',
+  zero: '–',
+  undefined: '',
+  input: '',
+  locked: '·',
+};
 
 // ---------------------------------------------------------------------------
-// The reverse direction — project back to the pack
+// The reverse direction: project -> matrix
+//
+// Preserved from the pack build and REPOINTED AT CELLS. A project card answers
+// "why does this project matter" with the pack lines its milestones would
+// unblock; in the matrix that answer carries the entities as well, because the
+// same line item can be closed for one entity and untouched for another.
 // ---------------------------------------------------------------------------
 
 export interface TrustLine {
   item: FinishLineItem;
-  /** Ancestor labels, root first — the Function → Nature → Account path. */
+  /** Ancestor labels, root first — the section path. */
   path: string[];
-  status: FinishLineStatus;
-  /** How many of THIS project's milestones are linked to the line — RESOLVED
-   *  ones only. A dangling id is counted under `brokenLinks` instead: telling
-   *  the owner "2 milestones here" when one was deleted is the looks-owned
-   *  failure the broken-link state exists to prevent. */
+  /**
+   * The entity codes this project's links name. EMPTY means the links are
+   * row-level, i.e. they close the line for every entity — which is a
+   * different claim from naming none, and the card says which.
+   */
+  entityCodes: string[];
+  /**
+   * How many of THIS project's milestones are linked — RESOLVED ones only. A
+   * dangling id is counted under `brokenLinks` instead: saying "2 milestones
+   * here" when one was deleted is the looks-owned failure the broken-link
+   * state exists to prevent.
+   */
   milestonesLinked: number;
-  /** Milestone links from this project whose milestone no longer exists. */
   brokenLinks: number;
   /** A project-level link (no milestone) also exists. */
   projectLevel: boolean;
 }
 
 /**
- * The pack lines this project's work would make trustworthy — the answer to
- * "why does this project matter". Returns [] when nothing is linked, and the
- * card renders NOTHING in that case: no empty state, no prompt. Most projects
- * have no links at first, and 21 cards each carrying an empty invitation is
- * noise.
+ * The matrix rows this project's work would close. Returns [] when nothing is
+ * linked, and the card renders NOTHING in that case — no empty state, no
+ * prompt. Most projects have no links at first, and 21 cards each carrying an
+ * empty invitation is noise.
  */
-export function linesForProject(items: FinishLineItem[], project: Project): TrustLine[] {
+export function linesForProject(
+  items: FinishLineItem[],
+  project: { id: string; milestones: { id: string }[] },
+): TrustLine[] {
   const byId = new Map(items.map((item) => [item.id, item]));
   const milestoneIds = new Set(project.milestones.map((milestone) => milestone.id));
   const result: TrustLine[] = [];
+
   for (const item of items) {
-    if (item.kind !== 'line') continue;
+    if (item.kind !== 'metric') continue;
     const mine = item.links.filter((link) => link.projectId === project.id);
     if (mine.length === 0) continue;
+
     const path: string[] = [];
     let cursor = item.parentId ? byId.get(item.parentId) : undefined;
     const guard = new Set<string>();
@@ -315,30 +240,31 @@ export function linesForProject(items: FinishLineItem[], project: Project): Trus
       path.unshift(cursor.item);
       cursor = cursor.parentId ? byId.get(cursor.parentId) : undefined;
     }
-    const milestoneLevel = mine.filter((link) => link.milestoneId);
+
+    const milestoneLevel = mine.filter((link) => link.milestoneId !== undefined);
     result.push({
       item,
       path,
-      status: item.status,
-      milestonesLinked: milestoneLevel.filter((link) => milestoneIds.has(link.milestoneId!))
-        .length,
-      brokenLinks: milestoneLevel.filter((link) => !milestoneIds.has(link.milestoneId!)).length,
-      projectLevel: mine.some((link) => !link.milestoneId),
+      entityCodes: [
+        ...new Set(
+          mine
+            .map((link) => link.entityCode)
+            .filter((code): code is string => code !== undefined),
+        ),
+      ],
+      milestonesLinked: milestoneLevel.filter(
+        (link) => link.milestoneId !== undefined && milestoneIds.has(link.milestoneId),
+      ).length,
+      brokenLinks: milestoneLevel.filter(
+        (link) => link.milestoneId !== undefined && !milestoneIds.has(link.milestoneId),
+      ).length,
+      projectLevel: mine.some((link) => link.milestoneId === undefined),
     });
   }
-  // Untrusted first — the reason to look — then document order.
-  return result.sort((a, b) => {
-    const openA = a.status !== 'trusted' ? 0 : 1;
-    const openB = b.status !== 'trusted' ? 0 : 1;
-    return openA - openB || a.item.order - b.item.order;
-  });
+  return result;
 }
 
-/**
- * The milestone ids of one project that any pack line links to — the marker
- * set for the milestone list. On a 50-milestone parent, these are the ones
- * that actually move the deliverable.
- */
+/** Milestone ids of this project that any matrix row links to. */
 export function linkedMilestoneIds(items: FinishLineItem[], projectId: string): Set<string> {
   const ids = new Set<string>();
   for (const item of items) {

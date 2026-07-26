@@ -4,8 +4,9 @@ import type {
   Domain,
   Entry,
   EntryType,
+  FinishLineCell,
+  FinishLineEntity,
   FinishLineItem,
-  FinishLineLinkInput,
   IeltsError,
   IeltsResult,
   Project,
@@ -64,20 +65,19 @@ export interface Repository {
   deleteIeltsError(id: string): Promise<void>;
 
   /**
-   * Finish line pack rows (WORK) — blocks, sections and lines alike. `links`
-   * is written through these methods as a set: the join rows for an item are
-   * replaced wholesale whenever the input names it, so callers never touch
-   * the link table. Ordering is the document's own `order`; nothing here
-   * re-ranks. Duplicate (project, milestone) pairs are deduped before write —
-   * the database's unique index would reject them anyway.
+   * Finish line — the entity matrix. READ-ONLY except for cell notes.
+   *
+   * The structure is seeded from the workbook by migration 20260726000022.
+   * There is deliberately no create/update/delete for line items: a row that
+   * exists in the app but not in the pack is a row nobody can explain. The
+   * numbers never enter the app at all — a cell carries a state, never a value.
    */
   listFinishLineItems(): Promise<FinishLineItem[]>;
-  createFinishLineItem(
-    input: Omit<FinishLineItem, 'id' | 'links'> & { links: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem>;
-  updateFinishLineItem(
-    id: string,
-    patch: Partial<Omit<FinishLineItem, 'id' | 'links'>> & { links?: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem>;
-  deleteFinishLineItem(id: string): Promise<void>;
+  listFinishLineEntities(): Promise<FinishLineEntity[]>;
+  listFinishLineCells(): Promise<FinishLineCell[]>;
+  setFinishLineCellNote(
+    itemId: string,
+    entityCode: string,
+    note: string | undefined,
+  ): Promise<FinishLineCell>;
 }
