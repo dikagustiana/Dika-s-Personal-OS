@@ -35,15 +35,31 @@ export type GrowthView =
   // projects, but only WORK had a route to it.
   | 'projects';
 
+/**
+ * A one-shot handoff for cross-view navigation: "open Projects, scrolled to
+ * THIS project, with its milestone list open". Set by whoever navigates
+ * (the dashboard's needs-action rows), consumed and cleared by Projects on
+ * arrival. Without it, a click on a needs-action row landed at the top of
+ * Projects inside a collapsed list — the app knew exactly which milestone
+ * was meant and threw it away.
+ */
+export interface ProjectFocus {
+  projectId: string;
+  /** Open the milestone section on arrival — the row that was clicked lives there. */
+  openMilestones: boolean;
+}
+
 interface AppState {
   repository: Repository;
   workspace: Workspace;
   workView: WorkView;
   growthView: GrowthView;
+  projectFocus: ProjectFocus | null;
   setRepository: (repository: Repository) => void;
   setWorkspace: (workspace: Workspace) => void;
   setWorkView: (view: WorkView) => void;
   setGrowthView: (view: GrowthView) => void;
+  setProjectFocus: (focus: ProjectFocus | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -51,8 +67,10 @@ export const useAppStore = create<AppState>((set) => ({
   workspace: 'work',
   workView: 'dashboard',
   growthView: 'dashboard',
+  projectFocus: null,
   setRepository: (repository) => set({ repository }),
   setWorkspace: (workspace) => set({ workspace }),
   setWorkView: (workView) => set({ workView }),
   setGrowthView: (growthView) => set({ growthView }),
+  setProjectFocus: (projectFocus) => set({ projectFocus }),
 }));

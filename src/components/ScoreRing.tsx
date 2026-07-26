@@ -25,12 +25,9 @@ export function ScoreRing({ result }: { result: DailyScoreResult }) {
         </div>
       </div>
       <div>
-        <div className="flex items-baseline gap-1">
-          <span className="text-4xl font-bold tabular-nums">
-            {result.isEmpty ? '—' : Math.round(result.score / 10)}
-          </span>
-          <span className="text-lg text-foreground-muted">/10</span>
-        </div>
+        {/* The number lives in the ring and ONLY there — it rendered twice,
+            ~12px apart, at two sizes, and neither read as the answer. */}
+        <span className="text-lg text-foreground-muted">/10</span>
         <p className="mt-1 max-w-44 text-sm leading-5 text-foreground-muted">
           {result.isEmpty
             ? 'Add a task, habit, or timeblock to begin.'

@@ -73,6 +73,10 @@ export interface ProjectCardProps {
   updateProject: (id: string, patch: Partial<Project>) => Promise<Project>;
   /** Hide the dashboard strip (tiles, week, linked, documents) — Monthly Close. */
   compact?: boolean;
+  /** Arrive with the milestone list open — set by cross-view navigation that
+   *  targets a specific milestone, so the reader lands inside the list rather
+   *  than in front of a collapsed section. */
+  defaultMilestonesOpen?: boolean;
   /**
    * Supplied by views that own the project list. Its presence is what turns
    * on the delete control — a card embedded in a read-only context has none.
@@ -109,6 +113,7 @@ export function ProjectCard({
   onChange,
   updateProject,
   compact = false,
+  defaultMilestonesOpen = false,
   onDelete,
   projects,
   rollup,
@@ -324,7 +329,7 @@ export function ProjectCard({
           rollup={counts}
           // Monthly-close cards are worked as checklists, not read as
           // dashboards, so they open expanded. Everywhere else, collapsed.
-          defaultOpen={compact}
+          defaultOpen={compact || defaultMilestonesOpen}
         />
 
         {!compact && (

@@ -321,6 +321,20 @@ export function Today() {
     });
   };
 
+  /** Category / task-link refinements made on the row of an existing block. */
+  const updateBlock = async (
+    block: TimeBlockEntry,
+    patch: Partial<Pick<TimeBlockEntry, 'category' | 'taskId' | 'label'>>,
+  ) => {
+    const updated = await run('Update timeblock', () =>
+      repository.updateEntry(block.id, patch),
+    );
+    if (!updated) return;
+    setBlocks((current) =>
+      current.map((item) => (item.id === block.id ? (updated as TimeBlockEntry) : item)),
+    );
+  };
+
   const deleteBlock = async (block: TimeBlockEntry) => {
     const result = await run('Delete timeblock', async () => {
       await repository.deleteEntry(block.id);
@@ -378,6 +392,7 @@ export function Today() {
           onCreate={createBlock}
           onSetStatus={setBlockStatus}
           onDelete={deleteBlock}
+          onUpdate={updateBlock}
         />
       </section>
 

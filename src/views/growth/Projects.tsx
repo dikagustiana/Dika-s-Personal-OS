@@ -37,6 +37,8 @@ const ALL_ENTITIES = '__all__';
 export function Projects() {
   const repository = useAppStore((state) => state.repository);
   const domain = useAppStore((state) => state.workspace);
+  const projectFocus = useAppStore((state) => state.projectFocus);
+  const setProjectFocus = useAppStore((state) => state.setProjectFocus);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
@@ -93,6 +95,20 @@ export function Projects() {
     });
     setScrollTarget(projectId);
   };
+
+  // The cross-view handoff (a needs-action row on the dashboard): once the
+  // list has loaded, run the same clear-filter → expand → scroll mechanism a
+  // linked-project chip uses, remember which card should open its milestone
+  // list, and clear the handoff so a later visit starts neutral.
+  const [milestonesOpenFor, setMilestonesOpenFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!projectFocus || projects.length === 0) return;
+    if (!projects.some((project) => project.id === projectFocus.projectId)) return;
+    if (projectFocus.openMilestones) setMilestonesOpenFor(projectFocus.projectId);
+    scrollToProject(projectFocus.projectId);
+    setProjectFocus(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectFocus, projects]);
 
   const toggleChild = (projectId: string) =>
     setExpanded((current) => {
@@ -169,6 +185,7 @@ export function Projects() {
         goals={plan?.goals ?? []}
         projects={projects}
         rollup={rollupMilestones(node)}
+        defaultMilestonesOpen={node.project.id === milestonesOpenFor}
         onNavigateToProject={scrollToProject}
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
