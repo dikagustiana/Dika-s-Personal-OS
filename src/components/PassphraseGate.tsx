@@ -246,11 +246,20 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
           onChange={(event) => setPassphrase(event.target.value)}
           placeholder="Enter passphrase"
           aria-label="App passphrase"
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'passphrase-error' : undefined}
           autoFocus
         />
-        {/* Plain copy, not an alert banner — the lockout is information. */}
+        {/* Plain copy, not an alert banner — the lockout is information. The
+            id is what ties it to the input programmatically; without it a
+            screen reader hears an unexplained rejection on the first screen
+            of every session. */}
         {error && (
-          <p className="mt-3 text-sm text-foreground-secondary" role="status">
+          <p
+            id="passphrase-error"
+            className="mt-3 text-sm text-foreground-secondary"
+            role="status"
+          >
             {error}
           </p>
         )}

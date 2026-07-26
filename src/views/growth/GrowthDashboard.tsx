@@ -335,10 +335,12 @@ export function GrowthDashboard() {
               })}
             </div>
           </div>
+          {/* Swatches read from the same map as the bars, so the key cannot
+              name a colour the chart does not use — which it was doing. */}
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[10px] text-foreground-muted">
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-primary/80" /> on track</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-escalate/80" /> due soon</span>
-            <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm bg-destructive/80" /> overdue</span>
+            <span className="flex items-center gap-1.5"><span className={cn('size-2.5 rounded-sm', barColor['on-track'])} /> on track</span>
+            <span className="flex items-center gap-1.5"><span className={cn('size-2.5 rounded-sm', barColor['due-soon'])} /> due soon</span>
+            <span className="flex items-center gap-1.5"><span className={cn('size-2.5 rounded-sm', barColor.overdue)} /> overdue</span>
             <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-sm border-2 border-dashed border-primary/60 bg-primary/15" /> date TBC</span>
           </div>
         </CardContent>

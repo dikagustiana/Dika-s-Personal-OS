@@ -180,7 +180,15 @@ export function MilestoneSection({
         <span className="ml-auto text-xs tabular-nums text-foreground-muted">
           {done} of {milestones.length} complete
         </span>
-        <span className="font-mono text-xs tabular-nums text-success">{progress}%</span>
+        {/* success is the done colour; a project at 0% must not print in it. */}
+        <span
+          className={cn(
+            'font-mono text-xs tabular-nums',
+            progress === 100 ? 'text-success' : 'text-foreground-secondary',
+          )}
+        >
+          {progress}%
+        </span>
       </button>
       <Progress value={progress} className="mt-2" />
       {rollup && rollup.childCount > 0 && (
