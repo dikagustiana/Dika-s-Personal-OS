@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseResearchRepository } from './researchRepository';
 import type { ResearchRepository } from './researchRepository';
+import { guardCellNote, guardCellState, type CellWriteOrigin } from './finishLineGuards';
 import type { Repository } from './repository';
 import type {
   DailyLog,
@@ -9,13 +10,16 @@ import type {
   Entry,
   EntryType,
   CellState,
+  DanglingLink,
   FinishLineAgg,
   FinishLineCell,
+  FinishLineDep,
+  FinishLineEdge,
   FinishLineEntity,
   FinishLineItem,
   FinishLineKind,
-  FinishLineLink,
   FinishLineStyle,
+  OrphanMilestone,
   IeltsError,
   IeltsErrorSkill,
   IeltsResult,
@@ -743,13 +747,12 @@ class SupabaseRepository implements Repository {
     if (error) throw new Error(`deleteIeltsError failed: ${error.message}`);
   }
 
-  // --- finish line: the entity matrix ---------------------------------------
-  // Row shapes and mappers are appended at the foot of this file.
+  // --- finish line: the entity matrix ----------------------------------------
   //
-  // READ-ONLY, deliberately. The matrix structure is seeded from the workbook
-  // by migration 20260726000022; nothing in the UI creates or deletes a line
-  // item, because a line item that exists in the app but not in the pack would
-  // be a row nobody can explain. Cell notes are the one write path.
+  // EVERY READ HERE DEGRADES TO EMPTY when the relation is missing. The
+  // frontend ships before the migration is applied — that has already broken
+  // production twice — so an absent table renders the normal empty state
+  // rather than an unhandled rejection. See `missingRelation`.
 
   async listFinishLineItems(): Promise<FinishLineItem[]> {
     const { data, error } = await this.client
@@ -757,21 +760,23 @@ class SupabaseRepository implements Repository {
       .select('id, item, kind, parent_id, sort_order, tag, unit, dp, agg, style, flag, blocks')
       .in('kind', ['section', 'metric', 'note'])
       .order('sort_order', { ascending: true });
-    if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
-    const links = await this.listFinishLineLinks();
-    return (data as FinishLineItemRow[]).map((row) =>
-      rowToFinishLineItem(row, links.get(row.id) ?? []),
-    );
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listFinishLineItems failed: ${error.message}`);
+    }
+    return (data as FinishLineItemRow[]).map(rowToFinishLineItem);
   }
 
-  /** The matrix columns, in their own order. Never hardcoded in the frontend. */
   async listFinishLineEntities(): Promise<FinishLineEntity[]> {
     const { data, error } = await this.client
       .from('os_finish_line_entities')
       .select('code, label, sort_order')
       .order('sort_order', { ascending: true });
-    if (error) throw new Error(`listFinishLineEntities failed: ${error.message}`);
-    return (data as FinishLineEntityRow[]).map((row) => ({
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listFinishLineEntities failed: ${error.message}`);
+    }
+    return (data as { code: string; label: string; sort_order: number }[]).map((row) => ({
       code: row.code,
       label: row.label,
       order: row.sort_order,
@@ -781,53 +786,184 @@ class SupabaseRepository implements Repository {
   async listFinishLineCells(): Promise<FinishLineCell[]> {
     const { data, error } = await this.client
       .from('os_finish_line_cells')
-      .select('item_id, entity_code, state, note');
-    if (error) throw new Error(`listFinishLineCells failed: ${error.message}`);
+      .select('id, item_id, entity_code, state, note');
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listFinishLineCells failed: ${error.message}`);
+    }
     return (data as FinishLineCellRow[]).map(rowToFinishLineCell);
   }
 
-  /**
-   * The one write path. A note explains what is missing for one entity; the
-   * STATE is not writable from the UI, because a state change means the Excel
-   * pack changed and the pack is the source of truth for that.
-   */
+  async listFinishLineDeps(): Promise<FinishLineDep[]> {
+    const { data, error } = await this.client
+      .from('os_finish_line_deps')
+      .select('cell_id, input_id');
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listFinishLineDeps failed: ${error.message}`);
+    }
+    return (data as { cell_id: string; input_id: string }[]).map((row) => ({
+      cellId: row.cell_id,
+      inputId: row.input_id,
+    }));
+  }
+
+  async listFinishLineEdges(): Promise<FinishLineEdge[]> {
+    const { data, error } = await this.client
+      .from('os_finish_line_item_projects')
+      .select('id, cell_id, project_id, milestone_id')
+      .not('cell_id', 'is', null);
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listFinishLineEdges failed: ${error.message}`);
+    }
+    return (data as FinishLineEdgeRow[]).map((row) => {
+      const edge: FinishLineEdge = {
+        id: row.id,
+        cellId: row.cell_id as string,
+        projectId: row.project_id,
+      };
+      if (row.milestone_id) edge.milestoneId = row.milestone_id;
+      return edge;
+    });
+  }
+
+  async listDanglingLinks(): Promise<DanglingLink[]> {
+    const { data, error } = await this.client
+      .from('os_finish_line_dangling_links')
+      .select('id, cell_id, project_id, project_title, milestone_id');
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listDanglingLinks failed: ${error.message}`);
+    }
+    return (data as DanglingLinkRow[]).map((row) => {
+      const link: DanglingLink = {
+        id: row.id,
+        projectId: row.project_id,
+        milestoneId: row.milestone_id,
+      };
+      if (row.cell_id) link.cellId = row.cell_id;
+      if (row.project_title) link.projectTitle = row.project_title;
+      return link;
+    });
+  }
+
+  async listOrphanMilestones(): Promise<OrphanMilestone[]> {
+    const { data, error } = await this.client
+      .from('os_finish_line_orphan_milestones')
+      .select('project_id, project_title, milestone_id, milestone_text, done');
+    if (error) {
+      if (missingRelation(error)) return [];
+      throw new Error(`listOrphanMilestones failed: ${error.message}`);
+    }
+    return (data as OrphanRow[]).map((row) => ({
+      projectId: row.project_id,
+      projectTitle: row.project_title,
+      milestoneId: row.milestone_id,
+      milestoneText: row.milestone_text ?? '',
+      done: Boolean(row.done),
+    }));
+  }
+
+  async setFinishLineCellState(
+    cellId: string,
+    state: CellState,
+    origin: CellWriteOrigin,
+  ): Promise<FinishLineCell> {
+    // The guard runs BEFORE the request, in the mutation path. A UI-only check
+    // would be bypassed by the first caller that forgot.
+    const checked = guardCellState(state, origin);
+    const { data, error } = await this.client
+      .from('os_finish_line_cells')
+      .update({ state: checked, updated_at: new Date().toISOString() })
+      .eq('id', cellId)
+      .select('id, item_id, entity_code, state, note')
+      .maybeSingle();
+    if (error) throw new Error(`setFinishLineCellState failed: ${error.message}`);
+    if (!data) throw new Error(`Cell not found: ${cellId}`);
+    return rowToFinishLineCell(data as FinishLineCellRow);
+  }
+
   async setFinishLineCellNote(
-    itemId: string,
-    entityCode: string,
+    cellId: string,
     note: string | undefined,
   ): Promise<FinishLineCell> {
     const { data, error } = await this.client
       .from('os_finish_line_cells')
-      .update({ note: note ?? null, updated_at: new Date().toISOString() })
-      .eq('item_id', itemId)
-      .eq('entity_code', entityCode)
-      .select('item_id, entity_code, state, note')
+      .update({ note: guardCellNote(note) ?? null, updated_at: new Date().toISOString() })
+      .eq('id', cellId)
+      .select('id, item_id, entity_code, state, note')
       .maybeSingle();
     if (error) throw new Error(`setFinishLineCellNote failed: ${error.message}`);
-    if (!data) throw new Error(`Cell not found: ${itemId} / ${entityCode}`);
+    if (!data) throw new Error(`Cell not found: ${cellId}`);
     return rowToFinishLineCell(data as FinishLineCellRow);
   }
 
-  /** item id -> links. `entity_code` set means the link closes one cell. */
-  private async listFinishLineLinks(): Promise<Map<string, FinishLineLink[]>> {
-    const { data, error } = await this.client
+  /**
+   * BULK BY DESIGN. Authoring one edge must never cost a form — if it does the
+   * table stays at 0 rows, exactly as `timeblocks` did. The picker commits the
+   * whole set for a cell in one operation: clear, then insert.
+   */
+  async setCellEdges(
+    cellId: string,
+    edges: { projectId: string; milestoneId?: string }[],
+  ): Promise<void> {
+    const { error: clearError } = await this.client
       .from('os_finish_line_item_projects')
-      .select('id, item_id, project_id, milestone_id, entity_code');
-    if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
-    const links = new Map<string, FinishLineLink[]>();
-    for (const row of data as FinishLineLinkRow[]) {
-      const link: FinishLineLink = { id: row.id, projectId: row.project_id };
-      if (row.milestone_id) link.milestoneId = row.milestone_id;
-      if (row.entity_code) link.entityCode = row.entity_code;
-      const existing = links.get(row.item_id);
-      if (existing) existing.push(link);
-      else links.set(row.item_id, [link]);
-    }
-    return links;
+      .delete()
+      .eq('cell_id', cellId);
+    if (clearError) throw new Error(`setCellEdges failed: ${clearError.message}`);
+    if (edges.length === 0) return;
+    const { error } = await this.client.from('os_finish_line_item_projects').insert(
+      edges.map((edge) => ({
+        cell_id: cellId,
+        project_id: edge.projectId,
+        milestone_id: edge.milestoneId ?? null,
+      })),
+    );
+    if (error) throw new Error(`setCellEdges failed: ${error.message}`);
+  }
+
+  /** The same operation inverted: the cells one milestone closes. */
+  async setMilestoneEdges(
+    projectId: string,
+    milestoneId: string,
+    cellIds: string[],
+  ): Promise<void> {
+    const { error: clearError } = await this.client
+      .from('os_finish_line_item_projects')
+      .delete()
+      .eq('project_id', projectId)
+      .eq('milestone_id', milestoneId);
+    if (clearError) throw new Error(`setMilestoneEdges failed: ${clearError.message}`);
+    if (cellIds.length === 0) return;
+    const { error } = await this.client.from('os_finish_line_item_projects').insert(
+      cellIds.map((cellId) => ({
+        cell_id: cellId,
+        project_id: projectId,
+        milestone_id: milestoneId,
+      })),
+    );
+    if (error) throw new Error(`setMilestoneEdges failed: ${error.message}`);
   }
 
 }
+
 // --- finish line row shapes -------------------------------------------------
+
+/**
+ * Postgres 42P01 = undefined_table (and 42703 = undefined_column, which is
+ * what a pre-migration database answers when a new column is selected).
+ * PostgREST also answers PGRST205 for a relation missing from its schema
+ * cache. All three mean the same thing to the reader: the migration has not
+ * been applied yet, so render the empty state rather than crash.
+ */
+function missingRelation(error: { code?: string; message?: string }): boolean {
+  const code = error.code ?? '';
+  if (code === '42P01' || code === '42703' || code.startsWith('PGRST20')) return true;
+  const message = (error.message ?? '').toLowerCase();
+  return message.includes('does not exist') || message.includes('could not find');
+}
 
 interface FinishLineItemRow {
   id: string;
@@ -844,37 +980,45 @@ interface FinishLineItemRow {
   blocks: string | null;
 }
 
-interface FinishLineEntityRow {
-  code: string;
-  label: string;
-  sort_order: number;
-}
-
 interface FinishLineCellRow {
+  id: string;
   item_id: string;
   entity_code: string;
   state: CellState;
   note: string | null;
 }
 
-interface FinishLineLinkRow {
+interface FinishLineEdgeRow {
   id: string;
-  item_id: string;
+  cell_id: string | null;
   project_id: string;
   milestone_id: string | null;
-  entity_code: string | null;
 }
 
-function rowToFinishLineItem(row: FinishLineItemRow, links: FinishLineLink[]): FinishLineItem {
+interface DanglingLinkRow {
+  id: string;
+  cell_id: string | null;
+  project_id: string;
+  project_title: string | null;
+  milestone_id: string;
+}
+
+interface OrphanRow {
+  project_id: string;
+  project_title: string;
+  milestone_id: string;
+  milestone_text: string | null;
+  done: boolean | null;
+}
+
+function rowToFinishLineItem(row: FinishLineItemRow): FinishLineItem {
   const item: FinishLineItem = {
     id: row.id,
     item: row.item,
     kind: row.kind,
     order: row.sort_order,
-    links,
   };
-  // Nulls are dropped rather than carried, matching rowToProject: the domain
-  // shape stays free of noise and readers test presence, not emptiness.
+  // Nulls are dropped rather than carried, matching rowToProject.
   if (row.parent_id) item.parentId = row.parent_id;
   if (row.tag) item.tag = row.tag;
   if (row.unit) item.unit = row.unit;
@@ -888,6 +1032,7 @@ function rowToFinishLineItem(row: FinishLineItemRow, links: FinishLineLink[]): F
 
 function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
   const cell: FinishLineCell = {
+    id: row.id,
     itemId: row.item_id,
     entityCode: row.entity_code,
     state: row.state,

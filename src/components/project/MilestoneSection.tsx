@@ -131,6 +131,12 @@ export interface MilestoneSectionProps {
    * list order is untouched — the marker is enough.
    */
   linkedMilestoneIds?: ReadonlySet<string>;
+  /**
+   * How many matrix cells each milestone closes. Present means the edges were
+   * loaded, so a milestone absent from the map genuinely closes NOTHING and
+   * renders a plain 0 — the zero is the uncomfortable fact, and it is not hidden.
+   */
+  packCellCounts?: ReadonlyMap<string, number>;
 }
 
 /**
@@ -149,6 +155,7 @@ export function MilestoneSection({
   rollup,
   defaultOpen = false,
   linkedMilestoneIds,
+  packCellCounts,
 }: MilestoneSectionProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -302,6 +309,14 @@ export function MilestoneSection({
                       >
                         {milestone.text}
                       </span>
+                      {packCellCounts && (
+                        <span
+                          className="shrink-0 text-[10px] tabular-nums text-foreground-muted"
+                          title={`Closes ${packCellCounts.get(milestone.id) ?? 0} pack cell(s)`}
+                        >
+                          {packCellCounts.get(milestone.id) ?? 0}
+                        </span>
+                      )}
                       {linkedMilestoneIds?.has(milestone.id) && (
                         // The finish-line marker: this milestone moves the
                         // pack. Muted and small — it must not compete with the

@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ProjectCard } from './ProjectCard';
 import { Progress } from './ui/Progress';
-import type { Domain, FinishLineItem, Project, TaskEntry, WeeklyGoal } from '../data/types';
+import type { Domain, FinishLineEdge, Project, TaskEntry, WeeklyGoal } from '../data/types';
 import { rollupMilestones, type ProjectNode } from '../logic/hierarchy';
 import { projectAlertState } from '../logic/milestones';
 import { cn } from '../lib/utils';
@@ -28,7 +28,7 @@ export interface ProjectChildrenProps {
    */
   milestonesOpenFor?: string | null;
   /** The finish-line pack — forwarded so nested cards answer "why" too. */
-  finishLineItems?: FinishLineItem[];
+  finishLineEdges?: FinishLineEdge[];
   onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
 }
 
@@ -70,7 +70,7 @@ export function ProjectChildren({
   onDelete,
   onNavigateToProject,
   milestonesOpenFor,
-  finishLineItems,
+  finishLineEdges,
   onOpenFinishLine,
 }: ProjectChildrenProps) {
   if (nodes.length === 0) return null;
@@ -124,7 +124,7 @@ export function ProjectChildren({
                   updateProject={updateProject}
                   onDelete={onDelete}
                   onChange={onChange}
-                  finishLineItems={finishLineItems}
+                  finishLineEdges={finishLineEdges}
                   onOpenFinishLine={onOpenFinishLine}
                 />
                 {/* Grandchildren keep the same treatment rather than becoming
@@ -143,7 +143,7 @@ export function ProjectChildren({
                   updateProject={updateProject}
                   onDelete={onDelete}
                   onNavigateToProject={onNavigateToProject}
-                  finishLineItems={finishLineItems}
+                  finishLineEdges={finishLineEdges}
                   onOpenFinishLine={onOpenFinishLine}
                 />
               </div>

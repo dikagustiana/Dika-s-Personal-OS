@@ -1,14 +1,20 @@
 import type { ResearchRepository } from './researchRepository';
+import type { CellWriteOrigin } from './finishLineGuards';
 import type {
+  CellState,
   DailyLog,
+  DanglingLink,
   Domain,
   Entry,
   EntryType,
   FinishLineCell,
+  FinishLineDep,
+  FinishLineEdge,
   FinishLineEntity,
   FinishLineItem,
   IeltsError,
   IeltsResult,
+  OrphanMilestone,
   Project,
   WeeklyPlan,
 } from './types';
@@ -65,19 +71,38 @@ export interface Repository {
   deleteIeltsError(id: string): Promise<void>;
 
   /**
-   * Finish line — the entity matrix. READ-ONLY except for cell notes.
+   * Finish line — the entity matrix and the road to it.
    *
-   * The structure is seeded from the workbook by migration 20260726000022.
-   * There is deliberately no create/update/delete for line items: a row that
-   * exists in the app but not in the pack is a row nobody can explain. The
-   * numbers never enter the app at all — a cell carries a state, never a value.
+   * READS DEGRADE TO EMPTY when the relation does not exist: the frontend
+   * ships before the migration is applied, which has already broken production
+   * twice in this project. A missing table is an empty matrix, not a crash.
+   *
+   * The structure is seeded by migration 20260726000023. There is no create or
+   * delete for line items — a row in the app but not in the pack is a row
+   * nobody can explain.
    */
   listFinishLineItems(): Promise<FinishLineItem[]>;
   listFinishLineEntities(): Promise<FinishLineEntity[]>;
   listFinishLineCells(): Promise<FinishLineCell[]>;
-  setFinishLineCellNote(
-    itemId: string,
-    entityCode: string,
-    note: string | undefined,
+  listFinishLineDeps(): Promise<FinishLineDep[]>;
+  listFinishLineEdges(): Promise<FinishLineEdge[]>;
+  listDanglingLinks(): Promise<DanglingLink[]>;
+  listOrphanMilestones(): Promise<OrphanMilestone[]>;
+
+  /**
+   * The state write. `origin` is required and only 'human' is accepted — see
+   * finishLineGuards. A rollup that disagrees raises a contradiction for a
+   * person; it never writes the state.
+   */
+  setFinishLineCellState(
+    cellId: string,
+    state: CellState,
+    origin: CellWriteOrigin,
   ): Promise<FinishLineCell>;
+  setFinishLineCellNote(cellId: string, note: string | undefined): Promise<FinishLineCell>;
+
+  /** Bulk, deliberately: one edge must never cost a form. Replaces the set. */
+  setCellEdges(cellId: string, edges: { projectId: string; milestoneId?: string }[]): Promise<void>;
+  /** The same operation inverted, from a milestone. */
+  setMilestoneEdges(projectId: string, milestoneId: string, cellIds: string[]): Promise<void>;
 }

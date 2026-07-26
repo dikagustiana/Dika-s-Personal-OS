@@ -14,14 +14,14 @@ import { Button } from './ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card';
 import type {
   Domain,
-  FinishLineItem,
+  FinishLineEdge,
   Milestone,
   Project,
   ProjectDocument,
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
-import { linesForProject, linkedMilestoneIds } from '../logic/finishLine';
+import { cellsByMilestone, cellsClosedByProject } from '../logic/finishLine';
 import { appendDocument, removeDocumentAt } from '../logic/documents';
 import {
   buildProjectTree,
@@ -96,13 +96,13 @@ export interface ProjectCardProps {
   /** Fixed "now" so every countdown on a screen agrees. Defaults to render time. */
   today?: Date;
   /**
-   * The finish-line pack, supplied by views that load it (WORK Projects).
-   * Powers the "Makes trustworthy" section and the milestone markers — the
-   * answer to "why does this project matter". Absent, the card renders
-   * exactly as before: no section, no marker, no empty invitation.
+   * The finish-line edges, supplied by views that load them (WORK Projects).
+   * Powers the PACK LINES tile and the per-milestone markers — the answer to
+   * "why does this project matter". Absent, the card renders exactly as
+   * before: no count, no marker, no empty invitation.
    */
-  finishLineItems?: FinishLineItem[];
-  /** Navigates to the Finish line view, scrolled to and expanded at a line. */
+  finishLineEdges?: FinishLineEdge[];
+  /** Navigates to the Finish line view, scrolled to the cell. */
   onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
 }
 
@@ -119,8 +119,6 @@ export interface ProjectCardProps {
 export function ProjectCard({
   project,
   domain,
-  tasks = [],
-  goals = [],
   onChange,
   updateProject,
   compact = false,
@@ -130,7 +128,7 @@ export function ProjectCard({
   rollup,
   onNavigateToProject,
   today,
-  finishLineItems,
+  finishLineEdges,
   onOpenFinishLine,
 }: ProjectCardProps) {
   const [editing, setEditing] = useState(false);
@@ -143,13 +141,19 @@ export function ProjectCard({
   // The reverse direction of the finish line: which pack lines this project's
   // work would make trustworthy, and which of its milestones are the ones
   // that move the pack. Both empty when the view supplied no pack.
-  const trustLines = useMemo(
-    () => (finishLineItems ? linesForProject(finishLineItems, project) : []),
-    [finishLineItems, project],
+  // The project -> pack direction: how many CELLS this project's milestones
+  // close. Cells, not rows — the matrix's grain is (line item x entity).
+  const packCellCount = useMemo(
+    () => (finishLineEdges ? cellsClosedByProject(finishLineEdges, project.id).size : 0),
+    [finishLineEdges, project.id],
+  );
+  const packCellsByMilestone = useMemo(
+    () => (finishLineEdges ? cellsByMilestone(finishLineEdges, project.id) : undefined),
+    [finishLineEdges, project.id],
   );
   const packMilestoneIds = useMemo(
-    () => (finishLineItems ? linkedMilestoneIds(finishLineItems, project.id) : undefined),
-    [finishLineItems, project.id],
+    () => (packCellsByMilestone ? new Set(packCellsByMilestone.keys()) : undefined),
+    [packCellsByMilestone],
   );
 
   const openEditor = () => {
@@ -209,13 +213,6 @@ export function ProjectCard({
     return node ? rollupMilestones(node) : ownRollup(project);
   }, [project, projects, rollup]);
 
-  const linkedGoals = goals.filter((goal) => goal.projectId === project.id);
-  const linkedGoalIds = new Set(linkedGoals.map((goal) => goal.id));
-  const linkedTasks = tasks.filter(
-    (task) =>
-      task.projectId === project.id ||
-      Boolean(task.weeklyGoalId && linkedGoalIds.has(task.weeklyGoalId)),
-  );
 
   const patchMilestone = async (
     milestoneId: string,
@@ -328,8 +325,9 @@ export function ProjectCard({
         {!compact && (
           <MetricTiles
             project={project}
-            linkedTasksDone={linkedTasks.filter((task) => task.done).length}
-            linkedTasksTotal={linkedTasks.length}
+            packCells={packCellCount}
+            hasPackData={finishLineEdges !== undefined}
+            onOpenPack={onOpenFinishLine ? () => onOpenFinishLine(project.id) : undefined}
             rollup={counts}
           />
         )}
@@ -349,68 +347,6 @@ export function ProjectCard({
             finish-line links instead. NOTHING renders when there are no links
             — not an empty state, not a prompt. Most projects have none at
             first, and 21 cards each carrying an empty invitation is noise. */}
-        {trustLines.length > 0 && (
-          <section aria-label={`Pack lines ${project.title} makes trustworthy`}>
-            <p className="surface-label">Makes trustworthy</p>
-            <ul className="mt-1.5 divide-y divide-border-subtle">
-              {trustLines.map((trust) => {
-                const path = [...trust.path, trust.item.item].join(' → ');
-                const row = (
-                  <>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm text-foreground-secondary">
-                        {path}
-                      </span>
-                      <span className="block text-[11px] text-foreground-muted">
-                        {[
-                          trust.milestonesLinked > 0 &&
-                            `${trust.milestonesLinked} milestone${trust.milestonesLinked === 1 ? '' : 's'} here`,
-                          trust.projectLevel && 'whole project',
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                        {trust.brokenLinks > 0 && (
-                          // A deleted milestone must not keep counting as
-                          // coverage — say the link is broken instead.
-                          <span className="text-destructive">
-                            {trust.milestonesLinked > 0 || trust.projectLevel ? ' · ' : ''}
-                            {trust.brokenLinks} broken link{trust.brokenLinks === 1 ? '' : 's'}
-                          </span>
-                        )}
-                      </span>
-                    </span>
-                    {/* The matrix has no row-level status: trust is per CELL
-                        now, and even there it is a state rather than a verdict.
-                        So the badge says WHICH ENTITIES this project's links
-                        touch — the useful fact the status used to stand in for.
-                        Neutral tone: naming a column is not a judgement. */}
-                    <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground-muted">
-                      {trust.entityCodes.length > 0
-                        ? trust.entityCodes.join(' · ')
-                        : 'all entities'}
-                    </span>
-                  </>
-                );
-                return (
-                  <li key={trust.item.id}>
-                    {onOpenFinishLine ? (
-                      <button
-                        type="button"
-                        onClick={() => onOpenFinishLine(trust.item.id, trust.entityCodes[0])}
-                        className="flex min-h-11 w-full items-center gap-2 rounded-sm text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        {row}
-                      </button>
-                    ) : (
-                      <div className="flex min-h-11 w-full items-center gap-2">{row}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
         {!compact && <WeekStripSection milestones={project.milestones} today={now} />}
 
         <MilestoneSection
@@ -424,6 +360,7 @@ export function ProjectCard({
           // dashboards, so they open expanded. Everywhere else, collapsed.
           defaultOpen={compact || defaultMilestonesOpen}
           linkedMilestoneIds={packMilestoneIds}
+          packCellCounts={packCellsByMilestone}
         />
 
         {!compact && (

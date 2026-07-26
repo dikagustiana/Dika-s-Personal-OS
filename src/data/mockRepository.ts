@@ -1,4 +1,5 @@
 import { MockResearchRepository } from './researchRepository';
+import { guardCellNote, guardCellState, type CellWriteOrigin } from './finishLineGuards';
 import type { Repository } from './repository';
 import {
   seedDailyLogs,
@@ -11,9 +12,14 @@ import type {
   DailyLog,
   Domain,
   Entry,
+  CellState,
+  DanglingLink,
   FinishLineCell,
+  FinishLineDep,
+  FinishLineEdge,
   FinishLineEntity,
   FinishLineItem,
+  OrphanMilestone,
   IeltsError,
   IeltsResult,
   Project,
@@ -233,23 +239,26 @@ export class MockRepository implements Repository {
     this.ieltsErrors.delete(id);
   }
 
-  // --- finish line: the entity matrix ---------------------------------------
+  // --- finish line: the entity matrix ----------------------------------------
 
   /**
-   * STARTS EMPTY, AND STAYS THAT WAY. The matrix structure is the group
-   * financial pack — real entity codes, real line items — and this repo is
-   * public. It is seeded into the database by migration 20260726000022, never
-   * from here. A bare clone renders the empty state, which is correct.
+   * STARTS EMPTY, AND STAYS THAT WAY. The matrix names consolidation entities
+   * and real pack line items; this repo is public, so it is seeded into the
+   * database by migration 20260726000023 and never from here. A bare clone
+   * renders the empty state — which is also exactly what a database without
+   * the migration renders, so the two agree.
    *
-   * There are also NO FIGURES here and none may be added: a cell carries a
-   * state, and the numbers live in Excel.
+   * NO FIGURES here and none may be added: a cell carries a state, and the
+   * numbers live in Excel.
    */
-  private readonly finishLineItems = new Map<string, FinishLineItem>();
+  private readonly finishLineItems: FinishLineItem[] = [];
   private readonly finishLineEntities: FinishLineEntity[] = [];
   private readonly finishLineCells = new Map<string, FinishLineCell>();
+  private readonly finishLineDeps: FinishLineDep[] = [];
+  private finishLineEdges: FinishLineEdge[] = [];
 
   async listFinishLineItems(): Promise<FinishLineItem[]> {
-    return clone([...this.finishLineItems.values()].sort((a, b) => a.order - b.order));
+    return clone([...this.finishLineItems].sort((a, b) => a.order - b.order));
   }
 
   async listFinishLineEntities(): Promise<FinishLineEntity[]> {
@@ -260,36 +269,124 @@ export class MockRepository implements Repository {
     return clone([...this.finishLineCells.values()]);
   }
 
-  async setFinishLineCellNote(
-    itemId: string,
-    entityCode: string,
-    note: string | undefined,
-  ): Promise<FinishLineCell> {
-    const key = `${itemId}:${entityCode}`;
-    const current = this.finishLineCells.get(key);
-    if (!current) throw new Error(`Cell not found: ${itemId} / ${entityCode}`);
-    const updated: FinishLineCell = { ...current };
-    if (note) updated.note = note;
-    else delete updated.note;
-    this.finishLineCells.set(key, clone(updated));
-    return clone(updated);
+  async listFinishLineDeps(): Promise<FinishLineDep[]> {
+    return clone(this.finishLineDeps);
+  }
+
+  async listFinishLineEdges(): Promise<FinishLineEdge[]> {
+    return clone(this.finishLineEdges);
   }
 
   /**
-   * Mirrors the database's `on delete cascade` on the join table: deleting a
-   * project clears its links and LEAVES THE LINE STANDING, now unowned.
-   * Without this the mock would disagree with production.
+   * Mirrors the view: edges whose milestone no longer exists in the project's
+   * jsonb array. There is no foreign key and there cannot be one, so this gap
+   * is surfaced rather than solved — and never auto-deleted.
    */
-  private cascadeProjectDeletion(projectId: string): void {
-    for (const [id, item] of this.finishLineItems) {
-      if (!item.links.some((link) => link.projectId === projectId)) continue;
-      this.finishLineItems.set(id, {
-        ...item,
-        links: item.links.filter((link) => link.projectId !== projectId),
+  async listDanglingLinks(): Promise<DanglingLink[]> {
+    const live = new Set<string>();
+    for (const project of this.projects.values()) {
+      for (const milestone of project.milestones) live.add(`${project.id}:${milestone.id}`);
+    }
+    return this.finishLineEdges
+      .filter(
+        (edge) =>
+          edge.milestoneId !== undefined && !live.has(`${edge.projectId}:${edge.milestoneId}`),
+      )
+      .map((edge) => {
+        const link: DanglingLink = {
+          id: edge.id,
+          projectId: edge.projectId,
+          milestoneId: edge.milestoneId as string,
+        };
+        link.cellId = edge.cellId;
+        const project = this.projects.get(edge.projectId);
+        if (project) link.projectTitle = project.title;
+        return link;
       });
+  }
+
+  async listOrphanMilestones(): Promise<OrphanMilestone[]> {
+    const linked = new Set(
+      this.finishLineEdges
+        .filter((edge) => edge.milestoneId !== undefined)
+        .map((edge) => `${edge.projectId}:${edge.milestoneId}`),
+    );
+    const orphans: OrphanMilestone[] = [];
+    for (const project of this.projects.values()) {
+      for (const milestone of project.milestones) {
+        if (linked.has(`${project.id}:${milestone.id}`)) continue;
+        orphans.push({
+          projectId: project.id,
+          projectTitle: project.title,
+          milestoneId: milestone.id,
+          milestoneText: milestone.text,
+          done: milestone.done,
+        });
+      }
+    }
+    return orphans;
+  }
+
+  async setFinishLineCellState(
+    cellId: string,
+    state: CellState,
+    origin: CellWriteOrigin,
+  ): Promise<FinishLineCell> {
+    const checked = guardCellState(state, origin);
+    const current = this.finishLineCells.get(cellId);
+    if (!current) throw new Error(`Cell not found: ${cellId}`);
+    const updated: FinishLineCell = { ...current, state: checked };
+    this.finishLineCells.set(cellId, clone(updated));
+    return clone(updated);
+  }
+
+  async setFinishLineCellNote(
+    cellId: string,
+    note: string | undefined,
+  ): Promise<FinishLineCell> {
+    const current = this.finishLineCells.get(cellId);
+    if (!current) throw new Error(`Cell not found: ${cellId}`);
+    const cleaned = guardCellNote(note);
+    const updated: FinishLineCell = { ...current };
+    if (cleaned) updated.note = cleaned;
+    else delete updated.note;
+    this.finishLineCells.set(cellId, clone(updated));
+    return clone(updated);
+  }
+
+  async setCellEdges(
+    cellId: string,
+    edges: { projectId: string; milestoneId?: string }[],
+  ): Promise<void> {
+    this.finishLineEdges = this.finishLineEdges.filter((edge) => edge.cellId !== cellId);
+    for (const edge of edges) {
+      const created: FinishLineEdge = { id: createId(), cellId, projectId: edge.projectId };
+      if (edge.milestoneId) created.milestoneId = edge.milestoneId;
+      this.finishLineEdges.push(created);
     }
   }
-}
 
+  async setMilestoneEdges(
+    projectId: string,
+    milestoneId: string,
+    cellIds: string[],
+  ): Promise<void> {
+    this.finishLineEdges = this.finishLineEdges.filter(
+      (edge) => !(edge.projectId === projectId && edge.milestoneId === milestoneId),
+    );
+    for (const cellId of cellIds) {
+      this.finishLineEdges.push({ id: createId(), cellId, projectId, milestoneId });
+    }
+  }
+
+  /**
+   * Mirrors the database cascade: deleting a project takes its edges. The CELL
+   * stays, now unplanned — which is the row the two lists in §7.5 exist to
+   * surface.
+   */
+  private cascadeProjectDeletion(projectId: string): void {
+    this.finishLineEdges = this.finishLineEdges.filter((edge) => edge.projectId !== projectId);
+  }
+}
 
 export const mockRepository = new MockRepository();

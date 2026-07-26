@@ -9,7 +9,7 @@ import {
 } from '../../components/ProjectEditor';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
-import type { FinishLineItem, Project, TaskEntry, WeeklyPlan } from '../../data/types';
+import type { FinishLineEdge, Project, TaskEntry, WeeklyPlan } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
   ancestorIds,
@@ -44,7 +44,7 @@ export function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
-  const [finishLineItems, setFinishLineItems] = useState<FinishLineItem[]>([]);
+  const [finishLineEdges, setFinishLineEdges] = useState<FinishLineEdge[]>([]);
   const [creating, setCreating] = useState(false);
   const [entityFilter, setEntityFilter] = useState<string>(ALL_ENTITIES);
   const [draft, setDraft] = useState<ProjectDraft>(emptyProjectDraft);
@@ -64,12 +64,12 @@ export function Projects() {
     // section, exactly as they did before the pack existed.
     if (domain === 'work') {
       try {
-        setFinishLineItems(await repository.listFinishLineItems());
+        setFinishLineEdges(await repository.listFinishLineEdges());
       } catch {
-        setFinishLineItems([]);
+        setFinishLineEdges([]);
       }
     } else {
-      setFinishLineItems([]);
+      setFinishLineEdges([]);
     }
   }, [domain, repository]);
 
@@ -191,11 +191,8 @@ export function Projects() {
   // one-shot handoff shape projectFocus uses in the other direction.
   const openFinishLine =
     domain === 'work'
-      ? (itemId: string, entityCode?: string) => {
-          // Repointed at the cell: the matrix's grain is (line item x entity),
-          // so a link that names an entity lands on that entity's cell rather
-          // than on the whole row.
-          setFinishLineFocus(entityCode ? { itemId, entityCode } : { itemId });
+      ? (itemId: string) => {
+          setFinishLineFocus({ itemId });
           setWorkView('finish-line');
         }
       : undefined;
@@ -219,7 +216,7 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
-        finishLineItems={domain === 'work' ? finishLineItems : undefined}
+        finishLineEdges={domain === 'work' ? finishLineEdges : undefined}
         onOpenFinishLine={openFinishLine}
       />
       <ProjectChildren
@@ -237,7 +234,7 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
-        finishLineItems={domain === 'work' ? finishLineItems : undefined}
+        finishLineEdges={domain === 'work' ? finishLineEdges : undefined}
         onOpenFinishLine={openFinishLine}
       />
     </div>
