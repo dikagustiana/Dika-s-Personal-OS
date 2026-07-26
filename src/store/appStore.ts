@@ -62,6 +62,14 @@ export interface FinishLineFocus {
    * than on the whole row. Absent means the row itself.
    */
   entityCode?: string;
+  /**
+   * Arriving from a project's PACK LINES tile: the exact cells that project's
+   * milestones make trustworthy. The matrix narrows to them rather than
+   * scrolling to one row, because a project generally closes cells scattered
+   * across several sections and entities — a single scroll target would land
+   * on one of them and silently imply it was the only one.
+   */
+  cellIds?: string[];
 }
 
 interface AppState {

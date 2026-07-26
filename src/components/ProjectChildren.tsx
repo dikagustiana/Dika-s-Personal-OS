@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ProjectCard } from './ProjectCard';
 import { Progress } from './ui/Progress';
 import type { Domain, FinishLineEdge, Project, TaskEntry, WeeklyGoal } from '../data/types';
+import type { ReadResult } from '../data/readResult';
 import { rollupMilestones, type ProjectNode } from '../logic/hierarchy';
 import { projectAlertState } from '../logic/milestones';
 import { cn } from '../lib/utils';
@@ -28,8 +29,8 @@ export interface ProjectChildrenProps {
    */
   milestonesOpenFor?: string | null;
   /** The finish-line pack — forwarded so nested cards answer "why" too. */
-  finishLineEdges?: FinishLineEdge[];
-  onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
+  finishLineEdges?: ReadResult<FinishLineEdge> | null;
+  onOpenFinishLine?: (itemId: string, entityCode?: string, cellIds?: string[]) => void;
 }
 
 function AlertBadge({ alert }: { alert: 'overdue' | 'blocked' }) {
