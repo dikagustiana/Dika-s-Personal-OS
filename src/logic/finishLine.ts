@@ -151,8 +151,14 @@ export interface PackNode {
   /** All lines in this subtree. */
   totalLines: number;
   /**
-   * Blocks arrive expanded when they contain a non-trusted line, collapsed
-   * when everything inside is fine — the document opens to where the work is.
+   * Broken links in this subtree. Rolled up so a block of nominally trusted
+   * lines cannot hide a dangling link behind its collapsed header — the
+   * broken link is a first-class state at every level, not just on the line.
+   */
+  brokenLinks: number;
+  /**
+   * Blocks arrive expanded when they contain a non-trusted line OR a broken
+   * link — the document opens to where the work is.
    */
   defaultOpen: boolean;
 }
@@ -194,7 +200,18 @@ export function buildPack(items: FinishLineItem[], projects: Project[]): PackNod
     const totalLines = own + children.reduce((sum, child) => sum + child.totalLines, 0);
     const trusted = ownTrusted + children.reduce((sum, child) => sum + child.trusted, 0);
     const needsWork = totalLines - trusted;
-    return { item, children, line, needsWork, trusted, totalLines, defaultOpen: needsWork > 0 };
+    const brokenLinks =
+      (line?.brokenLinks ?? 0) + children.reduce((sum, child) => sum + child.brokenLinks, 0);
+    return {
+      item,
+      children,
+      line,
+      needsWork,
+      trusted,
+      totalLines,
+      brokenLinks,
+      defaultOpen: needsWork > 0 || brokenLinks > 0,
+    };
   };
 
   return roots.sort(byDocumentOrder).map(build);

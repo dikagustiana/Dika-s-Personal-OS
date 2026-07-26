@@ -105,6 +105,24 @@ describe('buildPack', () => {
     expect(pack[2].defaultOpen).toBe(false); // empty
   });
 
+  it('rolls broken links up to the block, and opens it — a tick must not hide a dangling link', () => {
+    const p = project({ id: 'p1', milestones: [milestone({ id: 'm1' })] });
+    const items = [
+      item({ id: 'b1', item: 'Block one', kind: 'block', order: 1 }),
+      item({
+        id: 'l1',
+        kind: 'line',
+        parentId: 'b1',
+        status: 'trusted',
+        links: [{ id: 'k1', projectId: 'p1', milestoneId: 'deleted' }],
+      }),
+    ];
+    const [block] = buildPack(items, [p]);
+    expect(block.needsWork).toBe(0);
+    expect(block.brokenLinks).toBe(1);
+    expect(block.defaultOpen).toBe(true);
+  });
+
   it('keeps an item whose parent does not resolve, as a root', () => {
     const orphan = item({ id: 'lost', item: 'Line lost', kind: 'line', parentId: 'gone' });
     const pack = buildPack([orphan], []);

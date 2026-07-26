@@ -239,26 +239,49 @@ export function FinishLine() {
       )}
 
       <div className="space-y-4">
-        {pack.map((block) => (
-          <BlockCard
-            key={block.item.id}
-            block={block}
-            open={openBlocks[block.item.id] ?? block.defaultOpen}
-            onToggle={() =>
-              setOpenBlocks((current) => ({
-                ...current,
-                [block.item.id]: !(current[block.item.id] ?? block.defaultOpen),
-              }))
-            }
-            expanded={expanded}
-            onToggleLine={toggleLine}
-            editingId={editingId}
-            onEdit={setEditingId}
-            onSaved={onSaved}
-            projects={projects}
-            onOpenProject={openProject}
-          />
-        ))}
+        {pack.map((root) =>
+          root.item.kind === 'block' ? (
+            <BlockCard
+              key={root.item.id}
+              block={root}
+              open={openBlocks[root.item.id] ?? root.defaultOpen}
+              onToggle={() =>
+                setOpenBlocks((current) => ({
+                  ...current,
+                  [root.item.id]: !(current[root.item.id] ?? root.defaultOpen),
+                }))
+              }
+              expanded={expanded}
+              onToggleLine={toggleLine}
+              editingId={editingId}
+              onEdit={setEditingId}
+              onSaved={onSaved}
+              projects={projects}
+              onOpenProject={openProject}
+            />
+          ) : (
+            // A root that is NOT a block — a line or section whose parent is
+            // absent or unresolved (buildPack surfaces orphans as roots rather
+            // than hiding them). Rendered as document rows, not dressed up as
+            // a block: a root line must render ITSELF, with its annotation
+            // reachable, not an empty block header claiming it has no lines.
+            <Card key={root.item.id}>
+              <CardContent className="pt-4">
+                <PackRows
+                  node={root}
+                  depth={0}
+                  expanded={expanded}
+                  onToggleLine={toggleLine}
+                  editingId={editingId}
+                  onEdit={setEditingId}
+                  onSaved={onSaved}
+                  projects={projects}
+                  onOpenProject={openProject}
+                />
+              </CardContent>
+            </Card>
+          ),
+        )}
 
         {loaded && !loadError && pack.length === 0 && (
           <Card>
@@ -328,6 +351,13 @@ function BlockCard({
         {block.needsWork > 0 ? (
           <span className="shrink-0 text-xs font-semibold tabular-nums text-escalate">
             ● {block.needsWork} {block.needsWork === 1 ? 'line needs' : 'lines need'} work
+          </span>
+        ) : block.brokenLinks > 0 ? (
+          // Nominally all trusted, but a link inside is dangling. The broken
+          // link must not vanish behind a collapsed header and a green tick.
+          <span className="flex shrink-0 items-center gap-1 text-xs font-semibold tabular-nums text-destructive">
+            <Unlink className="size-3.5" aria-hidden />
+            {block.brokenLinks} broken {block.brokenLinks === 1 ? 'link' : 'links'}
           </span>
         ) : (
           block.totalLines > 0 && (
@@ -448,10 +478,18 @@ function LineRow({
 
   const rowPadding = { paddingLeft: depth > 0 ? depth * 16 : undefined };
 
-  if (trusted) {
+  if (trusted && line.brokenLinks === 0) {
     // NOT A BUTTON, ON PURPOSE — no click target, no hover, no chrome. Most
     // lines are trusted; if each carried an affordance, the ones that matter
     // would stop standing out. This is the density decision of the view.
+    //
+    // The one exception is above in the guard: a trusted line whose link has
+    // BROKEN is no longer quietly fine. Two rules collide there — "trusted
+    // lines carry no affordance" and "a broken link is named, visible,
+    // resolvable, never silently dropped" — and the broken-link rule wins,
+    // because a green tick over a dangling link is exactly the gap-that-
+    // looks-owned failure it exists to prevent. Such a line stays expandable
+    // until the link is repaired.
     return (
       <div
         id={`finish-line-${item.id}`}
@@ -465,12 +503,13 @@ function LineRow({
     );
   }
 
-  const marker =
-    item.status === 'blocked' ? (
-      <OctagonAlert aria-label="Blocked" className="size-3.5 shrink-0 text-destructive" />
-    ) : (
-      <TriangleAlert aria-label="In progress" className="size-3.5 shrink-0 text-escalate" />
-    );
+  const marker = trusted ? (
+    <Unlink aria-label="Trusted, but a link is broken" className="size-3.5 shrink-0 text-destructive" />
+  ) : item.status === 'blocked' ? (
+    <OctagonAlert aria-label="Blocked" className="size-3.5 shrink-0 text-destructive" />
+  ) : (
+    <TriangleAlert aria-label="In progress" className="size-3.5 shrink-0 text-escalate" />
+  );
 
   return (
     <div id={`finish-line-${item.id}`} className="scroll-mt-24">
