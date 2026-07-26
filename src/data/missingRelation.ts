@@ -23,6 +23,23 @@
  * throws: a permission error, a network failure or a malformed query must stay
  * loud, because rendering "empty" for those would say the pack is empty when
  * nobody actually knows.
+ *
+ * ===========================================================================
+ * THIS PREDICATE CLASSIFIES. IT DOES NOT DECIDE WHAT THE CALLER RETURNS.
+ * ===========================================================================
+ * It used to, in effect: every finish-line read did
+ *
+ *     if (isMissingRelation(error)) return [];
+ *
+ * which handed a failed read and an empty table to the caller as the SAME
+ * VALUE. That is how the live build came to render `0 milestones make no pack
+ * line trustworthy — None` while the truth was 458. The card could not have
+ * been written to catch it — by the time the array arrived, the distinction
+ * was gone.
+ *
+ * Reads now return `ReadResult<T>` (see readResult.ts) and this stays what it
+ * always was: the one place that recognises the codes. Do not reintroduce a
+ * `return []` at a call site.
  */
 export interface RelationError {
   code?: string;

@@ -1,5 +1,6 @@
 import type { ResearchRepository } from './researchRepository';
 import type { CellWriteOrigin } from './finishLineGuards';
+import type { ReadResult } from './readResult';
 import type {
   CellState,
   DailyLog,
@@ -73,21 +74,30 @@ export interface Repository {
   /**
    * Finish line — the entity matrix and the road to it.
    *
-   * READS DEGRADE TO EMPTY when the relation does not exist: the frontend
-   * ships before the migration is applied, which has already broken production
-   * twice in this project. A missing table is an empty matrix, not a crash.
+   * EVERY READ HERE RETURNS `ReadResult`, NOT AN ARRAY.
+   *
+   * These reads all feed cards that COUNT PROBLEMS, and an empty array cannot
+   * tell such a card whether it found nothing or failed to look. That is not
+   * hypothetical: the live build rendered `0 milestones make no pack line
+   * trustworthy — None` while the truth was 458, because the read degraded to
+   * `[]` and the copy turned the failure into good news.
+   *
+   * A missing relation is still not a crash — the frontend ships before a
+   * migration is applied — but it now arrives as `{ok: false, reason:
+   * 'missing-relation'}` so the card can say COULD NOT CHECK and, critically,
+   * show no number at all. See readResult.ts.
    *
    * The structure is seeded by migration 20260726000023. There is no create or
    * delete for line items — a row in the app but not in the pack is a row
    * nobody can explain.
    */
-  listFinishLineItems(): Promise<FinishLineItem[]>;
-  listFinishLineEntities(): Promise<FinishLineEntity[]>;
-  listFinishLineCells(): Promise<FinishLineCell[]>;
-  listFinishLineDeps(): Promise<FinishLineDep[]>;
-  listFinishLineEdges(): Promise<FinishLineEdge[]>;
-  listDanglingLinks(): Promise<DanglingLink[]>;
-  listOrphanMilestones(): Promise<OrphanMilestone[]>;
+  listFinishLineItems(): Promise<ReadResult<FinishLineItem>>;
+  listFinishLineEntities(): Promise<ReadResult<FinishLineEntity>>;
+  listFinishLineCells(): Promise<ReadResult<FinishLineCell>>;
+  listFinishLineDeps(): Promise<ReadResult<FinishLineDep>>;
+  listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>>;
+  listDanglingLinks(): Promise<ReadResult<DanglingLink>>;
+  listOrphanMilestones(): Promise<ReadResult<OrphanMilestone>>;
 
   /**
    * The state write. `origin` is required and only 'human' is accepted — see
