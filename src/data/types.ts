@@ -391,3 +391,48 @@ export interface IeltsError {
   resultId?: string;
   createdAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Finish line — target, gap, and who closes it
+//
+// The 21 WORK projects are tributaries into ONE consolidated deliverable, so
+// the unit tracked here is the gap item, not the project: one gap can hold up
+// several parts of the pack, and one project can close several gaps. Hence
+// `projectIds` (plural, many-to-many) rather than a single owner.
+//
+// See migration 20260726000020. Nothing in this repo carries a real gap item —
+// the repo is public and the items name entities, drivers and open methodology
+// decisions.
+// ---------------------------------------------------------------------------
+
+/** Maps onto the existing semantic tokens: destructive / escalate / success. */
+export type FinishLineStatus = 'blocked' | 'in-progress' | 'trusted';
+
+export interface FinishLineItem {
+  id: string;
+  /** Free text, not an enum — the target grows and the list must stay cheap to extend. */
+  area: string;
+  item: string;
+  /** What must be true for this part of the pack to be trustworthy. */
+  targetState: string;
+  /** What it currently is. Absent while nobody has written it down. */
+  currentState?: string;
+  /**
+   * The proxy standing in while the real input is unavailable. Present means
+   * everything downstream is PROVISIONAL — the view renders it as a warning,
+   * never as a value. A figure resting on a driver known to be wrong is not a
+   * smaller version of a correct figure.
+   */
+  interim?: string;
+  /** What else stops being trustworthy while this is open. */
+  blocks?: string;
+  status: FinishLineStatus;
+  order: number;
+  /**
+   * Projects that close this gap. MANY, deliberately. An empty array is the
+   * loudest state in the view: a known gap nobody owns.
+   */
+  projectIds: string[];
+  // There is no priority or rank field. Ordering is derived from status,
+  // links and `blocks` at render time, like every other computed value here.
+}
