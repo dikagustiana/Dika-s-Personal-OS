@@ -91,8 +91,11 @@ export function MetricTiles({
       <Tile
         icon={<Link2 className="size-3.5 text-foreground-muted" />}
         label="Linked"
-        value={`${linkedTasksDone}/${linkedTasksTotal} tasks`}
-        sub="This week"
+        // Same contract as the Milestones tile above: the em dash means
+        // nothing to count, so 37 cards stop printing a 0/0 the eye must
+        // dismiss on every pass.
+        value={linkedTasksTotal === 0 ? '—' : `${linkedTasksDone}/${linkedTasksTotal} tasks`}
+        sub={linkedTasksTotal === 0 ? 'No linked tasks' : 'This week'}
       />
       <Tile
         icon={<ListChecks className="size-3.5 text-foreground-muted" />}

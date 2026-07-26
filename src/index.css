@@ -146,7 +146,9 @@ html {
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  /* dvh, matching every full-height surface (min-h-dvh) — with vh, the iOS
+     address bar leaves a few pixels of dead scroll on every page. */
+  min-height: 100dvh;
   font-size: 0.875rem; /* 14px body per type scale */
   line-height: 1.5;
   background: hsl(var(--background));

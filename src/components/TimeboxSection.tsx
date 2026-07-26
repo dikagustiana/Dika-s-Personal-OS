@@ -60,13 +60,17 @@ export function TimeboxSection({
   const [draftCategory, setDraftCategory] = useState<TimeBlockCategory | ''>('');
   const currentSlotRef = useRef<HTMLDivElement | null>(null);
 
+  // Once per date, not per slot: with currentSlot in the deps this re-fired at
+  // every half-hour rollover and yanked the page back to the grid while the
+  // owner was reading something else — twice an hour.
   useEffect(() => {
     if (!currentSlotRef.current) return;
     const timer = window.setTimeout(() => {
       currentSlotRef.current?.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [currentSlot]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
   const byStart = useMemo(() => new Map(blocks.map((block) => [block.start, block])), [blocks]);
   const taskById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);

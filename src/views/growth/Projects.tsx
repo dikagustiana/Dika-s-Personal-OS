@@ -106,7 +106,9 @@ export function Projects() {
     if (!scrollTarget) return;
     document
       .getElementById(`project-card-${scrollTarget}`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      // 'auto', never 'smooth': an explicit behavior overrides CSS
+      // scroll-behavior, which is where the reduced-motion block lives.
+      ?.scrollIntoView({ behavior: 'auto', block: 'start' });
     setScrollTarget(null);
   }, [scrollTarget]);
 

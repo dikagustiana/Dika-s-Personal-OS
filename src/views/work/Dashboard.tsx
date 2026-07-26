@@ -133,30 +133,55 @@ function SectionHeading({
   );
 }
 
-/** Overdue and blocked are both red, so one is filled and one is outlined. */
-function StateBadge({ row }: { row: NeedsActionRow }) {
-  const base =
-    'shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider tabular-nums';
-  if (row.state === 'overdue') {
-    return (
-      <span className={cn(base, 'bg-destructive text-destructive-foreground')}>
-        Overdue {row.daysOverdue}d
-      </span>
-    );
-  }
-  if (row.state === 'today') {
-    return <span className={cn(base, 'bg-escalate text-escalate-foreground')}>Today</span>;
-  }
+/**
+ * One badge, parameterised — the blocked treatment previously existed twice
+ * as byte-identical markup (StateBadge's blocked branch and BlockedBadge), so
+ * a future change to it would have applied to only one.
+ */
+function RowBadge({
+  tone,
+  fill,
+  children,
+}: {
+  tone: 'destructive' | 'escalate';
+  fill: boolean;
+  children: React.ReactNode;
+}) {
   return (
-    <span className={cn(base, 'border border-destructive text-destructive')}>Blocked</span>
+    <span
+      className={cn(
+        'shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider tabular-nums',
+        fill && tone === 'destructive' && 'bg-destructive text-destructive-foreground',
+        fill && tone === 'escalate' && 'bg-escalate text-escalate-foreground',
+        !fill && tone === 'destructive' && 'border border-destructive text-destructive',
+        !fill && tone === 'escalate' && 'border border-escalate text-escalate',
+      )}
+    >
+      {children}
+    </span>
   );
 }
 
-function BlockedBadge() {
+/** Overdue and blocked are both red, so one is filled and one is outlined. */
+function StateBadge({ row }: { row: NeedsActionRow }) {
+  if (row.state === 'overdue') {
+    return (
+      <RowBadge tone="destructive" fill>
+        Overdue {row.daysOverdue}d
+      </RowBadge>
+    );
+  }
+  if (row.state === 'today') {
+    return (
+      <RowBadge tone="escalate" fill>
+        Today
+      </RowBadge>
+    );
+  }
   return (
-    <span className="shrink-0 rounded-sm border border-destructive px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-destructive">
+    <RowBadge tone="destructive" fill={false}>
       Blocked
-    </span>
+    </RowBadge>
   );
 }
 
@@ -202,6 +227,11 @@ export function Dashboard() {
   const [pinFilter, setPinFilter] = useState('');
   const [showAllNeedsAction, setShowAllNeedsAction] = useState(false);
   const [dumpText, setDumpText] = useState('');
+  // Gate for every empty branch below: without it the landing screen opened
+  // by announcing "Nothing flagged · Nothing overdue · No goals set · None
+  // pinned" and then contradicted itself when load() resolved. Same contract
+  // as Today.tsx.
+  const [isLoading, setIsLoading] = useState(true);
   // 'question' asks; 'dismissed' is "Belum", for this visit only — nothing is
   // persisted, so the question is back on the next load; 'confirm' is "Sudah"
   // one step short of writing six rows.
@@ -243,6 +273,7 @@ export function Dashboard() {
     setPlan(weekPlan);
     setLogs(logData);
     setLog(todayLog);
+    setIsLoading(false);
   }, [repository, setLog, today, todayKey, weekKey]);
 
   useEffect(() => {
@@ -568,7 +599,11 @@ export function Dashboard() {
             onClick={go(tile.view)}
             className="bg-card p-4 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
-            <p className="text-2xl font-bold tabular-nums text-foreground">{tile.value}</p>
+            {/* The dash until data resolves — a tile that opens saying "0
+                escalations" and then corrects itself has already lied once. */}
+            <p className="text-2xl font-bold tabular-nums text-foreground">
+              {isLoading ? '—' : tile.value}
+            </p>
             <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">
               {tile.caption}
             </p>
@@ -583,12 +618,14 @@ export function Dashboard() {
             <SectionHeading title="Needs action today" />
 
             {urgentTasks.length === 0 ? (
-              <EmptyRow
-                label="Urgent tasks · counts toward today's score"
-                clause="Nothing flagged yet"
-                action="Flag a task"
-                onAction={go('today')}
-              />
+              !isLoading && (
+                <EmptyRow
+                  label="Urgent tasks · counts toward today's score"
+                  clause="Nothing flagged yet"
+                  action="Flag a task"
+                  onAction={go('today')}
+                />
+              )
             ) : (
               <>
                 <div className="flex items-baseline justify-between gap-4">
@@ -623,12 +660,14 @@ export function Dashboard() {
 
             <div className="mt-4">
               {needsAction.length === 0 ? (
-                <EmptyRow
-                  label="Milestones · not scored"
-                  clause="Nothing overdue, due today or blocked"
-                  action="Open projects"
-                  onAction={go('projects')}
-                />
+                !isLoading && (
+                  <EmptyRow
+                    label="Milestones · not scored"
+                    clause="Nothing overdue, due today or blocked"
+                    action="Open projects"
+                    onAction={go('projects')}
+                  />
+                )
               ) : (
                 <>
                   {/* The counts here are the whole list's, never the five rows'. */}
@@ -663,7 +702,11 @@ export function Dashboard() {
                                 {initials}
                               </span>
                             )}
-                            {row.alsoBlocked && <BlockedBadge />}
+                            {row.alsoBlocked && (
+                              <RowBadge tone="destructive" fill={false}>
+                                Blocked
+                              </RowBadge>
+                            )}
                             <StateBadge row={row} />
                           </button>
                         </li>
@@ -816,12 +859,14 @@ export function Dashboard() {
           <CardContent className="pt-5">
             <SectionHeading title="This week" />
             {goals.length === 0 ? (
-              <EmptyRow
-                label="Weekly goals"
-                clause="No goals set"
-                action="Set this week's goals"
-                onAction={go('week')}
-              />
+              !isLoading && (
+                <EmptyRow
+                  label="Weekly goals"
+                  clause="No goals set"
+                  action="Set this week's goals"
+                  onAction={go('week')}
+                />
+              )
             ) : (
               <ul className="divide-y divide-border-subtle">
                 {goals.map((item) => (
@@ -926,7 +971,7 @@ export function Dashboard() {
               </div>
             )}
 
-            {pinnedCards.length === 0 && (
+            {!isLoading && pinnedCards.length === 0 && (
               <EmptyRow
                 label="Pinned projects"
                 clause="None pinned"

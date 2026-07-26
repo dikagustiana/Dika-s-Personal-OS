@@ -14,16 +14,17 @@ export function ToastViewport() {
   if (toasts.length === 0) return null;
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="fixed inset-x-3 bottom-3 z-50 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96"
-    >
+    <div className="fixed inset-x-3 bottom-3 z-50 flex flex-col gap-2 sm:inset-x-auto sm:right-4 sm:w-96">
       {toasts.map((toast) => (
+        // The role sits on each toast, per tone: a failed write ("nothing was
+        // saved") must interrupt the screen reader, and role="alert" is
+        // announced even when the node mounts with its content — a polite
+        // container that mounts on demand would routinely be missed.
         <div
           key={toast.id}
+          role={toast.tone === 'error' ? 'alert' : 'status'}
           className={cn(
-            'flex items-start gap-3 border bg-card p-3 shadow-lg',
+            'flex items-start gap-3 border bg-card p-3 shadow-card',
             toast.tone === 'error' ? 'border-destructive/50' : 'border-border',
           )}
         >
