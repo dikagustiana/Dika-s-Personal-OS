@@ -56,6 +56,12 @@ export interface ProjectFocus {
  */
 export interface FinishLineFocus {
   itemId: string;
+  /**
+   * Repointed at the cell. The matrix's grain is (line item x entity), so a
+   * project that closes work for one entity lands on that entity's cell rather
+   * than on the whole row. Absent means the row itself — a row-level link.
+   */
+  entityCode?: string;
 }
 
 interface AppState {

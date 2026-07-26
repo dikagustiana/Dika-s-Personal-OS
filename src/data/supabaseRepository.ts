@@ -8,11 +8,14 @@ import type {
   Domain,
   Entry,
   EntryType,
+  CellState,
+  FinishLineAgg,
+  FinishLineCell,
+  FinishLineEntity,
   FinishLineItem,
   FinishLineKind,
   FinishLineLink,
-  FinishLineLinkInput,
-  FinishLineStatus,
+  FinishLineStyle,
   IeltsError,
   IeltsErrorSkill,
   IeltsResult,
@@ -740,22 +743,19 @@ class SupabaseRepository implements Repository {
     if (error) throw new Error(`deleteIeltsError failed: ${error.message}`);
   }
 
-  // --- finish line ----------------------------------------------------------
-  // Row shapes and the patch mapper for these live at the foot of this file,
-  // appended rather than filed into the sections above so a parallel session
-  // editing the same file gets a clean merge.
+  // --- finish line: the entity matrix ---------------------------------------
+  // Row shapes and mappers are appended at the foot of this file.
+  //
+  // READ-ONLY, deliberately. The matrix structure is seeded from the workbook
+  // by migration 20260726000022; nothing in the UI creates or deletes a line
+  // item, because a line item that exists in the app but not in the pack would
+  // be a row nobody can explain. Cell notes are the one write path.
 
-  /**
-   * Two queries, not one embedded select. The link table is small and this
-   * keeps the reader independent of PostgREST's relationship naming — and of
-   * whether the migrations have been applied yet, since a missing link table
-   * degrades to "every line is unowned" rather than an error that takes the
-   * whole view down.
-   */
   async listFinishLineItems(): Promise<FinishLineItem[]> {
     const { data, error } = await this.client
       .from('os_finish_line_items')
-      .select(FINISH_LINE_COLUMNS)
+      .select('id, item, kind, parent_id, sort_order, tag, unit, dp, agg, style, flag, blocks')
+      .in('kind', ['section', 'metric', 'note'])
       .order('sort_order', { ascending: true });
     if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
     const links = await this.listFinishLineLinks();
@@ -764,83 +764,61 @@ class SupabaseRepository implements Repository {
     );
   }
 
-  async createFinishLineItem(
-    input: Omit<FinishLineItem, 'id' | 'links'> & { links: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem> {
+  /** The matrix columns, in their own order. Never hardcoded in the frontend. */
+  async listFinishLineEntities(): Promise<FinishLineEntity[]> {
     const { data, error } = await this.client
-      .from('os_finish_line_items')
-      .insert({
-        area: input.area,
-        item: input.item,
-        parent_id: input.parentId ?? null,
-        kind: input.kind,
-        target_state: input.targetState ?? null,
-        current_state: input.currentState ?? null,
-        interim: input.interim ?? null,
-        blocks: input.blocks ?? null,
-        status: input.status,
-        sort_order: input.order,
-      })
-      .select(FINISH_LINE_COLUMNS)
-      .single();
-    if (error) throw new Error(`createFinishLineItem failed: ${error.message}`);
-    const row = data as FinishLineItemRow;
-    const links = await this.replaceFinishLineLinks(row.id, input.links);
-    return rowToFinishLineItem(row, links);
+      .from('os_finish_line_entities')
+      .select('code, label, sort_order')
+      .order('sort_order', { ascending: true });
+    if (error) throw new Error(`listFinishLineEntities failed: ${error.message}`);
+    return (data as FinishLineEntityRow[]).map((row) => ({
+      code: row.code,
+      label: row.label,
+      order: row.sort_order,
+    }));
   }
 
-  async updateFinishLineItem(
-    id: string,
-    patch: Partial<Omit<FinishLineItem, 'id' | 'links'>> & { links?: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem> {
-    const row = finishLinePatchToRow(patch);
-    if (patch.links !== undefined) {
-      await this.replaceFinishLineLinks(id, patch.links);
-      // Re-owning a line IS a change to the line. Without this the row's
-      // updated_at would still claim nothing had happened since before it
-      // had an owner.
-      row.updated_at = new Date().toISOString();
-    }
-    if (Object.keys(row).length > 0) {
-      const { error } = await this.client
-        .from('os_finish_line_items')
-        .update(row)
-        .eq('id', id);
-      if (error) throw new Error(`updateFinishLineItem failed: ${error.message}`);
-    }
+  async listFinishLineCells(): Promise<FinishLineCell[]> {
     const { data, error } = await this.client
-      .from('os_finish_line_items')
-      .select(FINISH_LINE_COLUMNS)
-      .eq('id', id)
+      .from('os_finish_line_cells')
+      .select('item_id, entity_code, state, note');
+    if (error) throw new Error(`listFinishLineCells failed: ${error.message}`);
+    return (data as FinishLineCellRow[]).map(rowToFinishLineCell);
+  }
+
+  /**
+   * The one write path. A note explains what is missing for one entity; the
+   * STATE is not writable from the UI, because a state change means the Excel
+   * pack changed and the pack is the source of truth for that.
+   */
+  async setFinishLineCellNote(
+    itemId: string,
+    entityCode: string,
+    note: string | undefined,
+  ): Promise<FinishLineCell> {
+    const { data, error } = await this.client
+      .from('os_finish_line_cells')
+      .update({ note: note ?? null, updated_at: new Date().toISOString() })
+      .eq('item_id', itemId)
+      .eq('entity_code', entityCode)
+      .select('item_id, entity_code, state, note')
       .maybeSingle();
-    if (error) throw new Error(`updateFinishLineItem failed: ${error.message}`);
-    if (!data) throw new Error(`Finish line item not found: ${id}`);
-    const links = await this.listFinishLineLinks(id);
-    return rowToFinishLineItem(data as FinishLineItemRow, links.get(id) ?? []);
+    if (error) throw new Error(`setFinishLineCellNote failed: ${error.message}`);
+    if (!data) throw new Error(`Cell not found: ${itemId} / ${entityCode}`);
+    return rowToFinishLineCell(data as FinishLineCellRow);
   }
 
-  async deleteFinishLineItem(id: string): Promise<void> {
-    // The join rows go with it, and so does the SUBTREE: parent_id cascades,
-    // so deleting a block takes its sections and lines. Deleting a PROJECT is
-    // the asymmetric case — that cascade clears links and leaves the line
-    // standing, unowned. Both verified against the live database on
-    // 2026-07-26 with a synthetic block/section/line structure.
-    const { error } = await this.client.from('os_finish_line_items').delete().eq('id', id);
-    if (error) throw new Error(`deleteFinishLineItem failed: ${error.message}`);
-  }
-
-  /** item id -> links. Whole table by default; one item when scoped. */
-  private async listFinishLineLinks(itemId?: string): Promise<Map<string, FinishLineLink[]>> {
-    let query = this.client
+  /** item id -> links. `entity_code` set means the link closes one cell. */
+  private async listFinishLineLinks(): Promise<Map<string, FinishLineLink[]>> {
+    const { data, error } = await this.client
       .from('os_finish_line_item_projects')
-      .select('id, item_id, project_id, milestone_id');
-    if (itemId) query = query.eq('item_id', itemId);
-    const { data, error } = await query;
+      .select('id, item_id, project_id, milestone_id, entity_code');
     if (error) throw new Error(`listFinishLineItems failed: ${error.message}`);
     const links = new Map<string, FinishLineLink[]>();
     for (const row of data as FinishLineLinkRow[]) {
       const link: FinishLineLink = { id: row.id, projectId: row.project_id };
       if (row.milestone_id) link.milestoneId = row.milestone_id;
+      if (row.entity_code) link.entityCode = row.entity_code;
       const existing = links.get(row.item_id);
       if (existing) existing.push(link);
       else links.set(row.item_id, [link]);
@@ -848,62 +826,35 @@ class SupabaseRepository implements Repository {
     return links;
   }
 
-  /**
-   * The link set is written wholesale: clear, then insert. An upsert would
-   * leave removed links behind, and the caller always knows the complete set
-   * it wants — there is no partial-link edit anywhere in the UI. Deduped by
-   * (project, milestone) before writing, since the database's unique index
-   * would reject the batch rather than the duplicate.
-   */
-  private async replaceFinishLineLinks(
-    itemId: string,
-    inputs: FinishLineLinkInput[],
-  ): Promise<FinishLineLink[]> {
-    const { error: clearError } = await this.client
-      .from('os_finish_line_item_projects')
-      .delete()
-      .eq('item_id', itemId);
-    if (clearError) throw new Error(`updateFinishLineItem failed: ${clearError.message}`);
-    const deduped = dedupeFinishLineLinks(inputs);
-    if (deduped.length === 0) return [];
-    const { data, error } = await this.client
-      .from('os_finish_line_item_projects')
-      .insert(
-        deduped.map((link) => ({
-          item_id: itemId,
-          project_id: link.projectId,
-          milestone_id: link.milestoneId ?? null,
-        })),
-      )
-      .select('id, item_id, project_id, milestone_id');
-    if (error) throw new Error(`updateFinishLineItem failed: ${error.message}`);
-    return (data as FinishLineLinkRow[]).map((row) => {
-      const link: FinishLineLink = { id: row.id, projectId: row.project_id };
-      if (row.milestone_id) link.milestoneId = row.milestone_id;
-      return link;
-    });
-  }
 }
-
 // --- finish line row shapes -------------------------------------------------
-
-const FINISH_LINE_COLUMNS =
-  'id, area, item, parent_id, kind, target_state, current_state, interim, blocks, status, sort_order';
 
 interface FinishLineItemRow {
   id: string;
-  area: string;
   item: string;
-  parent_id: string | null;
   kind: FinishLineKind;
-  target_state: string | null;
-  current_state: string | null;
-  interim: string | null;
-  blocks: string | null;
-  status: FinishLineStatus;
+  parent_id: string | null;
   sort_order: number;
-  /** Write-only; the row is never selected with it. See updateFinishLineItem. */
-  updated_at?: string;
+  tag: string | null;
+  unit: string | null;
+  dp: number | null;
+  agg: FinishLineAgg | null;
+  style: FinishLineStyle | null;
+  flag: string | null;
+  blocks: string | null;
+}
+
+interface FinishLineEntityRow {
+  code: string;
+  label: string;
+  sort_order: number;
+}
+
+interface FinishLineCellRow {
+  item_id: string;
+  entity_code: string;
+  state: CellState;
+  note: string | null;
 }
 
 interface FinishLineLinkRow {
@@ -911,56 +862,36 @@ interface FinishLineLinkRow {
   item_id: string;
   project_id: string;
   milestone_id: string | null;
-}
-
-/** Same (project, milestone) pair once, project-level (no milestone) distinct. */
-function dedupeFinishLineLinks(inputs: FinishLineLinkInput[]): FinishLineLinkInput[] {
-  const seen = new Set<string>();
-  const result: FinishLineLinkInput[] = [];
-  for (const input of inputs) {
-    const key = `${input.projectId}:${input.milestoneId ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(input);
-  }
-  return result;
+  entity_code: string | null;
 }
 
 function rowToFinishLineItem(row: FinishLineItemRow, links: FinishLineLink[]): FinishLineItem {
   const item: FinishLineItem = {
     id: row.id,
-    area: row.area,
     item: row.item,
     kind: row.kind,
-    status: row.status,
     order: row.sort_order,
     links,
   };
   // Nulls are dropped rather than carried, matching rowToProject: the domain
   // shape stays free of noise and readers test presence, not emptiness.
-  // An empty string counts as absent for the same reason — a cleared textarea
-  // must not make the view render an empty "standing in" warning.
   if (row.parent_id) item.parentId = row.parent_id;
-  if (row.target_state) item.targetState = row.target_state;
-  if (row.current_state) item.currentState = row.current_state;
-  if (row.interim) item.interim = row.interim;
+  if (row.tag) item.tag = row.tag;
+  if (row.unit) item.unit = row.unit;
+  if (row.dp !== null) item.dp = row.dp;
+  if (row.agg) item.agg = row.agg;
+  if (row.style) item.style = row.style;
+  if (row.flag) item.flag = row.flag;
   if (row.blocks) item.blocks = row.blocks;
   return item;
 }
 
-function finishLinePatchToRow(
-  patch: Partial<Omit<FinishLineItem, 'id' | 'links'>>,
-): Partial<FinishLineItemRow> {
-  const row: Partial<FinishLineItemRow> = {};
-  if (patch.area !== undefined) row.area = patch.area;
-  if (patch.item !== undefined) row.item = patch.item;
-  if ('parentId' in patch) row.parent_id = patch.parentId ?? null;
-  if (patch.kind !== undefined) row.kind = patch.kind;
-  if ('targetState' in patch) row.target_state = patch.targetState ?? null;
-  if ('currentState' in patch) row.current_state = patch.currentState ?? null;
-  if ('interim' in patch) row.interim = patch.interim ?? null;
-  if ('blocks' in patch) row.blocks = patch.blocks ?? null;
-  if (patch.status !== undefined) row.status = patch.status;
-  if (patch.order !== undefined) row.sort_order = patch.order;
-  return row;
+function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
+  const cell: FinishLineCell = {
+    itemId: row.item_id,
+    entityCode: row.entity_code,
+    state: row.state,
+  };
+  if (row.note) cell.note = row.note;
+  return cell;
 }

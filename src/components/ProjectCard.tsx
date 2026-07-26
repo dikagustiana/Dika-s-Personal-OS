@@ -103,7 +103,7 @@ export interface ProjectCardProps {
    */
   finishLineItems?: FinishLineItem[];
   /** Navigates to the Finish line view, scrolled to and expanded at a line. */
-  onOpenFinishLine?: (itemId: string) => void;
+  onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
 }
 
 /**
@@ -379,17 +379,15 @@ export function ProjectCard({
                         )}
                       </span>
                     </span>
-                    <span
-                      className={cn(
-                        'shrink-0 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]',
-                        trust.status === 'trusted'
-                          ? 'border-success/50 text-success'
-                          : trust.status === 'blocked'
-                            ? 'border-destructive/50 text-destructive'
-                            : 'border-escalate/50 text-escalate',
-                      )}
-                    >
-                      {trust.status === 'in-progress' ? 'In progress' : trust.status}
+                    {/* The matrix has no row-level status: trust is per CELL
+                        now, and even there it is a state rather than a verdict.
+                        So the badge says WHICH ENTITIES this project's links
+                        touch — the useful fact the status used to stand in for.
+                        Neutral tone: naming a column is not a judgement. */}
+                    <span className="shrink-0 rounded-sm border border-border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground-muted">
+                      {trust.entityCodes.length > 0
+                        ? trust.entityCodes.join(' · ')
+                        : 'all entities'}
                     </span>
                   </>
                 );
@@ -398,7 +396,7 @@ export function ProjectCard({
                     {onOpenFinishLine ? (
                       <button
                         type="button"
-                        onClick={() => onOpenFinishLine(trust.item.id)}
+                        onClick={() => onOpenFinishLine(trust.item.id, trust.entityCodes[0])}
                         className="flex min-h-11 w-full items-center gap-2 rounded-sm text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {row}

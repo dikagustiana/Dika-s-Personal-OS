@@ -11,9 +11,9 @@ import type {
   DailyLog,
   Domain,
   Entry,
+  FinishLineCell,
+  FinishLineEntity,
   FinishLineItem,
-  FinishLineLink,
-  FinishLineLinkInput,
   IeltsError,
   IeltsResult,
   Project,
@@ -233,64 +233,52 @@ export class MockRepository implements Repository {
     this.ieltsErrors.delete(id);
   }
 
-  // --- finish line ----------------------------------------------------------
+  // --- finish line: the entity matrix ---------------------------------------
 
   /**
-   * STARTS EMPTY, AND STAYS THAT WAY. Every other collection here is seeded;
-   * this one is not, and the omission is the point. The real pack names
-   * entities, internal drivers and open methodology decisions, and this repo
-   * is public — so there is no seed, no fixture and no worked example of one
-   * anywhere in it. A bare clone renders the empty state, which is correct.
+   * STARTS EMPTY, AND STAYS THAT WAY. The matrix structure is the group
+   * financial pack — real entity codes, real line items — and this repo is
+   * public. It is seeded into the database by migration 20260726000022, never
+   * from here. A bare clone renders the empty state, which is correct.
+   *
+   * There are also NO FIGURES here and none may be added: a cell carries a
+   * state, and the numbers live in Excel.
    */
   private readonly finishLineItems = new Map<string, FinishLineItem>();
+  private readonly finishLineEntities: FinishLineEntity[] = [];
+  private readonly finishLineCells = new Map<string, FinishLineCell>();
 
   async listFinishLineItems(): Promise<FinishLineItem[]> {
     return clone([...this.finishLineItems.values()].sort((a, b) => a.order - b.order));
   }
 
-  async createFinishLineItem(
-    input: Omit<FinishLineItem, 'id' | 'links'> & { links: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem> {
-    const item: FinishLineItem = {
-      ...input,
-      id: createId(),
-      links: dedupeLinks(input.links).map((link) => materializeLink(link)),
-    };
-    this.finishLineItems.set(item.id, clone(item));
-    return clone(item);
+  async listFinishLineEntities(): Promise<FinishLineEntity[]> {
+    return clone([...this.finishLineEntities].sort((a, b) => a.order - b.order));
   }
 
-  async updateFinishLineItem(
-    id: string,
-    patch: Partial<Omit<FinishLineItem, 'id' | 'links'>> & { links?: FinishLineLinkInput[] },
-  ): Promise<FinishLineItem> {
-    const current = this.finishLineItems.get(id);
-    if (!current) throw new Error(`Finish line item not found: ${id}`);
-    const { links: linkInputs, ...fields } = patch;
-    const updated: FinishLineItem = { ...current, ...fields, id: current.id };
-    if (linkInputs !== undefined) {
-      // Wholesale replace, same contract as the Supabase implementation.
-      updated.links = dedupeLinks(linkInputs).map((link) => materializeLink(link));
-    }
-    this.finishLineItems.set(id, clone(updated));
+  async listFinishLineCells(): Promise<FinishLineCell[]> {
+    return clone([...this.finishLineCells.values()]);
+  }
+
+  async setFinishLineCellNote(
+    itemId: string,
+    entityCode: string,
+    note: string | undefined,
+  ): Promise<FinishLineCell> {
+    const key = `${itemId}:${entityCode}`;
+    const current = this.finishLineCells.get(key);
+    if (!current) throw new Error(`Cell not found: ${itemId} / ${entityCode}`);
+    const updated: FinishLineCell = { ...current };
+    if (note) updated.note = note;
+    else delete updated.note;
+    this.finishLineCells.set(key, clone(updated));
     return clone(updated);
-  }
-
-  async deleteFinishLineItem(id: string): Promise<void> {
-    // Mirrors parent_id `on delete cascade`: deleting a block takes its
-    // sections and lines. Depth-first over direct children — the tree is
-    // small and the recursion mirrors what Postgres does in one statement.
-    for (const [childId, item] of [...this.finishLineItems]) {
-      if (item.parentId === id) await this.deleteFinishLineItem(childId);
-    }
-    this.finishLineItems.delete(id);
   }
 
   /**
    * Mirrors the database's `on delete cascade` on the join table: deleting a
    * project clears its links and LEAVES THE LINE STANDING, now unowned.
-   * Without this the mock would disagree with production about the state the
-   * view treats as loudest.
+   * Without this the mock would disagree with production.
    */
   private cascadeProjectDeletion(projectId: string): void {
     for (const [id, item] of this.finishLineItems) {
@@ -303,24 +291,5 @@ export class MockRepository implements Repository {
   }
 }
 
-/** Same (project, milestone) pair once; project-level and milestone-level distinct. */
-function dedupeLinks(inputs: FinishLineLinkInput[]): FinishLineLinkInput[] {
-  const seen = new Set<string>();
-  const result: FinishLineLinkInput[] = [];
-  for (const input of inputs) {
-    const key = `${input.projectId}:${input.milestoneId ?? ''}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(input);
-  }
-  return result;
-}
-
-function materializeLink(input: FinishLineLinkInput): FinishLineLink {
-  const link: FinishLineLink = { id: createId(), projectId: input.projectId };
-  if (input.milestoneId) link.milestoneId = input.milestoneId;
-  return link;
-}
 
 export const mockRepository = new MockRepository();
-

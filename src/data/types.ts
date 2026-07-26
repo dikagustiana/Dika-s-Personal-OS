@@ -393,82 +393,105 @@ export interface IeltsError {
 }
 
 // ---------------------------------------------------------------------------
-// Finish line — the pack, rendered, with trust state per line
+// Finish line — the entity matrix
 //
-// The 21 WORK projects are tributaries into ONE consolidated deliverable.
-// Every row of that pack — block, section, line — is a FinishLineItem;
-// `parentId` gives the nesting and `kind` the level. The numbers themselves
-// NEVER enter the app: the workbook holds the figures, this holds the
-// structure and whether each line can be trusted yet, and every value cell
-// renders the literal `xxx`.
+// The 21 WORK projects are tributaries into ONE consolidated group pack.
+// Finish line renders that pack as a MATRIX: line items down, consolidation
+// entities across. The grain is the CELL — one (line item x entity) pair.
 //
-// See migrations 20260726000020 and 20260726000021. Nothing in this repo
-// carries a real line label or gap item — the repo is public and the real
-// pack names entities, drivers and open methodology decisions.
+// EVERY CELL CARRIES A STATE, NEVER A VALUE. The numbers live in Excel and do
+// not enter this app; a cell that has a number is `figure` and renders as the
+// literal `xxx`. `figure` means A NUMBER EXISTS — not verified, not agreed,
+// not trusted. Nothing here may claim verification.
+//
+// See migration 20260726000022. Nothing in this repo carries a financial
+// figure, and none may be added to seed data, fixtures, tests or comments.
 // ---------------------------------------------------------------------------
 
-/** Maps onto the existing semantic tokens: destructive / escalate / success. */
-export type FinishLineStatus = 'blocked' | 'in-progress' | 'trusted';
+/**
+ * Exactly five, and there is deliberately no sixth for "a figure exists but
+ * the methodology behind it is unreliable" — that judgement is deferred, and
+ * encoding it here would put an opinion in the schema nobody has formed.
+ */
+export type CellState = 'figure' | 'zero' | 'undefined' | 'input' | 'locked';
 
-export type FinishLineKind = 'block' | 'section' | 'line';
+/** Row kind. The account level of the pack build is gone. */
+export type FinishLineKind = 'section' | 'metric' | 'note';
+
+/** How a future aggregate column would compute. Nothing computes it today. */
+export type FinishLineAgg = 'sum' | 'weighted' | 'recompute';
+
+/** Visual weight only — never meaning. */
+export type FinishLineStyle = 'det' | 'sub' | 'tot' | 'lock' | 'plain';
+
+/** A matrix column. Read from the database, never hardcoded in the frontend. */
+export interface FinishLineEntity {
+  code: string;
+  label: string;
+  order: number;
+}
+
+export interface FinishLineCell {
+  itemId: string;
+  entityCode: string;
+  state: CellState;
+  /**
+   * One line saying what is missing FOR THIS ENTITY. The same line item can be
+   * a `figure` for one entity and an `input` for two others for entirely
+   * different reasons; without a per-cell note that difference has nowhere to
+   * live. This is what the click target shows.
+   */
+  note?: string;
+}
 
 /**
- * One link from a pack line to the work that closes it.
+ * One link from a line item to the work that closes it.
  *
- * `milestoneId` is the precise form — the LP-fulfilment gap closes via two
- * specific milestones, not via a 50-milestone parent project as a whole. It is
- * a plain string into `Project.milestones` (jsonb array elements, not rows),
- * so nothing enforces that it still exists: a dangling id renders as a BROKEN
- * link — named, visible, resolvable — never silently dropped. Null/absent
- * means a project-level link, which coexists with milestone-level ones.
+ * `milestoneId` is the precise form — a gap closes via specific milestones,
+ * not via a 50-milestone parent project as a whole. It is a plain string into
+ * `Project.milestones` (jsonb array elements, not rows), so nothing enforces
+ * that it still exists: a dangling id renders as a BROKEN link — named,
+ * visible, resolvable — never silently dropped.
+ *
+ * `entityCode` absent means the link is row-level (it closes the line item for
+ * every entity); set means it closes one specific cell.
  */
 export interface FinishLineLink {
   id: string;
   projectId: string;
   milestoneId?: string;
+  entityCode?: string;
 }
 
 /** What create/update accept: the database assigns link ids. */
 export interface FinishLineLinkInput {
   projectId: string;
   milestoneId?: string;
+  entityCode?: string;
 }
 
 export interface FinishLineItem {
   id: string;
-  /** Free text, not an enum — the pack grows and must stay cheap to extend. */
-  area: string;
-  /** The label as the workbook writes it — a block, section, or line name. */
+  /** The label as the workbook writes it. */
   item: string;
-  /** Pack nesting. Absent = a top-level block (or a legacy register row). */
-  parentId?: string;
   kind: FinishLineKind;
-  /**
-   * What must be true for this part of the pack to be trustworthy. OPTIONAL,
-   * and that is the reframe: most lines have no gap. A line that is fine is
-   * just structure — a label, a position, `status: 'trusted'`. The gap fields
-   * are an annotation on a line of the document, not the record.
-   */
-  targetState?: string;
-  /** What it currently is. Absent while nobody has written it down. */
-  currentState?: string;
-  /**
-   * The proxy standing in while the real input is unavailable. Present means
-   * everything downstream is PROVISIONAL — the view renders it as a warning,
-   * never as a value. A figure resting on a driver known to be wrong is not a
-   * smaller version of a correct figure.
-   */
-  interim?: string;
-  /** What else stops being trustworthy while this is open. */
-  blocks?: string;
-  status: FinishLineStatus;
+  /** Section membership. Absent on a section row itself. */
+  parentId?: string;
   order: number;
-  /**
-   * The work that closes this line, at milestone precision where known.
-   * MANY, deliberately. An empty array on an untrusted line is the loudest
-   * state in the view: a known gap nobody owns.
-   */
+  /** Muted qualifier beside a section title — 'butuh input', 'terkunci'. */
+  tag?: string;
+  /** Display unit (Rp jt, %, CBM, hari). Never a value. */
+  unit?: string;
+  /** Decimal places for display. Never a value. */
+  dp?: number;
+  agg?: FinishLineAgg;
+  style?: FinishLineStyle;
+  /** Short code for a row-level anomaly, e.g. 'credit-balance-in-expense'. */
+  flag?: string;
+  /** What else stops being trustworthy while this row is open. */
+  blocks?: string;
+  /** The work that closes this row, at milestone and cell precision. */
   links: FinishLineLink[];
-  // There is no priority or rank field, and no value field. Order is the
-  // document's own (sort_order); the figures live in the workbook.
+  // No value field, and no status: trust is per CELL now, and even there it is
+  // a state rather than a verdict. Order is the document's own (sort_order).
 }
