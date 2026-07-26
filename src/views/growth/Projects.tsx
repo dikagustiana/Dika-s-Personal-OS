@@ -194,6 +194,9 @@ export function Projects() {
       <ProjectChildren
         nodes={node.children}
         domain={domain}
+        // A needs-action milestone can live on a nested project; expanding the
+        // ancestor chain mounts the card but does not open the list inside it.
+        milestonesOpenFor={milestonesOpenFor}
         expanded={expanded}
         onToggle={toggleChild}
         tasks={tasks}

@@ -109,14 +109,26 @@ export function AppShell({ children }: { children: ReactNode }) {
   const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const closeDrawer = useCallback(() => {
-    setDrawerClosing(true);
-    window.setTimeout(() => {
+    const finish = () => {
       setDrawerOpen(false);
       setDrawerClosing(false);
       // Focus goes back where it came from — without this it falls to <body>
       // and a keyboard user starts over from the top of the page.
       drawerReturnFocusRef.current?.focus();
-    }, 230);
+    };
+
+    // Under prefers-reduced-motion the transition is already flattened to
+    // 0.01ms, so waiting out the exit would leave a full-screen scrim
+    // intercepting pointer input and focus trapped in an invisible dialog for
+    // 230ms — closing would feel broken for exactly the users who asked for
+    // less motion. Tear down immediately for them.
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      finish();
+      return;
+    }
+
+    setDrawerClosing(true);
+    window.setTimeout(finish, 230);
   }, []);
 
   // Dialog behaviour while open: focus moves in, Escape closes, Tab cycles
