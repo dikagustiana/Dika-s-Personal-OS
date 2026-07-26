@@ -1,7 +1,13 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseResearchRepository } from './researchRepository';
 import type { ResearchRepository } from './researchRepository';
-import { guardCellNote, guardCellState, type CellWriteOrigin } from './finishLineGuards';
+import {
+  guardCellNote,
+  guardCellState,
+  guardEdgeTarget,
+  type CellWriteOrigin,
+} from './finishLineGuards';
+import { isMissingRelation } from './missingRelation';
 import type { Repository } from './repository';
 import type {
   DailyLog,
@@ -761,7 +767,7 @@ class SupabaseRepository implements Repository {
       .in('kind', ['section', 'metric', 'note'])
       .order('sort_order', { ascending: true });
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listFinishLineItems failed: ${error.message}`);
     }
     return (data as FinishLineItemRow[]).map(rowToFinishLineItem);
@@ -773,7 +779,7 @@ class SupabaseRepository implements Repository {
       .select('code, label, sort_order')
       .order('sort_order', { ascending: true });
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listFinishLineEntities failed: ${error.message}`);
     }
     return (data as { code: string; label: string; sort_order: number }[]).map((row) => ({
@@ -788,7 +794,7 @@ class SupabaseRepository implements Repository {
       .from('os_finish_line_cells')
       .select('id, item_id, entity_code, state, note');
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listFinishLineCells failed: ${error.message}`);
     }
     return (data as FinishLineCellRow[]).map(rowToFinishLineCell);
@@ -799,7 +805,7 @@ class SupabaseRepository implements Repository {
       .from('os_finish_line_deps')
       .select('cell_id, input_id');
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listFinishLineDeps failed: ${error.message}`);
     }
     return (data as { cell_id: string; input_id: string }[]).map((row) => ({
@@ -814,7 +820,7 @@ class SupabaseRepository implements Repository {
       .select('id, cell_id, project_id, milestone_id')
       .not('cell_id', 'is', null);
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listFinishLineEdges failed: ${error.message}`);
     }
     return (data as FinishLineEdgeRow[]).map((row) => {
@@ -831,9 +837,11 @@ class SupabaseRepository implements Repository {
   async listDanglingLinks(): Promise<DanglingLink[]> {
     const { data, error } = await this.client
       .from('os_finish_line_dangling_links')
-      .select('id, cell_id, project_id, project_title, milestone_id');
+      // Exactly the columns §5.10's view exposes. It carries no project
+      // title, so the UI resolves the title from the project list it already has.
+      .select('id, cell_id, project_id, milestone_id');
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listDanglingLinks failed: ${error.message}`);
     }
     return (data as DanglingLinkRow[]).map((row) => {
@@ -843,7 +851,6 @@ class SupabaseRepository implements Repository {
         milestoneId: row.milestone_id,
       };
       if (row.cell_id) link.cellId = row.cell_id;
-      if (row.project_title) link.projectTitle = row.project_title;
       return link;
     });
   }
@@ -851,9 +858,9 @@ class SupabaseRepository implements Repository {
   async listOrphanMilestones(): Promise<OrphanMilestone[]> {
     const { data, error } = await this.client
       .from('os_finish_line_orphan_milestones')
-      .select('project_id, project_title, milestone_id, milestone_text, done');
+      .select('project_id, project_title, milestone_id, milestone_text, status');
     if (error) {
-      if (missingRelation(error)) return [];
+      if (isMissingRelation(error)) return [];
       throw new Error(`listOrphanMilestones failed: ${error.message}`);
     }
     return (data as OrphanRow[]).map((row) => ({
@@ -861,7 +868,7 @@ class SupabaseRepository implements Repository {
       projectTitle: row.project_title,
       milestoneId: row.milestone_id,
       milestoneText: row.milestone_text ?? '',
-      done: Boolean(row.done),
+      status: row.status ?? '',
     }));
   }
 
@@ -908,20 +915,62 @@ class SupabaseRepository implements Repository {
     cellId: string,
     edges: { projectId: string; milestoneId?: string }[],
   ): Promise<void> {
-    const { error: clearError } = await this.client
+    // §7.1 in the mutation path: only an `input` cell can carry a milestone
+    // edge. Read the target's state first — the picker already filters, but a
+    // UI-only rule is one refactor from gone.
+    const { data: target, error: readError } = await this.client
+      .from('os_finish_line_cells')
+      .select('state')
+      .eq('id', cellId)
+      .maybeSingle();
+    if (readError) throw new Error(`setCellEdges failed: ${readError.message}`);
+    if (!target) throw new Error(`Cell not found: ${cellId}`);
+    guardEdgeTarget((target as { state: CellState }).state);
+
+    // A duplicate commit is a NO-OP AT THIS LAYER, not a caught 23505. The
+    // unique constraint is the backstop; relying on it would mean every
+    // unchanged re-commit made a round trip that failed on purpose.
+    const { data: existingRows, error: existingError } = await this.client
       .from('os_finish_line_item_projects')
-      .delete()
+      .select('id, project_id, milestone_id')
       .eq('cell_id', cellId);
-    if (clearError) throw new Error(`setCellEdges failed: ${clearError.message}`);
-    if (edges.length === 0) return;
-    const { error } = await this.client.from('os_finish_line_item_projects').insert(
-      edges.map((edge) => ({
-        cell_id: cellId,
-        project_id: edge.projectId,
-        milestone_id: edge.milestoneId ?? null,
-      })),
+    if (existingError) throw new Error(`setCellEdges failed: ${existingError.message}`);
+
+    const key = (projectId: string, milestoneId?: string | null) =>
+      `${projectId}:${milestoneId ?? ''}`;
+    const existing = new Map(
+      (existingRows as { id: string; project_id: string; milestone_id: string | null }[]).map(
+        (row) => [key(row.project_id, row.milestone_id), row.id],
+      ),
     );
-    if (error) throw new Error(`setCellEdges failed: ${error.message}`);
+    const wanted = new Map(edges.map((edge) => [key(edge.projectId, edge.milestoneId), edge]));
+
+    const toDelete = [...existing.entries()]
+      .filter(([k]) => !wanted.has(k))
+      .map(([, id]) => id);
+    const toInsert = [...wanted.entries()]
+      .filter(([k]) => !existing.has(k))
+      .map(([, edge]) => edge);
+
+    if (toDelete.length === 0 && toInsert.length === 0) return; // unchanged
+
+    if (toDelete.length > 0) {
+      const { error } = await this.client
+        .from('os_finish_line_item_projects')
+        .delete()
+        .in('id', toDelete);
+      if (error) throw new Error(`setCellEdges failed: ${error.message}`);
+    }
+    if (toInsert.length > 0) {
+      const { error } = await this.client.from('os_finish_line_item_projects').insert(
+        toInsert.map((edge) => ({
+          cell_id: cellId,
+          project_id: edge.projectId,
+          milestone_id: edge.milestoneId ?? null,
+        })),
+      );
+      if (error) throw new Error(`setCellEdges failed: ${error.message}`);
+    }
   }
 
   /** The same operation inverted: the cells one milestone closes. */
@@ -950,20 +999,6 @@ class SupabaseRepository implements Repository {
 }
 
 // --- finish line row shapes -------------------------------------------------
-
-/**
- * Postgres 42P01 = undefined_table (and 42703 = undefined_column, which is
- * what a pre-migration database answers when a new column is selected).
- * PostgREST also answers PGRST205 for a relation missing from its schema
- * cache. All three mean the same thing to the reader: the migration has not
- * been applied yet, so render the empty state rather than crash.
- */
-function missingRelation(error: { code?: string; message?: string }): boolean {
-  const code = error.code ?? '';
-  if (code === '42P01' || code === '42703' || code.startsWith('PGRST20')) return true;
-  const message = (error.message ?? '').toLowerCase();
-  return message.includes('does not exist') || message.includes('could not find');
-}
 
 interface FinishLineItemRow {
   id: string;
@@ -999,7 +1034,6 @@ interface DanglingLinkRow {
   id: string;
   cell_id: string | null;
   project_id: string;
-  project_title: string | null;
   milestone_id: string;
 }
 
@@ -1008,7 +1042,7 @@ interface OrphanRow {
   project_title: string;
   milestone_id: string;
   milestone_text: string | null;
-  done: boolean | null;
+  status: string | null;
 }
 
 function rowToFinishLineItem(row: FinishLineItemRow): FinishLineItem {

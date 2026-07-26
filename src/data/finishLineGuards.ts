@@ -76,3 +76,27 @@ export function guardCellNote(note: string | undefined): string | undefined {
   const trimmed = note?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
 }
+
+/**
+ * Only an `input` cell can be closed by a milestone.
+ *
+ * `locked` is closed transitively when its inputs land — an edge onto one
+ * would be a second, contradictory way to say it is done. `undefined` is
+ * arithmetic, not work outstanding. `zero` and `figure` are not gaps at all.
+ *
+ * ENFORCED HERE, not in the UI. The picker only offers `input` cells, but a
+ * guard that lives only in the component is one refactor away from being gone,
+ * and the row it would write is invisible until someone wonders why a `locked`
+ * cell claims to have a milestone.
+ */
+export function guardEdgeTarget(state: CellState): CellState {
+  if (state !== 'input') {
+    throw new FinishLineGuardError(
+      `A milestone edge may only point at an 'input' cell; this one is '${state}'. ` +
+        (state === 'locked'
+          ? 'A locked cell closes when its inputs land — link the inputs instead.'
+          : 'That state is not closable by work.'),
+    );
+  }
+  return state;
+}
