@@ -9,28 +9,11 @@ import {
 import { useAppStore } from '../store/appStore';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
-import { LanternMark } from './ui/LanternMark';
-
-/**
- * The owner's own image of a released sky lantern. It lives at `src/lantern.png`
- * — where the owner placed it, deliberately not moved.
- *
- * The lookup goes through `import.meta.glob` rather than a plain import because
- * a plain `import '../lantern.png'` FAILS THE BUILD outright if the file is
- * ever absent. The glob compiles to an empty object in that case and resolves
- * to the hashed asset URL when the file is present, so the gate degrades to the
- * mark instead of breaking the build. Verified both ways.
- *
- * Typed `string | undefined`: the glob genuinely yields nothing when the file
- * is missing, and every read below is guarded.
- */
-const lanternPhoto: string | undefined = Object.values(
-  import.meta.glob<string>('../lantern.png', {
-    eager: true,
-    query: '?url',
-    import: 'default',
-  }),
-)[0];
+// The photograph, its glob-based loader and its fallback to the mark all live
+// in LanternPhoto — the gate is no longer the only surface that renders it, and
+// one copy of the "must not break the build if the file is absent" pattern is
+// the point of putting it there.
+import { LANTERN_ALT, LanternPhoto } from './ui/LanternPhoto';
 
 const STORAGE_KEY = 'personal-os-app-key';
 const EXPIRY_KEY = 'personal-os-app-key-expires';
@@ -114,8 +97,9 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
   const [passphrase, setPassphrase] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Second line of defence: the file can exist and still fail to decode.
-  const [photoFailed, setPhotoFailed] = useState(false);
+  // The "file exists but fails to decode" second line of defence moved into
+  // LanternPhoto with the image itself, so every surface gets it rather than
+  // only this one.
   // This session only. A reload is a fresh start, which is the right default:
   // the counter exists to spot someone struggling now, not to keep a record.
   const [failures, setFailures] = useState(0);
@@ -227,18 +211,13 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
             clipped radius — a hard rectangle on the light canvas would read
             as an unstyled asset. */}
         <div className="mx-auto mb-5 grid size-[120px] place-items-center overflow-hidden rounded-lg border border-border-subtle bg-surface-2">
-          {lanternPhoto && !photoFailed ? (
-            <img
-              src={lanternPhoto}
-              width={120}
-              height={120}
-              alt="A sky lantern lifting away into the night sky just after release"
-              className="size-full object-cover"
-              onError={() => setPhotoFailed(true)}
-            />
-          ) : (
-            <LanternMark className="w-14" title="A sky lantern rising at night" />
-          )}
+          <LanternPhoto
+            size={120}
+            alt={LANTERN_ALT}
+            className="size-full object-cover"
+            markClassName="w-14"
+            markTitle="A sky lantern rising at night"
+          />
         </div>
         <Input
           type="password"
