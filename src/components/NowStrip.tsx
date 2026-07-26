@@ -1,4 +1,4 @@
-import { Check, CircleSlash2 } from 'lucide-react';
+import { ArrowRight,  Check, CircleSlash2 } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -78,7 +78,7 @@ export function NowStrip({
         <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">
           Now
         </span>
-        <span className="font-mono text-xs tabular-nums text-foreground-secondary">
+        <span className="text-xs tabular-nums text-foreground-secondary">
           {slot.start}–{slot.end}
         </span>
       </span>
@@ -145,13 +145,17 @@ export function NowStrip({
               aria-label="Name a block for the current half hour"
               className="h-9 min-w-0 flex-1 bg-card text-sm"
             />
+            {/* Icon-only: the filled button beside this field already says
+                Start, and two adjacent controls with one label read as a
+                choice that does not exist. Enter submits too. */}
             <Button
               type="submit"
-              size="sm"
+              size="icon"
               variant="secondary"
               disabled={disabled || !draft.trim()}
+              aria-label="Start the named block"
             >
-              Start
+              <ArrowRight className="size-4" />
             </Button>
           </form>
         </>

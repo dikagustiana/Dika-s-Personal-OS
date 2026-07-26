@@ -5,7 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
-import { EmptyState } from '../../components/ui/EmptyState';
+import { EmptyRow } from '../../components/ui/EmptyRow';
 import { TbcChip } from '../../components/ui/TbcChip';
 import { IeltsTrendChart } from '../../components/IeltsTrendChart';
 import { ScoreRing } from '../../components/ScoreRing';
@@ -35,16 +35,19 @@ import { getIsoWeekKey, getPreviousWeekKey, getWeekRange, summarizeWeek } from '
 import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/appStore';
 
+// on-track is NOT success: green is the done colour, and a Chevening deadline
+// 200 days out is not done — it is merely not due yet. Neutral text and the
+// primary navy for the bar, reserving success for status === 'done'.
 const urgencyText: Record<Urgency, string> = {
   overdue: 'text-destructive',
   'due-soon': 'text-escalate',
-  'on-track': 'text-success',
+  'on-track': 'text-foreground-secondary',
 };
 
 const barColor: Record<Urgency, string> = {
   overdue: 'bg-destructive/80',
   'due-soon': 'bg-escalate/80',
-  'on-track': 'bg-success/80',
+  'on-track': 'bg-primary/70',
 };
 
 /**
@@ -272,7 +275,7 @@ export function GrowthDashboard() {
               >
                 {days !== null ? daysLeftLabelFor(days, confidence) : '—'}
               </p>
-              <p className="mt-1 flex items-center gap-1.5 font-mono text-[10px] text-foreground-muted">
+              <p className="mt-1 flex items-center gap-1.5 text-[10px] text-foreground-muted">
                 {deadline ? formatDateFor(deadline, confidence) : 'No deadline yet'}
                 {deadline && resolveConfidence(confidence) !== 'confirmed' && <TbcChip />}
               </p>
@@ -364,15 +367,11 @@ export function GrowthDashboard() {
           {ieltsResults.length > 0 ? (
             <IeltsTrendChart results={ieltsResults} compact />
           ) : (
-            <EmptyState
-              title="No results yet"
-              hint="Log your first mock test in the tracker to start the trend line."
-              action={
-                <Button variant="secondary" size="sm" onClick={() => setGrowthView('ielts')}>
-                  Open tracker
-                  <ArrowRight className="size-4" />
-                </Button>
-              }
+            <EmptyRow
+              label="IELTS trend"
+              clause="No results yet"
+              action="Open tracker"
+              onAction={() => setGrowthView('ielts')}
             />
           )}
         </CardContent>
@@ -426,8 +425,11 @@ export function GrowthDashboard() {
                 placeholder="Capture a growth task"
                 aria-label="Capture a growth task to the inbox"
               />
+              {/* Secondary for the same reason as Today's two adds: it
+                  submits a visible field and carries no page-level intent. */}
               <Button
                 type="submit"
+                variant="secondary"
                 size="icon"
                 className="shrink-0"
                 disabled={isPending}
@@ -450,10 +452,9 @@ export function GrowthDashboard() {
                 </label>
               ))}
               {todayTasks.length === 0 && (
-                <EmptyState
-                  title="Nothing pinned yet"
-                  hint="Capture a task above, then pin it from the inbox to make it count today."
-                  className="py-6"
+                <EmptyRow
+                  label="Today's tasks"
+                  clause="Nothing pinned yet — capture above, then pin from the inbox"
                 />
               )}
             </div>
@@ -523,10 +524,9 @@ export function GrowthDashboard() {
                 </div>
               ))}
               {(plan?.goals.length ?? 0) === 0 && (
-                <EmptyState
-                  title="No goals this week"
-                  hint="Set three to five goals below — they anchor the weekly review."
-                  className="py-6"
+                <EmptyRow
+                  label="Weekly goals"
+                  clause="None set — three to five below anchor the weekly review"
                 />
               )}
             </div>

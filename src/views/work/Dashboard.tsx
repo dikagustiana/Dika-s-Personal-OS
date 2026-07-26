@@ -12,6 +12,7 @@ import { ProjectCard } from '../../components/ProjectCard';
 import { Button } from '../../components/ui/Button';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Card, CardContent } from '../../components/ui/Card';
+import { EmptyRow } from '../../components/ui/EmptyRow';
 import { Input } from '../../components/ui/Input';
 import { Progress } from '../../components/ui/Progress';
 import type {
@@ -80,36 +81,6 @@ function TextLink({ children, onClick }: { children: React.ReactNode; onClick: (
       {children}
       <ArrowRight className="size-3" />
     </button>
-  );
-}
-
-/**
- * An empty section, as one 44px row.
- *
- * The hard constraint on this page: an empty section is never taller than the
- * same section with content in it. Most of this screen is empty most days, so
- * a boxed empty state with a heading and two sentences would make the sparse
- * render — the common one — the longest.
- */
-function EmptyRow({
-  label,
-  clause,
-  action,
-  onAction,
-}: {
-  label: string;
-  clause: string;
-  action: string;
-  onAction: () => void;
-}) {
-  return (
-    <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1">
-      <span className="surface-label">{label}</span>
-      <span className="flex items-center gap-2 text-xs text-foreground-muted">
-        {clause}
-        <TextLink onClick={onAction}>{action}</TextLink>
-      </span>
-    </div>
   );
 }
 
@@ -215,6 +186,7 @@ function compositionLine(breakdown: NeedsActionBreakdown): string {
 export function Dashboard() {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
+  const setProjectFocus = useAppStore((state) => state.setProjectFocus);
   const { run, isPending } = useMutation();
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -529,8 +501,21 @@ export function Dashboard() {
     replaceProject(updated);
   };
 
-  const openMilestone = (project: Project) =>
-    setWorkView(project.recurring === 'monthly' ? 'monthly-close' : 'projects');
+  /**
+   * A needs-action row knows exactly which project its milestone lives in, so
+   * the navigation carries that: Projects arrives scrolled to the card with
+   * its milestone list open, via the same scroll-and-expand mechanism the
+   * linked-project chips already use. Close-cycle milestones still go to
+   * Monthly Close, which is organised by series rather than by card.
+   */
+  const openMilestone = (project: Project) => {
+    if (project.recurring === 'monthly') {
+      setWorkView('monthly-close');
+      return;
+    }
+    setProjectFocus({ projectId: project.id, openMilestones: true });
+    setWorkView('projects');
+  };
 
   /**
    * A link chip on a pinned card. Only the pinned subset has a card here, so
@@ -898,9 +883,12 @@ export function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* ---------------------------------------------------- 5. Projects */}
-        <Card>
-          <CardContent className="pt-5">
+        {/* ------------------------------------------------------ 5. Projects
+            No Card on purpose: with pins set and the editor closed, this was
+            a bordered ~90px card whose entire content was its own title,
+            floating above the cards it names. The heading sits on the canvas
+            so the pinned cards below read as its contents. */}
+        <div>
             <SectionHeading
               title="Projects"
               note={
@@ -979,8 +967,7 @@ export function Dashboard() {
                 onAction={() => setEditingPins(true)}
               />
             )}
-          </CardContent>
-        </Card>
+        </div>
 
         {/* The pinned cards are the Projects view's card, unchanged and
             unabridged — so they sit at this page's width rather than nested

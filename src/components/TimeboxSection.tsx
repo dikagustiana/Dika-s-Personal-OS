@@ -34,6 +34,11 @@ export interface TimeboxSectionProps {
   onCreate: (input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   onSetStatus: (block: TimeBlockEntry, status: TimeBlockEntry['status']) => Promise<void>;
   onDelete: (block: TimeBlockEntry) => Promise<void>;
+  /** Category and task-link edits on an existing block — the refinements. */
+  onUpdate: (
+    block: TimeBlockEntry,
+    patch: Partial<Pick<TimeBlockEntry, 'category' | 'taskId' | 'label'>>,
+  ) => Promise<void>;
 }
 
 /**
@@ -51,6 +56,7 @@ export function TimeboxSection({
   onCreate,
   onSetStatus,
   onDelete,
+  onUpdate,
 }: TimeboxSectionProps) {
   const slots = useMemo(() => slotsForDomain(domain), [domain]);
   const isToday = date === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -130,7 +136,7 @@ export function TimeboxSection({
             {block ? (
               <div className="grid min-h-14 grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-3 py-2 sm:grid-cols-[4rem_minmax(0,1fr)]">
                 <div>
-                  <time className={cn('font-mono text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
+                  <time className={cn('text-xs tabular-nums', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                     {slot.start}
                   </time>
                   {isCurrent && (
@@ -146,19 +152,52 @@ export function TimeboxSection({
                   >
                     {block.label}
                   </p>
-                  <span className="font-mono text-[10px] tabular-nums text-foreground-muted">
+                  <span className="text-[10px] tabular-nums text-foreground-muted">
                     {durationLabel(block.start, block.end)}
                   </span>
-                  {block.category && (
-                    <span className="border border-border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-foreground-secondary">
-                      {CATEGORY_LABELS[block.category]}
-                    </span>
-                  )}
-                  {block.taskId && (
+                  {/* Category and task link live HERE, on the existing block —
+                      they are refinements of a block, not preconditions for
+                      one, which is why the create form no longer asks. */}
+                  <select
+                    className="h-6 max-w-28 cursor-pointer appearance-none border border-border bg-transparent px-1.5 text-[9px] font-bold uppercase tracking-wider text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    value={block.category ?? ''}
+                    onChange={(event) =>
+                      void onUpdate(block, {
+                        category: (event.target.value || undefined) as TimeBlockCategory | undefined,
+                      })
+                    }
+                    aria-label={`Category for ${block.label}`}
+                  >
+                    <option value="">+ category</option>
+                    {(Object.keys(CATEGORY_LABELS) as TimeBlockCategory[]).map((key) => (
+                      <option key={key} value={key}>
+                        {CATEGORY_LABELS[key]}
+                      </option>
+                    ))}
+                  </select>
+                  {block.taskId ? (
                     <span className="inline-flex items-center gap-1 border border-border px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-foreground-muted">
                       <Link2 className="size-2.5" />
                       {linkedTask ? 'Task' : 'Task (done)'}
                     </span>
+                  ) : (
+                    tasks.length > 0 && (
+                      <select
+                        className="h-6 max-w-32 cursor-pointer appearance-none border border-border bg-transparent px-1.5 text-[9px] font-bold uppercase tracking-wider text-foreground-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        value=""
+                        onChange={(event) => {
+                          if (event.target.value) void onUpdate(block, { taskId: event.target.value });
+                        }}
+                        aria-label={`Link a task to ${block.label}`}
+                      >
+                        <option value="">+ task</option>
+                        {tasks.map((task) => (
+                          <option key={task.id} value={task.id}>
+                            {task.title}
+                          </option>
+                        ))}
+                      </select>
+                    )
                   )}
                   <span className="ml-auto flex shrink-0 gap-1.5">
                     <Button
@@ -189,46 +228,17 @@ export function TimeboxSection({
                 </div>
               </div>
             ) : isOpen ? (
-              <div className="grid gap-2 py-2 md:grid-cols-[4rem_minmax(140px,1fr)_minmax(130px,0.5fr)_minmax(150px,0.6fr)_auto]">
-                <time className="self-center font-mono text-xs tabular-nums text-foreground-muted">{slot.start}</time>
+              <div className="grid gap-2 py-2 md:grid-cols-[4rem_minmax(140px,1fr)_auto]">
+                <time className="self-center text-xs tabular-nums text-foreground-muted">{slot.start}</time>
                 <Input
                   value={draft}
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => handleDraftKey(event, slot)}
-                  placeholder="Block label…"
+                  placeholder="Block label — Enter to claim the slot"
                   aria-label={`Create block at ${slot.start}`}
                   autoFocus
                   className="h-11"
                 />
-                <select
-                  className="native-select text-xs"
-                  value={draftCategory}
-                  onChange={(event) => setDraftCategory(event.target.value as TimeBlockCategory | '')}
-                  aria-label={`Category at ${slot.start}`}
-                >
-                  <option value="">No category</option>
-                  {(Object.keys(CATEGORY_LABELS) as TimeBlockCategory[]).map((key) => (
-                    <option key={key} value={key}>
-                      {CATEGORY_LABELS[key]}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="native-select text-xs"
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (event.target.value) void createBlock(slot, event.target.value);
-                    event.target.value = '';
-                  }}
-                  aria-label={`Assign a task at ${slot.start}`}
-                >
-                  <option value="">Or link an open task…</option>
-                  {tasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.title}
-                    </option>
-                  ))}
-                </select>
                 <span className="flex gap-1.5">
                   <Button size="icon" onClick={() => void createBlock(slot)} aria-label={`Save block at ${slot.start}`}>
                     <Check className="size-4" />
@@ -256,15 +266,18 @@ export function TimeboxSection({
                   setDraft('');
                   setDraftCategory('');
                 }}
-                className="group flex min-h-9 w-full items-center gap-3 py-1 text-left"
+                // 44px per the density rule (was 36px), hover on the WHOLE
+                // row so it reads as pressable rather than only the small
+                // label at its right edge.
+                className="group flex min-h-11 w-full items-center gap-3 rounded-sm py-1 text-left transition-colors duration-150 hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 aria-label={`Add a block at ${slot.start}`}
               >
-                <time className={cn('w-[3.25rem] font-mono text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
+                <time className={cn('w-[3.25rem] text-[11px] tabular-nums sm:w-16', isCurrent ? 'text-foreground' : 'text-foreground-muted')}>
                   {slot.start}
                 </time>
                 <span className="h-px flex-1 bg-surface-2 transition-colors group-hover:bg-surface-3" />
-                <span className="inline-flex items-center gap-1 text-[11px] text-foreground-muted transition-colors group-hover:text-foreground-secondary">
-                  <Plus className="size-3" />
+                <span className="inline-flex items-center gap-1 text-xs text-foreground-secondary">
+                  <Plus className="size-3.5" />
                   add
                 </span>
                 {isCurrent && (

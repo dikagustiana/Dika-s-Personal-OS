@@ -17,7 +17,7 @@ import {
   Trophy,
   X,
 } from 'lucide-react';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { isSupabaseConfigured } from '../data/supabaseRepository';
 import { lockApp } from '../components/PassphraseGate';
 import { cn } from '../lib/utils';
@@ -90,7 +90,7 @@ function BuildStamp() {
   // the browser's timezone while the label still said UTC.
   const built = __BUILD_TIME__.slice(0, 16).replace('T', ' ');
   return (
-    <p className="mt-2 font-mono text-[10px] tabular-nums text-foreground-muted">
+    <p className="mt-2 text-[10px] tabular-nums text-foreground-muted">
       {__BUILD_SHA__} · {built} UTC
     </p>
   );
@@ -98,6 +98,75 @@ function BuildStamp() {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // 'closing' keeps the drawer mounted long enough for the exit transition —
+  // the one animation this app has. Everything else stays near-zero-motion.
+  const [drawerClosing, setDrawerClosing] = useState(false);
+  // Entered flips true one frame AFTER mount: an element that mounts already
+  // in its open state never transitions, so without this the drawer would
+  // still teleport in and only animate out.
+  const [drawerEntered, setDrawerEntered] = useState(false);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const drawerReturnFocusRef = useRef<HTMLElement | null>(null);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerClosing(true);
+    window.setTimeout(() => {
+      setDrawerOpen(false);
+      setDrawerClosing(false);
+      // Focus goes back where it came from — without this it falls to <body>
+      // and a keyboard user starts over from the top of the page.
+      drawerReturnFocusRef.current?.focus();
+    }, 230);
+  }, []);
+
+  // Dialog behaviour while open: focus moves in, Escape closes, Tab cycles
+  // inside. The primary navigation on mobile could not previously be
+  // dismissed or even reached from the keyboard, and focus stayed behind
+  // the scrim.
+  useEffect(() => {
+    if (!drawerOpen) {
+      setDrawerEntered(false);
+      return;
+    }
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setDrawerEntered(true));
+    });
+    drawerReturnFocusRef.current = document.activeElement as HTMLElement | null;
+    // The close button is the dialog's first focusable element (the scrim is
+    // tabIndex -1), so focusing it is "focus moves into the dialog".
+    drawerRef.current
+      ?.querySelector<HTMLElement>('button:not([tabindex="-1"])')
+      ?.focus();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDrawer();
+        return;
+      }
+      if (event.key !== 'Tab' || !drawerRef.current) return;
+      const focusable = drawerRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [closeDrawer, drawerOpen]);
   const workspace = useAppStore((state) => state.workspace);
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
@@ -114,7 +183,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const selectNav = (id: WorkView | GrowthView) => {
     if (workspace === 'work') setWorkView(id as WorkView);
     else setGrowthView(id as GrowthView);
-    setDrawerOpen(false);
+    if (drawerOpen) closeDrawer();
   };
 
   return (
@@ -192,14 +261,36 @@ export function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 bg-black/75 lg:hidden" onClick={() => setDrawerOpen(false)}>
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* The scrim is a real control now — it was an onClick on a plain
+              div, invisible to the keyboard and the accessibility tree.
+              tabIndex -1 keeps it clickable without adding a second tab stop;
+              Escape and the close button are the keyboard paths. True black
+              is reserved for scrims, per the token layer. */}
+          <button
+            type="button"
+            tabIndex={-1}
+            aria-label="Close navigation"
+            onClick={closeDrawer}
+            data-state={drawerClosing ? 'closing' : drawerEntered ? 'open' : 'closed'}
+            className="drawer-scrim absolute inset-0 h-full w-full bg-black/75"
+          />
           <aside
-            className="ml-auto flex h-full w-[min(88vw,360px)] flex-col overflow-y-auto border-l border-border-subtle bg-card p-5"
-            onClick={(event) => event.stopPropagation()}
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+            data-state={drawerClosing ? 'closing' : drawerEntered ? 'open' : 'closed'}
+            className="drawer-panel relative ml-auto flex h-full w-[min(88vw,360px)] flex-col overflow-y-auto border-l border-border-subtle bg-card p-5"
           >
             <div className="mb-6 flex items-center justify-between">
               <span className="font-display text-base font-semibold">Navigate</span>
-              <Button variant="ghost" size="icon" onClick={() => setDrawerOpen(false)} aria-label="Close navigation">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={closeDrawer}
+                aria-label="Close navigation"
+              >
                 <X className="size-5" />
               </Button>
             </div>

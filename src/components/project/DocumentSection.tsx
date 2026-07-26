@@ -112,7 +112,10 @@ export function DocumentUpload({
   };
 
   const form = (
-    <div className="mt-2 grid gap-2">
+    // basis-full: the inline variant now also opens from inside wrapping flex
+    // rows (the one-row empty Documents state), where the expanded form must
+    // claim the whole row rather than squeeze in beside the label.
+    <div className="mt-2 grid w-full basis-full gap-2">
       <Input
         className="h-9 text-sm"
         value={label}

@@ -91,7 +91,7 @@ export function ProjectChildren({
               <span className="hidden w-24 shrink-0 sm:block">
                 <Progress value={percent} className="h-1" />
               </span>
-              <span className="shrink-0 font-mono text-[11px] tabular-nums text-foreground-muted">
+              <span className="shrink-0 text-[11px] tabular-nums text-foreground-muted">
                 {rollup.done}/{rollup.total}
               </span>
             </button>
