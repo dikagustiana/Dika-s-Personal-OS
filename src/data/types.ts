@@ -493,7 +493,6 @@ export interface DanglingLink {
   id: string;
   cellId?: string;
   projectId: string;
-  projectTitle?: string;
   milestoneId: string;
 }
 
@@ -503,5 +502,6 @@ export interface OrphanMilestone {
   projectTitle: string;
   milestoneId: string;
   milestoneText: string;
-  done: boolean;
+  /** The milestone's own status string, as the view exposes it. */
+  status: string;
 }

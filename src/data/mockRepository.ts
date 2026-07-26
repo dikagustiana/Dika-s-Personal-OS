@@ -1,5 +1,10 @@
 import { MockResearchRepository } from './researchRepository';
-import { guardCellNote, guardCellState, type CellWriteOrigin } from './finishLineGuards';
+import {
+  guardCellNote,
+  guardCellState,
+  guardEdgeTarget,
+  type CellWriteOrigin,
+} from './finishLineGuards';
 import type { Repository } from './repository';
 import {
   seedDailyLogs,
@@ -299,8 +304,6 @@ export class MockRepository implements Repository {
           milestoneId: edge.milestoneId as string,
         };
         link.cellId = edge.cellId;
-        const project = this.projects.get(edge.projectId);
-        if (project) link.projectTitle = project.title;
         return link;
       });
   }
@@ -320,7 +323,7 @@ export class MockRepository implements Repository {
           projectTitle: project.title,
           milestoneId: milestone.id,
           milestoneText: milestone.text,
-          done: milestone.done,
+          status: milestone.status,
         });
       }
     }
@@ -358,6 +361,23 @@ export class MockRepository implements Repository {
     cellId: string,
     edges: { projectId: string; milestoneId?: string }[],
   ): Promise<void> {
+    const target = this.finishLineCells.get(cellId);
+    if (!target) throw new Error(`Cell not found: ${cellId}`);
+    // Same two rules as production: only an `input` cell can carry an edge,
+    // and an unchanged commit is a no-op rather than a churn of rows.
+    guardEdgeTarget(target.state);
+
+    const key = (projectId: string, milestoneId?: string) => `${projectId}:${milestoneId ?? ''}`;
+    const existing = new Set(
+      this.finishLineEdges
+        .filter((edge) => edge.cellId === cellId)
+        .map((edge) => key(edge.projectId, edge.milestoneId)),
+    );
+    const wanted = new Set(edges.map((edge) => key(edge.projectId, edge.milestoneId)));
+    const unchanged =
+      existing.size === wanted.size && [...wanted].every((k) => existing.has(k));
+    if (unchanged) return;
+
     this.finishLineEdges = this.finishLineEdges.filter((edge) => edge.cellId !== cellId);
     for (const edge of edges) {
       const created: FinishLineEdge = { id: createId(), cellId, projectId: edge.projectId };

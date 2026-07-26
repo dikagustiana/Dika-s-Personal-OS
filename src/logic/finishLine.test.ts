@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { guardCellState, FinishLineGuardError } from '../data/finishLineGuards';
+import {
+  FinishLineGuardError,
+  guardCellState,
+  guardEdgeTarget,
+} from '../data/finishLineGuards';
+import { isMissingRelation } from '../data/missingRelation';
 import type {
   CellState,
   FinishLineCell,
@@ -311,5 +316,50 @@ describe('project -> pack direction', () => {
     expect(counts.get('m1')).toBe(2);
     expect(counts.get('m2')).toBe(1);
     expect(counts.get('m3')).toBeUndefined();
+  });
+});
+
+describe('edges may only point at an input cell (§7.1, mutation path)', () => {
+  it('rejects an edge onto a locked cell — it closes when its inputs land', () => {
+    expect(() => guardEdgeTarget('locked')).toThrow(FinishLineGuardError);
+  });
+
+  it('rejects an edge onto undefined, zero and figure', () => {
+    for (const state of ['undefined', 'zero', 'figure'] as CellState[]) {
+      expect(() => guardEdgeTarget(state)).toThrow(FinishLineGuardError);
+    }
+  });
+
+  it('accepts an edge onto an input cell', () => {
+    expect(guardEdgeTarget('input')).toBe('input');
+  });
+});
+
+describe('a dangling edge counts as no edge (§7.2)', () => {
+  it('leaves a cell whose only edges dangle as unplanned, not in-progress', () => {
+    const c = cell('input');
+    const edges = [edge(c.id, { milestoneId: 'deleted' })];
+    const ctx = buildContext([c], [], edges, [project([])]);
+    expect(resolveCell(c.id, ctx)).toBe('unplanned');
+  });
+});
+
+describe('missing relation degrades to empty (§10.7)', () => {
+  it('treats 42P01 and 42703 as missing', () => {
+    expect(isMissingRelation({ code: '42P01' })).toBe(true);
+    expect(isMissingRelation({ code: '42703' })).toBe(true);
+  });
+
+  it("treats PostgREST's schema-cache miss as missing", () => {
+    expect(isMissingRelation({ code: 'PGRST205' })).toBe(true);
+    expect(
+      isMissingRelation({ message: "Could not find the table 'public.x' in the schema cache" }),
+    ).toBe(true);
+  });
+
+  it('does NOT swallow a permission or network failure — those stay loud', () => {
+    expect(isMissingRelation({ code: '42501', message: 'permission denied' })).toBe(false);
+    expect(isMissingRelation({ message: 'network error' })).toBe(false);
+    expect(isMissingRelation(null)).toBe(false);
   });
 });
