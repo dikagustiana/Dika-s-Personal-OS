@@ -17,6 +17,7 @@
  * hole the whole subsystem exists to close.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
+import { readStoredKey } from '../components/PassphraseGate';
 import {
   CHAIRMAN_PERSONA,
   advisorsForMode,
@@ -30,6 +31,7 @@ import {
   frameInput,
   parseChairmanVerdict,
   parsePeerReview,
+  verdictParsed,
   type AdvisorResponse,
   type ChairmanVerdict,
   type PeerReviewVerdict,
@@ -108,7 +110,10 @@ export function councilBlockedReason(
 export async function probeCouncil(): Promise<CouncilCapabilities> {
   if (!isSupabaseConfigured) return COUNCIL_UNCONFIGURED;
   try {
-    const data = await edgeFunctionCall<CouncilCapabilities>(FUNCTION, { method: 'GET' });
+    const data = await edgeFunctionCall<CouncilCapabilities>(FUNCTION, {
+      method: 'GET',
+      appKey: readStoredKey() ?? undefined,
+    });
     if (!data) return COUNCIL_UNCONFIGURED;
     return {
       configured: Boolean(data.configured),
@@ -159,6 +164,9 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
   const call = async (payload: Record<string, unknown>) =>
     edgeFunctionCall<Record<string, unknown>>(FUNCTION, {
       method: 'POST',
+      // Without this the function answers 401: the anon key in the bundle is
+      // not authorization for spending the owner's model budget.
+      appKey: readStoredKey() ?? undefined,
       body: { mode: input.mode, confirmed: input.confirmed, framedInput, ...payload },
     });
 
@@ -254,7 +262,11 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
     });
     if (stage3?.ran) {
       verdict = parseChairmanVerdict(String(stage3.chairmanRaw ?? ''));
-      verdictUnparsed = verdict.raw !== undefined;
+      // Not `verdict.raw !== undefined`: a chairman that returns `{}` parses
+      // cleanly into five empty strings, and rendering that as a verdict card
+      // says "the council had nothing to say", which is the opposite of what
+      // happened. verdictParsed covers both shapes.
+      verdictUnparsed = !verdictParsed(verdict);
       progress.chairmanDone = true;
     }
   } catch {

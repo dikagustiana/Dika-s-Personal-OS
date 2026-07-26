@@ -57,7 +57,12 @@ const RECOVERY_SENT_COPY =
  * entirely — RLS validates the passphrase on the `x-app-key` header of every
  * request, so the value has to survive as long as the session does.
  */
-function readStoredKey(): string | null {
+/**
+ * Exported so Edge Functions that spend money can attach the same header RLS
+ * checks. Reading it here rather than caching a copy elsewhere keeps one
+ * definition of "is the session still unlocked", including the expiry.
+ */
+export function readStoredKey(): string | null {
   const key = window.sessionStorage.getItem(STORAGE_KEY);
   const expires = Number(window.sessionStorage.getItem(EXPIRY_KEY) ?? 0);
   if (!key || !expires || Date.now() > expires) {

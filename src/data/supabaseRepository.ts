@@ -55,7 +55,7 @@ export interface VerifyResult {
  */
 export async function edgeFunctionCall<T>(
   name: string,
-  options: { method: 'GET' | 'POST'; body?: unknown },
+  options: { method: 'GET' | 'POST'; body?: unknown; appKey?: string },
 ): Promise<T> {
   const { url, anonKey } = requireConfig();
   const response = await fetch(`${url}/functions/v1/${name}`, {
@@ -64,6 +64,10 @@ export async function edgeFunctionCall<T>(
       'Content-Type': 'application/json',
       apikey: anonKey,
       Authorization: `Bearer ${anonKey}`,
+      // The anon key is in the public bundle and is therefore not
+      // authorization. A function that spends the owner's model budget checks
+      // this header the same way RLS checks it on every table.
+      ...(options.appKey ? { 'x-app-key': options.appKey } : {}),
     },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   });

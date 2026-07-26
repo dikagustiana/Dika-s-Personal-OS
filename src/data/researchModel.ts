@@ -16,6 +16,7 @@
  * gates, not the only one.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
+import { readStoredKey } from '../components/PassphraseGate';
 
 /** Prompt kinds the client asks the server to run. Matches the builder names. */
 export type PromptKind =
@@ -84,7 +85,10 @@ export function sendBlockedReason(
 export async function probeModel(): Promise<ModelCapabilities> {
   if (!isSupabaseConfigured) return MODEL_UNCONFIGURED;
   try {
-    const data = await edgeFunctionCall<ModelCapabilities>(FUNCTION, { method: 'GET' });
+    const data = await edgeFunctionCall<ModelCapabilities>(FUNCTION, {
+      method: 'GET',
+      appKey: readStoredKey() ?? undefined,
+    });
     if (!data) return MODEL_UNCONFIGURED;
     return {
       configured: Boolean(data.configured),
@@ -116,6 +120,7 @@ export async function sendPrompt(input: {
   try {
     const data = await edgeFunctionCall<ModelResult>(FUNCTION, {
       method: 'POST',
+      appKey: readStoredKey() ?? undefined,
       body: {
         kind: input.kind,
         prompt: input.prompt,

@@ -35,8 +35,54 @@ const MODES_REQUIRING_BROWSING = ['contra'];
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-app-key',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  // GET is listed for the capability probe. It is a CORS-safelisted method, so
+  // browsers pass it through the preflight even when it is absent — verified
+  // in a real browser — but listing it removes the ambiguity for the reader.
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
+
+/**
+ * Ceiling on seats per request. The real seat lists are four and five, so this
+ * is far above any legitimate call and exists purely so that a caller who
+ * bypasses the UI cannot open a thousand parallel billable completions with
+ * one request. The letter alphabet in the pipeline caps anonymisation at eight
+ * anyway, so a larger council could not be assembled even if it were paid for.
+ */
+const MAX_SEATS = 8;
+const MAX_PROMPT_CHARS = 80_000;
+
+/**
+ * The model budget is the owner's, and the anon key is in the public bundle,
+ * so `configured` alone is not authorization: without this check anyone who
+ * views source can spend the account. RLS protects every table this way; an
+ * Edge Function that spends money needs the same door.
+ *
+ * Verified through the same rate-limited RPC the passphrase gate uses, rather
+ * than a bespoke comparison, so brute-forcing the council endpoint runs into
+ * the lockout that already exists instead of a fresh unprotected one.
+ */
+async function appKeyValid(request: Request): Promise<boolean> {
+  const candidate = request.headers.get('x-app-key');
+  if (!candidate) return false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceRole) return false;
+  try {
+    const response = await fetch(`${url}/rest/v1/rpc/os_verify_key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceRole,
+        Authorization: `Bearer ${serviceRole}`,
+      },
+      body: JSON.stringify({ candidate }),
+    });
+    if (!response.ok) return false;
+    return (await response.json()) === true;
+  } catch {
+    return false;
+  }
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -85,6 +131,13 @@ Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (request.method === 'GET') return json(capabilities());
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  // Before anything that costs money. The GET probe above is deliberately
+  // outside this: it reveals only whether a key is configured, and the client
+  // needs it to decide whether to render the council at all.
+  if (!(await appKeyValid(request))) {
+    return json({ error: 'Unauthorized' }, 401);
+  }
 
   let body: Record<string, unknown>;
   try {
@@ -137,6 +190,9 @@ Deno.serve(async (request) => {
     model?: string;
   }>;
   if (!framedInput) return json({ error: 'framedInput is required' }, 400);
+  if (framedInput.length > MAX_PROMPT_CHARS) {
+    return json({ error: 'framedInput exceeds the allowed size' }, 400);
+  }
 
   // ONE STAGE PER CALL, by design. Eleven completions take minutes, and a
   // single call would give the client nothing to report but a spinner — §6.3
@@ -151,6 +207,12 @@ Deno.serve(async (request) => {
     // not this function — decides whether to proceed with four.
     if (stage === 'advisors') {
       if (advisors.length === 0) return json({ error: 'advisors are required' }, 400);
+      if (advisors.length > MAX_SEATS) {
+        return json({ error: `At most ${MAX_SEATS} seats per council` }, 400);
+      }
+      if (advisors.some((p) => (p.systemPrompt ?? '').length > MAX_PROMPT_CHARS)) {
+        return json({ error: 'A system prompt exceeds the allowed size' }, 400);
+      }
 
       const settled = await Promise.allSettled(
         advisors.map(async (persona) => {
@@ -196,6 +258,12 @@ Deno.serve(async (request) => {
         model?: string;
       }>;
       if (peerPrompts.length === 0) return json({ error: 'peerPrompts are required' }, 400);
+      if (peerPrompts.length > MAX_SEATS) {
+        return json({ error: `At most ${MAX_SEATS} peer reviews per council` }, 400);
+      }
+      if (peerPrompts.some((p) => (p.user ?? '').length > MAX_PROMPT_CHARS)) {
+        return json({ error: 'A peer prompt exceeds the allowed size' }, 400);
+      }
 
       const settled = await Promise.allSettled(
         peerPrompts.map(async (prompt) => {

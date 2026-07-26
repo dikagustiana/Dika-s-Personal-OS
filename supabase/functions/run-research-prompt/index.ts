@@ -46,9 +46,39 @@ const REQUIRES_BROWSING = ['prData', 'prCite', 'prLit', 'prContra', 'prScope'];
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, content-type, apikey',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, content-type, apikey, x-app-key',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 };
+
+/**
+ * The anon key ships in the public bundle, so it is not authorization. Without
+ * this, anyone who views source could spend the owner's model account through
+ * this endpoint. Same check the council function makes, and the same one RLS
+ * makes on every table — routed through the rate-limited RPC so brute-forcing
+ * here meets the lockout that already exists.
+ */
+async function appKeyValid(request: Request): Promise<boolean> {
+  const candidate = request.headers.get('x-app-key');
+  if (!candidate) return false;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceRole = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceRole) return false;
+  try {
+    const response = await fetch(`${url}/rest/v1/rpc/os_verify_key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: serviceRole,
+        Authorization: `Bearer ${serviceRole}`,
+      },
+      body: JSON.stringify({ candidate }),
+    });
+    if (!response.ok) return false;
+    return (await response.json()) === true;
+  } catch {
+    return false;
+  }
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -73,6 +103,10 @@ Deno.serve(async (request) => {
   // GET is the capability probe the prompt cards read on mount.
   if (request.method === 'GET') return json(capabilities());
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  // Before anything billable. The GET probe stays open: it discloses only
+  // whether a key is configured, which the client needs to render the cards.
+  if (!(await appKeyValid(request))) return json({ error: 'Unauthorized' }, 401);
 
   let prompt = '';
   let kind = '';
