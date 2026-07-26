@@ -63,6 +63,38 @@ export interface ResearchRepository {
   listLibrary(): Promise<FactLibraryEntry[]>;
   createLibraryEntry(input: Omit<FactLibraryEntry, 'id'>): Promise<FactLibraryEntry>;
   deleteLibraryEntry(id: string): Promise<void>;
+
+  /**
+   * Council transcripts. APPEND AND LIST ONLY — third member of the same
+   * family as cycles and log, and absent for the same reason: there is no
+   * updateCouncilSession and no deleteCouncilSession, not unimplemented but
+   * ABSENT. A transcript is evidence of what was said, when, and against what
+   * input; an editable one is not evidence.
+   *
+   * Note what is NOT here either: nothing that lets a verdict write a cycle,
+   * tick a gate, set an item to V, or create a claim. A verdict reaches those
+   * only by the author retyping it through the guarded paths above, which is
+   * the entire point. See src/data/researchCouncil.ts.
+   */
+  listCouncilSessions(filter: {
+    projectId?: string;
+    mode?: string;
+  }): Promise<CouncilSessionRow[]>;
+  appendCouncilSession(input: Omit<CouncilSessionRow, 'id' | 'createdAt'>): Promise<CouncilSessionRow>;
+}
+
+/** One stored council run. `projectId` is null for scope sessions. */
+export interface CouncilSessionRow {
+  id: string;
+  projectId: string | null;
+  mode: string;
+  inputSnapshot: string;
+  advisorsConfig: unknown;
+  advisorResponses: unknown;
+  peerReviews: unknown;
+  /** Null when the chairman stage failed after the others succeeded. */
+  verdict: unknown;
+  createdAt: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +470,61 @@ export function createSupabaseResearchRepository(
       const { error } = await client.from('os_fact_library').delete().eq('id', id);
       if (error) throw new Error(error.message);
     },
+
+    async listCouncilSessions(filter) {
+      let query = client
+        .from('os_research_council_sessions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      // A scope session has no project, so scope history is listed by mode.
+      if (filter.projectId) query = query.eq('project_id', filter.projectId);
+      if (filter.mode) query = query.eq('mode', filter.mode);
+      const rows = (unwrap(await query) ?? []) as CouncilRow[];
+      return rows.map(rowToCouncil);
+    },
+
+    async appendCouncilSession(input) {
+      const result = await client
+        .from('os_research_council_sessions')
+        .insert({
+          project_id: input.projectId,
+          mode: input.mode,
+          input_snapshot: input.inputSnapshot,
+          advisors_config: input.advisorsConfig,
+          advisor_responses: input.advisorResponses,
+          peer_reviews: input.peerReviews,
+          verdict: input.verdict,
+        })
+        .select()
+        .single();
+      return rowToCouncil(unwrap(result) as CouncilRow);
+    },
+  };
+}
+
+interface CouncilRow {
+  id: string;
+  project_id: string | null;
+  mode: string;
+  input_snapshot: string;
+  advisors_config: unknown;
+  advisor_responses: unknown;
+  peer_reviews: unknown;
+  verdict: unknown;
+  created_at: string;
+}
+
+function rowToCouncil(row: CouncilRow): CouncilSessionRow {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    mode: row.mode,
+    inputSnapshot: row.input_snapshot,
+    advisorsConfig: row.advisors_config,
+    advisorResponses: row.advisor_responses,
+    peerReviews: row.peer_reviews,
+    verdict: row.verdict,
+    createdAt: row.created_at,
   };
 }
 
@@ -556,5 +643,23 @@ export class MockResearchRepository implements ResearchRepository {
 
   async deleteLibraryEntry(id: string) {
     this.library = this.library.filter((fact) => fact.id !== id);
+  }
+
+  private councilSessions: CouncilSessionRow[] = [];
+
+  async listCouncilSessions(filter: { projectId?: string; mode?: string }) {
+    return this.councilSessions
+      .filter((row) => !filter.projectId || row.projectId === filter.projectId)
+      .filter((row) => !filter.mode || row.mode === filter.mode)
+      .map((row) => ({ ...row }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async appendCouncilSession(input: Omit<CouncilSessionRow, 'id' | 'createdAt'>) {
+    // Append only. There is deliberately no update and no delete here either —
+    // the mock must not offer a door the real repository refuses.
+    const created = { ...input, id: newId(), createdAt: new Date().toISOString() };
+    this.councilSessions.push(created);
+    return { ...created };
   }
 }

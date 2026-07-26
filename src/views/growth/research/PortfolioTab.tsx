@@ -9,6 +9,8 @@ import { loopDue } from '../../../logic/research/pipeline';
 import { LOOPS, type LoopKey } from '../../../logic/research/loops';
 import { TEMPLATES, TPL_KEYS, type TemplateKey } from '../../../logic/research/templates';
 import { GateMap } from './GateMap';
+import { CouncilPanel } from './CouncilPanel';
+import type { CouncilCapabilities } from '../../../data/researchCouncil';
 import { cn } from '../../../lib/utils';
 
 export interface NewResearchInput {
@@ -23,6 +25,8 @@ export interface PortfolioTabProps {
   onSelect: (projectId: string) => void;
   onCreate: (input: NewResearchInput) => Promise<void>;
   onScope: (question: string) => void;
+  /** Absent until the capability probe returns; the council is optional. */
+  councilCapabilities?: CouncilCapabilities;
   isPending: boolean;
 }
 
@@ -41,6 +45,7 @@ export function PortfolioTab({
   onSelect,
   onCreate,
   onScope,
+  councilCapabilities,
   isPending,
 }: PortfolioTabProps) {
   const [adding, setAdding] = useState(false);
@@ -281,6 +286,21 @@ export function PortfolioTab({
                 Build scope prompt
               </Button>
             </div>
+
+            {/* Both paths, side by side, never a toggle that hides one: the
+                prompt is the quick check and works with no API key at all; the
+                council is for when the decision matters. Scope needs no
+                project — that is the point of the mode. */}
+            {councilCapabilities && scopeQuestion.trim() && (
+              <div className="mt-3">
+                <CouncilPanel
+                  mode="scope"
+                  capabilities={councilCapabilities}
+                  getContent={() => scopeQuestion.trim()}
+                  topic={scopeQuestion.trim()}
+                />
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
