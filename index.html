@@ -6,23 +6,28 @@
     <!-- Matches --background (#F2F5F7). The app is light-only by design;
          there is no dark class and no theme toggle. -->
     <meta name="theme-color" content="#F2F5F7" />
-    <!-- SPLIT BY SIZE, NOT BY PREFERENCE. The logo everywhere else in the app
-         is the owner's photograph; here the two tab icons stay the derived
-         mark, because a browser tab renders them at 16 CSS pixels and the
-         photograph does not survive it — rendered at that size the figure and
-         the raised arms dissolve and it reads as an orange-and-blue square.
-         The mark is still a lantern with a lit flame at 16px, which is the
-         whole reason it exists. Both tab icons carry the SAME mark on purpose:
-         an identity that changes between browsers is not an identity.
-         The photograph does read at 180px, so apple-touch-icon below is the
-         photograph. SVG first for sharpness at any tab size; the 32px PNG is
-         the fallback for clients that ignore SVG icons. -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- THE TAB ICON IS THE PHOTOGRAPH. Earlier this shipped as the derived
+         silhouette, on the finding that the full 400x400 frame downscaled to
+         16px loses the figure and reads as an orange-and-blue square. That
+         finding was right about the naive downscale and wrong as a conclusion:
+         a downscale of the whole frame is only one way to get a photograph
+         into a favicon, and it is the crudest.
+         What ships instead is a NON-RECTANGULAR CROP. The lit paper (source
+         x165-355, y0-190) is cropped through the lantern outline the app
+         already carries, so the shape reads at 16px while every pixel inside
+         it is the owner's own photograph. Contrast 1.5 / brightness 1.05 /
+         saturation 1.15 is applied to these small sizes ONLY, so the flame
+         holds as a saturated pixel instead of muddying; apple-touch-icon and
+         every in-app surface stay untouched.
+         Each size is resampled once, straight from the source crop — never
+         upscaled from a smaller icon. Transparent, not plated: a plate showed
+         as a white box against dark browser chrome.
+         Rendered and looked at, at 16px and 32px, on light and dark chrome.
+         The SVG icon is gone rather than kept as the mark: an icon that
+         differs by browser is not an identity. -->
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <!-- The photograph, generated at 180px straight from src/lantern.png in a
-         single resample — not upscaled from the 32px icon. Full-bleed and
-         square-cornered because iOS and Android apply their own mask; adding
-         a radius here would show through theirs as a double corner. -->
+    <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <meta
       name="description"
