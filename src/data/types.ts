@@ -339,3 +339,55 @@ export interface IeltsResult {
   writing: number;
   speaking: number;
 }
+
+/**
+ * Writing splits into Task 1 and Task 2 — they fail in completely different
+ * ways even though IELTS bands them together. Declared here rather than in the
+ * taxonomy so the data layer owns its own row shape and the logic layer imports
+ * downward, as it already does for IeltsResult.
+ */
+export type IeltsErrorSkill =
+  | 'listening'
+  | 'reading'
+  | 'writing_task1'
+  | 'writing_task2'
+  | 'speaking';
+
+/**
+ * ONE LOGGED OCCURRENCE of a marked error. Patterns are never stored: every
+ * class in logic/ielts/classify.ts is derived on read from these rows, the same
+ * way overallBand and days-left are derived everywhere else in this app. A
+ * stored classification goes stale the moment the next session is logged, and a
+ * stale classification is worse than none because it will be trusted.
+ */
+export interface IeltsError {
+  id: string;
+  date: string; // YYYY-MM-DD — the session date, also the session identity
+  skill: IeltsErrorSkill;
+  /** Layer 1. Free text at the boundary; validated against the taxonomy. */
+  criterion: string;
+  /**
+   * Layer 2, or the literal 'UNCLASSIFIED'. Not a database enum, deliberately:
+   * UNCLASSIFIED has to be able to reach the table or the taxonomy stops
+   * improving.
+   */
+  failureMode: string;
+  /** Verbatim, never paraphrased. `[absent: …]` where nothing is quotable. */
+  quote: string;
+  note?: string;
+  /** Only meaningful for listening and reading. */
+  questionType?: string;
+  /**
+   * The date of the piece this session rewrites. Nullable, and the field that
+   * makes classification possible: the same mode in two different essays has
+   * not generalised, while the same mode in one essay and its own rewrite means
+   * direct feedback was not applied. Different problems, different fixes.
+   */
+  revisionOf?: string;
+  /**
+   * Nullable ON PURPOSE. A standalone Tuesday reading session logs its errors
+   * with no accompanying score row — os_ielts_results stays full-mock-only.
+   */
+  resultId?: string;
+  createdAt: string;
+}

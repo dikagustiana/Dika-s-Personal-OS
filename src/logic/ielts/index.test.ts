@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatBand, isValidBand, overallBand } from './ielts';
+import { formatBand, isValidBand, overallBand } from './index';
 
 describe('overallBand', () => {
   it('averages the four skills', () => {
