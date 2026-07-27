@@ -1,0 +1,22 @@
+-- revision_of moves from the error row to the session — the drop half.
+--
+-- Migration 20260727000027 created os_ielts_sessions with a revision_of
+-- column: a revision is a property of the SESSION, not of each individual
+-- mistake. os_ielts_errors held 0 rows when both migrations were applied, so
+-- nothing was migrated; the column simply goes.
+--
+-- APPLIED SEPARATELY FROM 0027, AND LATER, on purpose: the previously
+-- deployed frontend selected revision_of by name in every os_ielts_errors
+-- read, so dropping the column before that frontend was replaced would have
+-- broken the live IELTS view. Order of operations was: apply 0027 (additive),
+-- merge the PR, confirm the production deployment carries the new frontend,
+-- THEN apply this. Recorded in the ledger as `ielts_errors_drop_revision_of`.
+--
+-- NEVER apply with `supabase db push`, `migration up`, `db reset`, or
+-- `db remote commit` — repo filenames and the live ledger use different
+-- version numbering, so any of those replays the entire history from
+-- 0001_schema.sql against live production data.
+--
+-- Idempotent. Safe to re-run.
+
+alter table public.os_ielts_errors drop column if exists revision_of;

@@ -147,6 +147,18 @@ describe('parseProposal', () => {
     });
   });
 
+  it('keeps a hyphenated name intact — a bare hyphen is not a separator', () => {
+    // Truncating at the hyphen merged distinct proposals under a fabricated
+    // name, destroying the count that justifies promoting one.
+    expect(parseProposal('PROPOSED: comma-splice_run_on — dua klausa digabung koma')).toEqual({
+      name: 'comma-splice_run_on',
+      definition: 'dua klausa digabung koma',
+    });
+    expect(parseProposal('PROPOSED: comma-splice_run_on - dua klausa digabung koma')?.name).toBe(
+      'comma-splice_run_on',
+    );
+  });
+
   it('returns null for a note that proposes nothing', () => {
     expect(parseProposal('Kalimat ini kehilangan subjek.')).toBeNull();
     expect(parseProposal(undefined)).toBeNull();

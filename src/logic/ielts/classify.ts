@@ -6,9 +6,13 @@
  * remedy is why nine tracked errors in the owner's real history went
  * eight-unfixed with one new one appearing.
  *
- * SESSIONS PER SKILL = COUNT(DISTINCT date) for that skill. Not error rows —
- * two errors on one date are one session — and not os_ielts_results rows, since
- * a skill-only session has no score row at all.
+ * SESSIONS PER SKILL COME FROM os_ielts_sessions — never from distinct error
+ * dates. That was the spec's own bug: a clean session produced no error row,
+ * no date, and no session, so `isolated` (a slip that did NOT recur across
+ * clean sessions — the strongest evidence something stopped happening) was
+ * unreachable, and the denominator understated practice. Two session rows on
+ * one date for one skill still count once: the distinct DATE is the session
+ * identity on read.
  *
  * THE LOG IS THE FLAG RECORD. If a mode appears in session 1's log it was
  * flagged in session 1; appearing again in session 2 means it survived a
@@ -19,10 +23,21 @@
  * a stale classification is worse than none because it will be trusted.
  */
 import type { IeltsError, IeltsErrorSkill } from '../../data/types';
-import { findMode, UNCLASSIFIED, type FailureMode } from './taxonomy';
+import { findMode, IELTS_ERROR_TAXONOMY, UNCLASSIFIED, type FailureMode } from './taxonomy';
 
 /** Below this many sessions for a skill, nothing about it is classified. */
 export const MIN_SESSIONS_TO_CLASSIFY = 3;
+
+/**
+ * The slice of IeltsSession classification reads. Structural rather than the
+ * full row so tests and previews can pass lightweight fixtures.
+ */
+export interface SessionLike {
+  readonly date: string;
+  readonly skill: IeltsErrorSkill;
+  /** Session-level: the date of the piece this session rewrites. */
+  readonly revisionOf?: string;
+}
 
 export type PatternClass =
   | 'correction-resistant'
@@ -88,10 +103,11 @@ export interface ModePattern {
   /** Highest number of occurrences landing on any single date. */
   readonly maxPerDate: number;
   /**
-   * True when the first occurrence sits on a row with revision_of set and the
-   * mode is absent from that earlier date. Kept as a flag as well as a class so
-   * a mode that is BOTH induced and correction-resistant still says so — the
-   * class reports the more urgent fact, the flag keeps the cause.
+   * True when the first occurrence sits in a session that rewrites an EARLIER
+   * piece and the mode is absent from that earlier date. Kept as a flag as
+   * well as a class so a mode that is BOTH induced and correction-resistant
+   * still says so — the class reports the more urgent fact, the flag keeps
+   * the cause.
    */
   readonly causedByFeedback: boolean;
   /** Why 'too-early' was chosen — the sentence naming what is missing. */
@@ -125,6 +141,7 @@ function classifyMode(
   mode: string,
   rows: readonly IeltsError[],
   skillSessionDates: readonly string[],
+  revisionByDate: ReadonlyMap<string, string>,
   allSkillRows: readonly IeltsError[],
 ): ModePattern {
   const dates = distinctDates(rows);
@@ -132,15 +149,19 @@ function classifyMode(
   for (const row of rows) perDate.set(row.date, (perDate.get(row.date) ?? 0) + 1);
   const maxPerDate = Math.max(...perDate.values());
 
-  // Induced: the FIRST occurrence sits on a rewrite, and the mode is absent
-  // from the piece being rewritten. Absent from that earlier date — not merely
-  // absent from the rewrite — because the point is that the mode did not exist
-  // until the feedback was applied.
+  // Induced: the FIRST occurrence sits in a session that rewrites an earlier
+  // piece, and the mode is absent from the piece being rewritten. Three checks,
+  // each load-bearing: the session (not some rows in it) is the rewrite, since
+  // revision_of is a session property; the source must be strictly EARLIER
+  // than the first occurrence, because "rewrites a later piece" is a data
+  // error, not evidence, and a wrong `induced` is worse than none; and the
+  // mode must be absent from that earlier date — the point is that it did not
+  // exist until the feedback was applied.
   const firstDate = dates[0];
-  const firstRows = rows.filter((row) => row.date === firstDate);
-  const revisionSource = firstRows.find((row) => row.revisionOf)?.revisionOf;
+  const revisionSource = revisionByDate.get(firstDate);
   const causedByFeedback = Boolean(
     revisionSource &&
+      revisionSource < firstDate &&
       !allSkillRows.some((row) => row.date === revisionSource && row.failureMode === mode),
   );
 
@@ -175,6 +196,10 @@ function classifyMode(
   // One session from here down.
   if (maxPerDate >= 4) return { ...base, patternClass: 'within-session-cluster' };
 
+  // Sessions AFTER the mode's one appearance, clean of it by construction —
+  // if a later session carried the mode, dates.length would be 2 and this
+  // branch unreachable. Clean sessions with zero errors count here too, which
+  // is what makes `isolated` reachable at all.
   const laterCleanSessions = skillSessionDates.filter((date) => date > firstDate).length;
   if (laterCleanSessions >= 2) return { ...base, patternClass: 'isolated' };
 
@@ -191,9 +216,25 @@ function classifyMode(
 export function patternsForSkill(
   skill: IeltsErrorSkill,
   allErrors: readonly IeltsError[],
+  allSessions: readonly SessionLike[],
 ): SkillPatterns {
   const rows = allErrors.filter((error) => error.skill === skill);
-  const sessionDates = distinctDates(rows);
+
+  // THE ONE DEFINITION OF A SESSION COUNT. Distinct dates in the sessions
+  // table for this skill — never distinct error dates, which miss clean
+  // sessions. Do not add a second derivation anywhere.
+  const skillSessions = allSessions.filter((session) => session.skill === skill);
+  const sessionDates = [...new Set(skillSessions.map((session) => session.date))].sort(ascending);
+
+  // Session-level rewrite mapping for the induced check. Two rows on one date
+  // (two pieces in one evening) with different revision_of: the first with a
+  // value wins — a same-date tie carries no better signal either way.
+  const revisionByDate = new Map<string, string>();
+  for (const session of skillSessions) {
+    if (session.revisionOf && !revisionByDate.has(session.date)) {
+      revisionByDate.set(session.date, session.revisionOf);
+    }
+  }
 
   const byMode = new Map<string, IeltsError[]>();
   for (const row of rows) {
@@ -204,7 +245,9 @@ export function patternsForSkill(
   }
 
   const patterns = [...byMode.entries()]
-    .map(([mode, modeRows]) => classifyMode(skill, mode, modeRows, sessionDates, rows))
+    .map(([mode, modeRows]) =>
+      classifyMode(skill, mode, modeRows, sessionDates, revisionByDate, rows),
+    )
     .sort((a, b) => {
       const byClass =
         CLASS_ORDER.indexOf(a.patternClass) - CLASS_ORDER.indexOf(b.patternClass);
@@ -289,13 +332,17 @@ export function pendingProposals(
 
 /**
  * THE PRE-SUBMIT CHECKLIST — every correction-resistant mode, ordered by
- * occurrence count, as one copyable block to sit beside the draft.
+ * occurrence count, GROUPED PER SKILL: a Task 1 draft is checked against
+ * Task 1 items, not against listening items. One flat unlabelled block was
+ * the earlier shape and it made every check cost a mental "is this even my
+ * skill?" — the grouping is the fix.
  *
  * Correction-resistant only. When a mode has been flagged twice and still
  * recurs, the owner already knows the rule; what fails is catching it in his
  * own text. So the line is a string to FIND, not a rule to remember.
  *
  * Returns an empty array when nothing qualifies — the section does not render.
+ * Skills with no qualifying mode are omitted, never rendered empty.
  */
 export interface ChecklistLine {
   readonly skill: IeltsErrorSkill;
@@ -305,22 +352,34 @@ export interface ChecklistLine {
   readonly sessions: number;
 }
 
-export function preSubmitChecklist(
-  skillPatterns: readonly SkillPatterns[],
-): ChecklistLine[] {
-  return skillPatterns
-    .flatMap((group) => group.patterns)
-    .filter((pattern) => pattern.patternClass === 'correction-resistant' && pattern.definition)
-    .map((pattern) => ({
-      skill: pattern.skill,
-      mode: pattern.mode,
-      check: pattern.definition!.check,
-      occurrences: pattern.occurrences,
-      sessions: pattern.sessions,
-    }))
-    .sort((a, b) => b.occurrences - a.occurrences || a.mode.localeCompare(b.mode));
+export interface SkillChecklist {
+  readonly skill: IeltsErrorSkill;
+  readonly label: string;
+  readonly lines: readonly ChecklistLine[];
 }
 
+export function preSubmitChecklist(
+  skillPatterns: readonly SkillPatterns[],
+): SkillChecklist[] {
+  return skillPatterns
+    .map((group) => ({
+      skill: group.skill,
+      label: IELTS_ERROR_TAXONOMY[group.skill].label,
+      lines: group.patterns
+        .filter((pattern) => pattern.patternClass === 'correction-resistant' && pattern.definition)
+        .map((pattern) => ({
+          skill: pattern.skill,
+          mode: pattern.mode,
+          check: pattern.definition!.check,
+          occurrences: pattern.occurrences,
+          sessions: pattern.sessions,
+        }))
+        .sort((a, b) => b.occurrences - a.occurrences || a.mode.localeCompare(b.mode)),
+    }))
+    .filter((group) => group.lines.length > 0);
+}
+
+/** One skill's block — copied beside the draft of THAT skill. */
 export function checklistText(lines: readonly ChecklistLine[]): string {
   return lines
     .map((line) => `[ ] ${line.check}  (${line.mode}, ${occurrenceLabel(line.occurrences, line.sessions)})`)

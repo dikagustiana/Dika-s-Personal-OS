@@ -29,6 +29,7 @@ import type {
   IeltsError,
   IeltsErrorSkill,
   IeltsResult,
+  IeltsSession,
   LinkedProject,
   Project,
   ProjectDocument,
@@ -261,13 +262,26 @@ interface IeltsErrorRow {
   quote: string;
   note: string | null;
   question_type: string | null;
-  revision_of: string | null;
   result_id: string | null;
   created_at: string;
 }
 
+// revision_of is NOT here: it moved to os_ielts_sessions (a revision is a
+// property of the session, not of each mistake) and the error-row column is
+// dropped by migration 20260727000028.
 const IELTS_ERROR_COLUMNS =
-  'id, date, skill, criterion, failure_mode, quote, note, question_type, revision_of, result_id, created_at';
+  'id, date, skill, criterion, failure_mode, quote, note, question_type, result_id, created_at';
+
+interface IeltsSessionRow {
+  id: string;
+  date: string;
+  skill: IeltsErrorSkill;
+  revision_of: string | null;
+  raw_feedback: string | null;
+  created_at: string;
+}
+
+const IELTS_SESSION_COLUMNS = 'id, date, skill, revision_of, raw_feedback, created_at';
 
 // --- mapping ----------------------------------------------------------------
 
@@ -381,13 +395,23 @@ function rowToIeltsError(row: IeltsErrorRow): IeltsError {
     createdAt: toIso(row.created_at),
   };
   // Omitted rather than set to null: the domain type uses optional fields, and
-  // `revisionOf: null` would satisfy neither `?string` nor a truthiness check
-  // the classifier relies on.
+  // `note: null` would satisfy neither `?string` nor a truthiness check.
   if (row.note) error.note = row.note;
   if (row.question_type) error.questionType = row.question_type;
-  if (row.revision_of) error.revisionOf = row.revision_of;
   if (row.result_id) error.resultId = row.result_id;
   return error;
+}
+
+function rowToIeltsSession(row: IeltsSessionRow): IeltsSession {
+  const session: IeltsSession = {
+    id: row.id,
+    date: row.date,
+    skill: row.skill,
+    createdAt: toIso(row.created_at),
+  };
+  if (row.revision_of) session.revisionOf = row.revision_of;
+  if (row.raw_feedback) session.rawFeedback = row.raw_feedback;
+  return session;
 }
 
 function rowToIeltsResult(row: IeltsResultRow): IeltsResult {
@@ -739,7 +763,6 @@ class SupabaseRepository implements Repository {
           quote: row.quote,
           note: row.note ?? null,
           question_type: row.questionType ?? null,
-          revision_of: row.revisionOf ?? null,
           result_id: row.resultId ?? null,
         })),
       )
@@ -751,6 +774,36 @@ class SupabaseRepository implements Repository {
   async deleteIeltsError(id: string): Promise<void> {
     const { error } = await this.client.from('os_ielts_errors').delete().eq('id', id);
     if (error) throw new Error(`deleteIeltsError failed: ${error.message}`);
+  }
+
+  async listIeltsSessions(): Promise<IeltsSession[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_sessions')
+      .select(IELTS_SESSION_COLUMNS)
+      .order('date', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw new Error(`listIeltsSessions failed: ${error.message}`);
+    return (data as IeltsSessionRow[]).map(rowToIeltsSession);
+  }
+
+  /** Bulk like the errors — a multi-date paste creates its sessions in one insert. */
+  async createIeltsSessions(
+    input: ReadonlyArray<Omit<IeltsSession, 'id' | 'createdAt'>>,
+  ): Promise<IeltsSession[]> {
+    if (input.length === 0) return [];
+    const { data, error } = await this.client
+      .from('os_ielts_sessions')
+      .insert(
+        input.map((row) => ({
+          date: row.date,
+          skill: row.skill,
+          revision_of: row.revisionOf ?? null,
+          raw_feedback: row.rawFeedback ?? null,
+        })),
+      )
+      .select(IELTS_SESSION_COLUMNS);
+    if (error) throw new Error(`createIeltsSessions failed: ${error.message}`);
+    return (data as IeltsSessionRow[]).map(rowToIeltsSession);
   }
 
   // --- finish line: the entity matrix ----------------------------------------

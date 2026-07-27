@@ -7,6 +7,7 @@ import {
   pendingProposals,
   preSubmitChecklist,
   type PatternClass,
+  type SessionLike,
 } from './classify';
 import { parseProposal } from './taxonomy';
 
@@ -31,23 +32,66 @@ function err(
   };
 }
 
-const classOf = (rows: IeltsError[], mode: string, skill: IeltsErrorSkill = 'writing_task1') =>
-  patternsForSkill(skill, rows).patterns.find((pattern) => pattern.mode === mode)
+function ses(
+  date: string,
+  overrides: Partial<SessionLike> & { skill?: IeltsErrorSkill } = {},
+): SessionLike {
+  return { date, skill: 'writing_task1', ...overrides };
+}
+
+/**
+ * One session per distinct (date, skill) in the rows — the shape the app
+ * produces, since committing a paste writes the session as a side effect.
+ * Tests that need CLEAN sessions (the whole point of the table) add them
+ * explicitly on top.
+ */
+function sessionsFor(rows: readonly IeltsError[]): SessionLike[] {
+  const seen = new Map<string, SessionLike>();
+  for (const row of rows) {
+    seen.set(`${row.date} ${row.skill}`, { date: row.date, skill: row.skill });
+  }
+  return [...seen.values()];
+}
+
+const classOf = (
+  rows: IeltsError[],
+  mode: string,
+  sessions: SessionLike[] = sessionsFor(rows),
+  skill: IeltsErrorSkill = 'writing_task1',
+) =>
+  patternsForSkill(skill, rows, sessions).patterns.find((pattern) => pattern.mode === mode)
     ?.patternClass as PatternClass;
 
-describe('sessions are distinct dates, not rows', () => {
-  it('counts two errors on one date as one session', () => {
-    const rows = [err('2026-07-01', 'tense_drift'), err('2026-07-01', 'broken_clause')];
-    expect(patternsForSkill('writing_task1', rows).sessions).toBe(1);
+describe('sessions come from the sessions table, never from error dates', () => {
+  it('counts a clean session — one with zero error rows — in the denominator', () => {
+    const rows = [err('2026-07-01', 'tense_drift')];
+    const sessions = [ses('2026-07-01'), ses('2026-07-08'), ses('2026-07-15')];
+    expect(patternsForSkill('writing_task1', rows, sessions).sessions).toBe(3);
   });
 
-  it('ignores rows from other skills when counting a skill\'s sessions', () => {
-    const rows = [
-      err('2026-07-01', 'tense_drift'),
-      err('2026-07-02', 'time_ran_out', { skill: 'reading', criterion: 'timing' }),
-    ];
-    expect(patternsForSkill('writing_task1', rows).sessions).toBe(1);
-    expect(patternsForSkill('reading', rows).sessions).toBe(1);
+  it('counts two errors on one date as one session', () => {
+    const rows = [err('2026-07-01', 'tense_drift'), err('2026-07-01', 'broken_clause')];
+    expect(patternsForSkill('writing_task1', rows, sessionsFor(rows)).sessions).toBe(1);
+  });
+
+  it('counts two session rows on one date once — the distinct date is the identity', () => {
+    const sessions = [ses('2026-07-01'), ses('2026-07-01')];
+    expect(patternsForSkill('writing_task1', [], sessions).sessions).toBe(1);
+  });
+
+  it("ignores sessions of other skills when counting a skill's sessions", () => {
+    const sessions = [ses('2026-07-01'), ses('2026-07-02', { skill: 'reading' })];
+    expect(patternsForSkill('writing_task1', [], sessions).sessions).toBe(1);
+    expect(patternsForSkill('reading', [], sessions).sessions).toBe(1);
+  });
+
+  it('reaches isolated purely through clean sessions — the class the old counting made unreachable', () => {
+    const rows = [err('2026-07-01', 'trend_expression_error', { criterion: 'Lexical Resource' })];
+    // Two later sessions, both clean — no error rows at all. Under
+    // COUNT(DISTINCT date) over errors these sessions did not exist and the
+    // mode could never be dismissed.
+    const sessions = [ses('2026-07-01'), ses('2026-07-08'), ses('2026-07-15')];
+    expect(classOf(rows, 'trend_expression_error', sessions)).toBe('isolated');
   });
 });
 
@@ -58,7 +102,7 @@ describe('the six classes', () => {
       err('2026-07-08', 'tense_drift'),
       err('2026-07-08', 'broken_clause'),
     ];
-    const group = patternsForSkill('writing_task1', rows);
+    const group = patternsForSkill('writing_task1', rows, sessionsFor(rows));
     expect(group.sessions).toBe(2);
     for (const pattern of group.patterns) {
       expect(pattern.patternClass).toBe('too-early');
@@ -93,15 +137,21 @@ describe('the six classes', () => {
     expect(classOf(rows, 'tense_drift')).toBe('correction-resistant');
   });
 
-  it('induced — first occurrence is on a rewrite, and absent from the piece rewritten', () => {
+  it('induced — first occurrence is in a rewrite session, and absent from the piece rewritten', () => {
     const rows = [
       // The earlier piece: a different mode, so function_word_slip did not
       // exist until the feedback on it was applied.
       err('2026-07-01', 'tense_drift'),
-      err('2026-07-08', 'function_word_slip', { revisionOf: '2026-07-01' }),
+      err('2026-07-08', 'function_word_slip'),
       err('2026-07-15', 'broken_clause'),
     ];
-    const pattern = patternsForSkill('writing_task1', rows).patterns.find(
+    // revision_of is a SESSION property: the 07-08 session rewrites 07-01.
+    const sessions = [
+      ses('2026-07-01'),
+      ses('2026-07-08', { revisionOf: '2026-07-01' }),
+      ses('2026-07-15'),
+    ];
+    const pattern = patternsForSkill('writing_task1', rows, sessions).patterns.find(
       (candidate) => candidate.mode === 'function_word_slip',
     );
     expect(pattern?.patternClass).toBe('induced');
@@ -111,16 +161,54 @@ describe('the six classes', () => {
   it('is NOT induced when the mode was already present in the piece being rewritten', () => {
     const rows = [
       err('2026-07-01', 'function_word_slip'),
-      err('2026-07-08', 'function_word_slip', { revisionOf: '2026-07-01' }),
+      err('2026-07-08', 'function_word_slip'),
       err('2026-07-15', 'broken_clause'),
     ];
-    const pattern = patternsForSkill('writing_task1', rows).patterns.find(
+    const sessions = [
+      ses('2026-07-01'),
+      ses('2026-07-08', { revisionOf: '2026-07-01' }),
+      ses('2026-07-15'),
+    ];
+    const pattern = patternsForSkill('writing_task1', rows, sessions).patterns.find(
       (candidate) => candidate.mode === 'function_word_slip',
     );
     // Recurred in a rewrite of the same piece: feedback not applied, which is
     // unresolved — a different problem with a different fix.
     expect(pattern?.causedByFeedback).toBe(false);
     expect(pattern?.patternClass).toBe('unresolved');
+  });
+
+  it('is NOT induced when the claimed rewrite source is not earlier than the session', () => {
+    const rows = [
+      err('2026-07-01', 'function_word_slip'),
+      err('2026-07-08', 'tense_drift'),
+      err('2026-07-15', 'broken_clause'),
+    ];
+    // A session cannot rewrite a LATER piece; that is a data error, not
+    // evidence, and a wrong `induced` is worse than none.
+    const sessions = [
+      ses('2026-07-01', { revisionOf: '2026-07-08' }),
+      ses('2026-07-08'),
+      ses('2026-07-15'),
+    ];
+    const pattern = patternsForSkill('writing_task1', rows, sessions).patterns.find(
+      (candidate) => candidate.mode === 'function_word_slip',
+    );
+    expect(pattern?.causedByFeedback).toBe(false);
+    expect(pattern?.patternClass).not.toBe('induced');
+  });
+
+  it('is NOT induced when the session claims to rewrite itself', () => {
+    const rows = [err('2026-07-08', 'function_word_slip')];
+    const sessions = [
+      ses('2026-07-01'),
+      ses('2026-07-08', { revisionOf: '2026-07-08' }),
+      ses('2026-07-15'),
+    ];
+    const pattern = patternsForSkill('writing_task1', rows, sessions).patterns.find(
+      (candidate) => candidate.mode === 'function_word_slip',
+    );
+    expect(pattern?.causedByFeedback).toBe(false);
   });
 
   it('within-session cluster — 4+ on one date, appearing in only 1 session', () => {
@@ -140,11 +228,17 @@ describe('precedence between overlapping classes', () => {
   it('reports correction-resistant over induced, and keeps the cause as a flag', () => {
     const rows = [
       err('2026-07-01', 'tense_drift'),
-      err('2026-07-08', 'function_word_slip', { revisionOf: '2026-07-01' }),
+      err('2026-07-08', 'function_word_slip'),
       err('2026-07-15', 'function_word_slip'),
       err('2026-07-22', 'function_word_slip'),
     ];
-    const pattern = patternsForSkill('writing_task1', rows).patterns.find(
+    const sessions = [
+      ses('2026-07-01'),
+      ses('2026-07-08', { revisionOf: '2026-07-01' }),
+      ses('2026-07-15'),
+      ses('2026-07-22'),
+    ];
+    const pattern = patternsForSkill('writing_task1', rows, sessions).patterns.find(
       (candidate) => candidate.mode === 'function_word_slip',
     );
     expect(pattern?.patternClass).toBe('correction-resistant');
@@ -173,7 +267,7 @@ describe('precedence between overlapping classes', () => {
     ];
     // broken_clause has been seen once, in the most recent session. It has had
     // no chance to recur, so "did not recur" would be a claim about nothing.
-    const pattern = patternsForSkill('writing_task1', rows).patterns.find(
+    const pattern = patternsForSkill('writing_task1', rows, sessionsFor(rows)).patterns.find(
       (candidate) => candidate.mode === 'broken_clause',
     );
     expect(pattern?.patternClass).toBe('too-early');
@@ -208,7 +302,9 @@ describe('ordering', () => {
       err('2026-07-22', 'coverage_gap', { criterion: 'Task Achievement' }),
       err('2026-07-29', 'coverage_gap', { criterion: 'Task Achievement' }),
     ];
-    const order = patternsForSkill('writing_task1', rows).patterns.map((p) => p.mode);
+    const order = patternsForSkill('writing_task1', rows, sessionsFor(rows)).patterns.map(
+      (p) => p.mode,
+    );
     expect(order[0]).toBe('tense_drift');
     expect(order.indexOf('coverage_gap')).toBeLessThan(order.indexOf('broken_clause'));
   });
@@ -224,7 +320,7 @@ describe('honesty', () => {
 describe('question_type grouping', () => {
   it('is empty when no row carries one, so the section never renders', () => {
     const rows = [err('2026-07-01', 'time_ran_out', { skill: 'reading', criterion: 'timing' })];
-    expect(patternsForSkill('reading', rows).byQuestionType).toEqual([]);
+    expect(patternsForSkill('reading', rows, sessionsFor(rows)).byQuestionType).toEqual([]);
   });
 
   it('groups and counts where present', () => {
@@ -245,7 +341,7 @@ describe('question_type grouping', () => {
         questionType: 'T/F/NG',
       }),
     ];
-    expect(patternsForSkill('reading', rows).byQuestionType).toEqual([
+    expect(patternsForSkill('reading', rows, sessionsFor(rows)).byQuestionType).toEqual([
       { type: 'matching headings', occurrences: 2 },
       { type: 'T/F/NG', occurrences: 1 },
     ]);
@@ -279,7 +375,7 @@ describe('pending proposals', () => {
       err('2026-07-08', 'UNCLASSIFIED', { note: 'PROPOSED: b — y' }),
       err('2026-07-15', 'UNCLASSIFIED', { note: 'PROPOSED: c — z' }),
     ];
-    expect(patternsForSkill('writing_task1', rows).patterns).toEqual([]);
+    expect(patternsForSkill('writing_task1', rows, sessionsFor(rows)).patterns).toEqual([]);
   });
 });
 
@@ -293,20 +389,44 @@ describe('the pre-submit checklist', () => {
     err('2026-07-08', 'broken_clause'),
     err('2026-07-15', 'broken_clause'),
   ];
+  const patterns = () => [patternsForSkill('writing_task1', rows, sessionsFor(rows))];
 
   it('contains only correction-resistant modes', () => {
-    const lines = preSubmitChecklist([patternsForSkill('writing_task1', rows)]);
-    expect(lines.map((line) => line.mode)).toEqual(['tense_drift', 'broken_clause']);
+    const groups = preSubmitChecklist(patterns());
+    expect(groups.flatMap((group) => group.lines.map((line) => line.mode))).toEqual([
+      'tense_drift',
+      'broken_clause',
+    ]);
   });
 
-  it('orders by occurrence count', () => {
-    const lines = preSubmitChecklist([patternsForSkill('writing_task1', rows)]);
-    expect(lines[0].occurrences).toBeGreaterThan(lines[1].occurrences);
+  it('orders by occurrence count within a skill', () => {
+    const [group] = preSubmitChecklist(patterns());
+    expect(group.lines[0].occurrences).toBeGreaterThan(group.lines[1].occurrences);
+  });
+
+  it('groups per skill and never mixes two skills into one block', () => {
+    const reading = [
+      err('2026-07-01', 'keyword_trap', { skill: 'reading', criterion: 'location' }),
+      err('2026-07-08', 'keyword_trap', { skill: 'reading', criterion: 'location' }),
+      err('2026-07-15', 'keyword_trap', { skill: 'reading', criterion: 'location' }),
+    ];
+    const all = [...rows, ...reading];
+    const groups = preSubmitChecklist([
+      patternsForSkill('writing_task1', all, sessionsFor(all)),
+      patternsForSkill('reading', all, sessionsFor(all)),
+    ]);
+    expect(groups.map((group) => group.skill)).toEqual(['writing_task1', 'reading']);
+    // Every line in a block belongs to that block's skill — a Task 1 draft is
+    // checked against Task 1 items, not listening items.
+    for (const group of groups) {
+      expect(group.lines.every((line) => line.skill === group.skill)).toBe(true);
+    }
+    expect(groups[0].label).toBe('Writing Task 1');
   });
 
   it('emits the check, never the rule', () => {
-    const lines = preSubmitChecklist([patternsForSkill('writing_task1', rows)]);
-    const text = checklistText(lines);
+    const [group] = preSubmitChecklist(patterns());
+    const text = checklistText(group.lines);
     expect(text).toContain('Search the draft for "has", "have", "is" and "are"');
     // The rule for the same mode must not appear: explanation has already
     // failed twice for a correction-resistant mode.
@@ -319,7 +439,9 @@ describe('the pre-submit checklist', () => {
       err('2026-07-08', 'tense_drift'),
       err('2026-07-15', 'broken_clause'),
     ];
-    expect(preSubmitChecklist([patternsForSkill('writing_task1', thin)])).toEqual([]);
+    expect(preSubmitChecklist([patternsForSkill('writing_task1', thin, sessionsFor(thin))])).toEqual(
+      [],
+    );
   });
 
   it('never emits a line for UNCLASSIFIED, which has no check to run', () => {
@@ -328,13 +450,17 @@ describe('the pre-submit checklist', () => {
       err('2026-07-08', 'UNCLASSIFIED', { note: 'PROPOSED: x — y' }),
       err('2026-07-15', 'UNCLASSIFIED', { note: 'PROPOSED: x — y' }),
     ];
-    expect(preSubmitChecklist([patternsForSkill('writing_task1', unclassified)])).toEqual([]);
+    expect(
+      preSubmitChecklist([
+        patternsForSkill('writing_task1', unclassified, sessionsFor(unclassified)),
+      ]),
+    ).toEqual([]);
   });
 });
 
 describe('empty input', () => {
-  it('returns nothing to render for a skill with zero rows', () => {
-    const group = patternsForSkill('speaking', []);
+  it('returns nothing to render for a skill with zero rows and zero sessions', () => {
+    const group = patternsForSkill('speaking', [], []);
     expect(group).toMatchObject({ sessions: 0, patterns: [], byQuestionType: [] });
     expect(preSubmitChecklist([group])).toEqual([]);
     expect(pendingProposals([], parseProposal)).toEqual([]);

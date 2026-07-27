@@ -28,6 +28,7 @@ import type {
   OrphanMilestone,
   IeltsError,
   IeltsResult,
+  IeltsSession,
   Project,
   WeeklyPlan,
 } from './types';
@@ -243,6 +244,33 @@ export class MockRepository implements Repository {
 
   async deleteIeltsError(id: string): Promise<void> {
     this.ieltsErrors.delete(id);
+  }
+
+  /**
+   * Starts empty for the same reason the errors do: raw_feedback carries the
+   * owner's own practice content and the examiner's review of it. No seed, no
+   * fixture, no example row.
+   */
+  private readonly ieltsSessions = new Map<string, IeltsSession>();
+
+  async listIeltsSessions(): Promise<IeltsSession[]> {
+    return clone(
+      [...this.ieltsSessions.values()].sort(
+        (a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt),
+      ),
+    );
+  }
+
+  async createIeltsSessions(
+    input: ReadonlyArray<Omit<IeltsSession, 'id' | 'createdAt'>>,
+  ): Promise<IeltsSession[]> {
+    const created = input.map((row) => ({
+      ...row,
+      id: createId(),
+      createdAt: new Date().toISOString(),
+    }));
+    for (const row of created) this.ieltsSessions.set(row.id, clone(row));
+    return clone(created);
   }
 
   // --- finish line: the entity matrix ----------------------------------------

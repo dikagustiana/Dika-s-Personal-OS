@@ -378,17 +378,38 @@ export interface IeltsError {
   /** Only meaningful for listening and reading. */
   questionType?: string;
   /**
-   * The date of the piece this session rewrites. Nullable, and the field that
-   * makes classification possible: the same mode in two different essays has
-   * not generalised, while the same mode in one essay and its own rewrite means
-   * direct feedback was not applied. Different problems, different fixes.
-   */
-  revisionOf?: string;
-  /**
    * Nullable ON PURPOSE. A standalone Tuesday reading session logs its errors
    * with no accompanying score row — os_ielts_results stays full-mock-only.
    */
   resultId?: string;
+  createdAt: string;
+}
+
+/**
+ * ONE PRACTICE SESSION, whether or not it produced errors. Sessions are
+ * counted from these rows — never from distinct error dates, which was the
+ * spec's own bug: a clean session produced no error row, no date, and no
+ * session, so the `isolated` class was unreachable and the denominator
+ * understated practice. Created as a side effect of committing a paste; a
+ * zero-error paste still writes one after a one-tap skill prompt.
+ */
+export interface IeltsSession {
+  id: string;
+  date: string; // YYYY-MM-DD
+  skill: IeltsErrorSkill;
+  /**
+   * The date of the piece this session rewrites. Session-level on purpose —
+   * a revision is a property of the session, not of each individual mistake.
+   * The field that makes `induced` classifiable: the same mode in two
+   * different essays has not generalised, while the same mode in one essay
+   * and its own rewrite means direct feedback was not applied.
+   */
+  revisionOf?: string;
+  /**
+   * The full pasted marking response — band estimate, what improved, what
+   * still needs work. Personal practice content: database only, never repo.
+   */
+  rawFeedback?: string;
   createdAt: string;
 }
 

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseErrorLog, validateFields } from './parseErrorLog';
+import {
+  fieldsSignature,
+  parseErrorLog,
+  partitionAgainstCommitted,
+  validateFields,
+} from './parseErrorLog';
 
 /**
  * A WHOLE, UNEDITED marking response — examiner review in Bahasa Indonesia,
@@ -176,13 +181,37 @@ describe('parseErrorLog — tolerance, each drift tested separately', () => {
     ]);
   });
 
-  it('reads optional seventh and eighth fields when a model supplies them', () => {
+  it('reads an optional seventh field as question_type for the skills that have one', () => {
     const text =
-      '2026-07-20 | reading | location | keyword_trap | some text | catatan | matching headings | 2026-07-13';
+      '2026-07-20 | reading | location | keyword_trap | some text | catatan | matching headings';
     const [candidate] = parseErrorLog(text).rows;
     expect(candidate.fields.questionType).toBe('matching headings');
-    expect(candidate.fields.revisionOf).toBe('2026-07-13');
     expect(candidate.problems).toEqual([]);
+  });
+
+  it('does NOT read a seventh field as question_type for a skill that has none', () => {
+    // Writing has no question types; a stray seventh field read into one would
+    // fabricate metadata. It is undocumented noise and is ignored.
+    const text =
+      '2026-07-20 | writing_task1 | Task Achievement | coverage_gap | some text | catatan | stray seventh';
+    const [candidate] = parseErrorLog(text).rows;
+    expect(candidate.fields.questionType).toBeUndefined();
+    expect(candidate.problems).toEqual([]);
+  });
+
+  it('keeps a row whose note is empty behind a trailing pipe — an empty note is not a missing row', () => {
+    const bare = '2026-07-20 | reading | timing | time_ran_out | some quoted text |';
+    const bareResult = parseErrorLog(bare);
+    expect(bareResult.rows).toHaveLength(1);
+    expect(bareResult.rows[0].problems).toEqual([]);
+    expect(bareResult.rows[0].fields.note).toBeUndefined();
+
+    // Same content as a markdown table row with an empty note cell.
+    const markdown = '| 2026-07-20 | reading | timing | time_ran_out | some quoted text | |';
+    const markdownResult = parseErrorLog(markdown);
+    expect(markdownResult.rows).toHaveLength(1);
+    expect(markdownResult.rows[0].problems).toEqual([]);
+    expect(markdownResult.rows[0].fields.note).toBeUndefined();
   });
 });
 
@@ -233,9 +262,74 @@ describe('parseErrorLog — rejection is per row, never per paste', () => {
   });
 
   it('ignores a pipe-shaped line that is not a row', () => {
-    // A markdown score table from the review must not become a candidate.
+    // A markdown score table from the review must not become a candidate:
+    // neither anchor (date shape in field 1, skill in field 2) holds.
     const result = parseErrorLog('| Task Achievement | 6.0 | Coherence | 6.5 | LR | 6.0 |');
     expect(result.rows).toEqual([]);
+  });
+
+  it('surfaces a six-field row whose skill is mangled but whose date anchors it', () => {
+    // Before: silently dropped, a direct violation of "never silently drop a
+    // row". Now: rejected, editable, with the reason named.
+    const text = '2026-07-20 | writing task one | Task Achievement | coverage_gap | some text | catatan';
+    const result = parseErrorLog(text);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].problems.join(' ')).toContain('is not a skill');
+  });
+
+  it('surfaces a six-field row whose date is mangled but whose skill anchors it', () => {
+    const text = '20 Juli 2026 | reading | timing | time_ran_out | some text | catatan';
+    const result = parseErrorLog(text);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0].problems.join(' ')).toContain('not a YYYY-MM-DD date');
+  });
+
+  it('cross-checks the criterion/failure_mode pair against the taxonomy', () => {
+    // Both halves individually valid for writing_task1, but tense_drift
+    // belongs to Grammatical Range & Accuracy — filing it under Task
+    // Achievement corrupts both counts.
+    const text = '2026-07-20 | writing_task1 | Task Achievement | tense_drift | some text | catatan';
+    const [candidate] = parseErrorLog(text).rows;
+    expect(candidate.problems).toHaveLength(1);
+    expect(candidate.problems[0]).toContain('belongs to the criterion');
+  });
+});
+
+describe('partitionAgainstCommitted — the re-insert guard', () => {
+  const parse = (text: string) => parseErrorLog(text).rows.map((row, i) => ({ ...row, key: `${i}` }));
+  const rowText = '2026-07-20 | reading | timing | time_ran_out | some quoted text | catatan';
+
+  it('holds back rows already committed when Find rows re-parses the same paste', () => {
+    const rows = parse(rowText);
+    const committed = new Map([[fieldsSignature(rows[0].fields), 1]]);
+    const { insertable, alreadyCommitted } = partitionAgainstCommitted(rows, committed);
+    expect(insertable).toHaveLength(0);
+    expect(alreadyCommitted).toHaveLength(1);
+  });
+
+  it('lets a genuine second occurrence of identical content through', () => {
+    // One paste, the same slip twice — two occurrences, each its own row. One
+    // copy was committed earlier; exactly one is held back.
+    const rows = parse(`${rowText}\n${rowText}`);
+    const committed = new Map([[fieldsSignature(rows[0].fields), 1]]);
+    const { insertable, alreadyCommitted } = partitionAgainstCommitted(rows, committed);
+    expect(insertable).toHaveLength(1);
+    expect(alreadyCommitted).toHaveLength(1);
+  });
+
+  it('treats an edited row as new content', () => {
+    const rows = parse(rowText);
+    const committed = new Map([[fieldsSignature(rows[0].fields), 1]]);
+    const edited = [{ ...rows[0], fields: { ...rows[0].fields, quote: 'a corrected quote' } }];
+    const { insertable } = partitionAgainstCommitted(edited, committed);
+    expect(insertable).toHaveLength(1);
+  });
+
+  it('holds nothing back with an empty committed set', () => {
+    const rows = parse(rowText);
+    const { insertable, alreadyCommitted } = partitionAgainstCommitted(rows, new Map());
+    expect(insertable).toHaveLength(1);
+    expect(alreadyCommitted).toHaveLength(0);
   });
 });
 
