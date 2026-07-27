@@ -512,6 +512,84 @@ export function gapsByEntity(sections: MatrixSection[]): Map<string, number> {
   return counts;
 }
 
+// ---------------------------------------------------------------------------
+// The entity level — one entity's column, and its two mirror lists
+// ---------------------------------------------------------------------------
+
+/**
+ * One entity's unplanned cells — the same population as the group filter,
+ * narrowed to a column. DERIVED, NEVER STORED: this list and *Closes nothing*
+ * are mirrors, and one link removes a row from both at once precisely because
+ * neither is a second source of truth.
+ */
+export function unplannedForEntity(
+  sections: MatrixSection[],
+  entityCode: string,
+): UnplannedCell[] {
+  return gapCells(sections, 'unplanned').filter((gap) => gap.entity.code === entityCode);
+}
+
+/**
+ * *Closes nothing*, per entity: milestones belonging to THIS entity's tagged
+ * projects that close no cell.
+ *
+ * A milestone that closes no cell has no entity attribution by any other
+ * route — deriving it from the linked cell is circular, since the whole point
+ * is milestones with NO linked cell. So attribution rides on
+ * `Project.entityTag`, and when no project carries this entity's tag the
+ * caller must render an explanatory row, NOT an empty state: a false zero
+ * here reports perfect coverage on an entity that may have dozens of
+ * unplanned cells.
+ */
+export interface EntityClosesNothing {
+  /** Projects tagged to this entity. Empty means NOTHING CAN BE ATTRIBUTED. */
+  tagged: Project[];
+  /** Orphan milestones of those projects, grouped by project, worst first. */
+  groups: OrphanGroup[];
+  /** Orphan milestone count across the groups. Meaningless when tagged is empty. */
+  count: number;
+}
+
+export function closesNothingForEntity(
+  orphans: OrphanMilestone[],
+  projects: Project[],
+  entityCode: string,
+): EntityClosesNothing {
+  const tagged = projects.filter((project) => project.entityTag === entityCode);
+  const taggedIds = new Set(tagged.map((project) => project.id));
+  const groups = groupOrphans(orphans.filter((orphan) => taggedIds.has(orphan.projectId)));
+  return {
+    tagged,
+    groups,
+    count: groups.reduce((sum, group) => sum + group.milestones.length, 0),
+  };
+}
+
+/**
+ * Where a click on this cell goes — DECIDED BY THE CELL, not by a mode.
+ *
+ * A cell with live work behind it goes to that work; a gap-eligible cell with
+ * none goes to its own row in *Unplanned*; everything else only has an
+ * explanation to give. `Sales — B2B` on one entity may have work while the
+ * same metric on another does not, and each cell answers for itself.
+ */
+export type EntityCellRoute =
+  | { kind: 'milestone'; projectId: string }
+  | { kind: 'unplanned' }
+  | { kind: 'explain' };
+
+export function routeForCell(
+  cell: FinishLineCell,
+  resolved: ResolvedEdge[],
+): EntityCellRoute {
+  if (!isGapEligible(cell.state)) return { kind: 'explain' };
+  // A broken edge is not coverage — same rule as cellSubState. A project-level
+  // link (no milestone id) is still declared work and still routable.
+  const live = resolved.find((r) => (r.milestone !== undefined && !r.broken) || (r.edge.milestoneId === undefined && r.project));
+  if (live?.project) return { kind: 'milestone', projectId: live.project.id };
+  return { kind: 'unplanned' };
+}
+
 /** Every section id an item sits under, for expanding on a deep link. */
 export function ancestorPath(items: FinishLineItem[], itemId: string): string[] {
   const byId = new Map(items.map((item) => [item.id, item]));
