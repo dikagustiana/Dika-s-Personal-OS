@@ -3,7 +3,7 @@ import { useMemo, useState } from 'react';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { EmptyRow } from '../ui/EmptyRow';
-import type { IeltsError } from '../../data/types';
+import type { IeltsError, IeltsSession } from '../../data/types';
 import {
   CLASS_LABEL,
   CLASS_MEANING,
@@ -16,6 +16,7 @@ import {
   preSubmitChecklist,
   type ModePattern,
   type PatternClass,
+  type SkillChecklist,
 } from '../../logic/ielts/classify';
 import {
   IELTS_ERROR_SKILLS,
@@ -33,7 +34,9 @@ import { cn } from '../../lib/utils';
  * feature exists to prevent.
  *
  * Nothing rendered here is stored. Classes are recomputed from the rows on
- * every read — see logic/ielts/classify.ts.
+ * every read — see logic/ielts/classify.ts. Session counts come from
+ * os_ielts_sessions, never from distinct error dates: a clean session is a
+ * session, and missing it made `isolated` unreachable.
  */
 
 // Escalate = needs attention, muted = considered and dismissed. No new colour
@@ -92,14 +95,23 @@ function PatternRow({ pattern }: { pattern: ModePattern }) {
   );
 }
 
-function SkillSection({ errors }: { errors: readonly IeltsError[] }) {
+function SkillSection({
+  errors,
+  sessions,
+}: {
+  errors: readonly IeltsError[];
+  sessions: readonly IeltsSession[];
+}) {
   const groups = useMemo(
-    () => IELTS_ERROR_SKILLS.map((skill) => patternsForSkill(skill, errors)),
-    [errors],
+    () => IELTS_ERROR_SKILLS.map((skill) => patternsForSkill(skill, errors, sessions)),
+    [errors, sessions],
   );
   const [showIsolated, setShowIsolated] = useState(false);
 
-  const active = groups.filter((group) => group.patterns.length > 0);
+  // A skill renders when it has patterns OR sessions: three clean listening
+  // sessions with nothing logged is real information (practice happened,
+  // nothing recurred), not an empty axis.
+  const active = groups.filter((group) => group.patterns.length > 0 || group.sessions > 0);
   if (active.length === 0) return null;
 
   return (
@@ -124,6 +136,12 @@ function SkillSection({ errors }: { errors: readonly IeltsError[] }) {
                   `; classification needs ${MIN_SESSIONS_TO_CLASSIFY}`}
               </span>
             </div>
+
+            {group.patterns.length === 0 && (
+              <p className="mt-2 text-xs leading-5 text-foreground-muted">
+                No errors logged for this skill — every session so far is clean.
+              </p>
+            )}
 
             <div className="mt-2 space-y-1.5">
               {shown.map((pattern) => (
@@ -178,18 +196,11 @@ function SkillSection({ errors }: { errors: readonly IeltsError[] }) {
   );
 }
 
-function Checklist({ errors }: { errors: readonly IeltsError[] }) {
+/** One skill's checklist block, with its own copy button — a Task 1 draft is
+    checked against Task 1 items, never against listening items. */
+function ChecklistBlock({ group }: { group: SkillChecklist }) {
   const [copied, setCopied] = useState(false);
-  const lines = useMemo(
-    () => preSubmitChecklist(IELTS_ERROR_SKILLS.map((skill) => patternsForSkill(skill, errors))),
-    [errors],
-  );
-
-  // No mode qualifies → the section does not render. An empty checklist would
-  // read as "nothing to check" when it means "nothing has been flagged twice".
-  if (lines.length === 0) return null;
-
-  const text = checklistText(lines);
+  const text = checklistText(group.lines);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -201,24 +212,56 @@ function Checklist({ errors }: { errors: readonly IeltsError[] }) {
   };
 
   return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border-subtle pb-1.5">
+        <h3 className="surface-label">{group.label}</h3>
+        <Button size="sm" variant="secondary" onClick={() => void copy()}>
+          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+      </div>
+      <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
+        {text}
+      </pre>
+    </div>
+  );
+}
+
+function Checklist({
+  errors,
+  sessions,
+}: {
+  errors: readonly IeltsError[];
+  sessions: readonly IeltsSession[];
+}) {
+  const groups = useMemo(
+    () =>
+      preSubmitChecklist(
+        IELTS_ERROR_SKILLS.map((skill) => patternsForSkill(skill, errors, sessions)),
+      ),
+    [errors, sessions],
+  );
+
+  // No mode qualifies → the section does not render. An empty checklist would
+  // read as "nothing to check" when it means "nothing has been flagged twice".
+  if (groups.length === 0) return null;
+
+  return (
     <Card className="border-destructive/30">
       <CardHeader>
         <div className="min-w-0">
           <CardTitle>Before you submit</CardTitle>
           <p className="mt-1 text-xs leading-5 text-foreground-muted">
-            One literal thing to search the draft for, per mode that has survived two flaggings.
-            Not a rule to remember — you already know the rule.
+            One literal thing to search the draft for, per mode that has survived two flaggings —
+            grouped by skill, so a Task 1 draft is checked against Task 1 items only. Not a rule
+            to remember — you already know the rule.
           </p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => void copy()}>
-          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
       </CardHeader>
-      <CardContent>
-        <pre className="overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
-          {text}
-        </pre>
+      <CardContent className="space-y-4">
+        {groups.map((group) => (
+          <ChecklistBlock key={group.skill} group={group} />
+        ))}
       </CardContent>
     </Card>
   );
@@ -270,11 +313,20 @@ function Proposals({ errors }: { errors: readonly IeltsError[] }) {
   );
 }
 
-export function ErrorPatterns({ errors }: { errors: readonly IeltsError[] }) {
-  const anyPatterns = useMemo(
+export function ErrorPatterns({
+  errors,
+  sessions,
+}: {
+  errors: readonly IeltsError[];
+  sessions: readonly IeltsSession[];
+}) {
+  const anyContent = useMemo(
     () =>
-      IELTS_ERROR_SKILLS.some((skill) => patternsForSkill(skill, errors).patterns.length > 0),
-    [errors],
+      IELTS_ERROR_SKILLS.some((skill) => {
+        const group = patternsForSkill(skill, errors, sessions);
+        return group.patterns.length > 0 || group.sessions > 0;
+      }),
+    [errors, sessions],
   );
   const hasProposals = useMemo(
     () => pendingProposals(errors, parseProposal).length > 0,
@@ -283,7 +335,7 @@ export function ErrorPatterns({ errors }: { errors: readonly IeltsError[] }) {
 
   return (
     <div className="space-y-5">
-      <Checklist errors={errors} />
+      <Checklist errors={errors} sessions={sessions} />
       <Card>
         <CardHeader>
           <div className="min-w-0">
@@ -295,11 +347,11 @@ export function ErrorPatterns({ errors }: { errors: readonly IeltsError[] }) {
           </div>
         </CardHeader>
         <CardContent>
-          {anyPatterns ? (
-            <SkillSection errors={errors} />
+          {anyContent ? (
+            <SkillSection errors={errors} sessions={sessions} />
           ) : (
             <EmptyRow
-              label="No errors logged"
+              label="No sessions logged"
               clause={
                 hasProposals
                   ? 'Only unclassified rows so far — see pending proposals.'
@@ -310,7 +362,7 @@ export function ErrorPatterns({ errors }: { errors: readonly IeltsError[] }) {
         </CardContent>
       </Card>
       <Proposals errors={errors} />
-      {anyPatterns && (
+      {anyContent && (
         <p className="text-xs leading-5 text-foreground-muted">
           {Object.entries(CLASS_MEANING)
             .map(([key, meaning]) => `${CLASS_LABEL[key as PatternClass]}: ${meaning}`)

@@ -16,7 +16,7 @@ import { Input } from '../../components/ui/Input';
 import { IELTS_SKILL_COLORS, IELTS_SKILL_DASH } from '../../components/IeltsTrendChart';
 import { ErrorLogPaste } from '../../components/ielts/ErrorLogPaste';
 import { ErrorPatterns } from '../../components/ielts/ErrorPatterns';
-import type { IeltsError, IeltsResult } from '../../data/types';
+import type { IeltsError, IeltsResult, IeltsSession } from '../../data/types';
 import {
   formatBand,
   IELTS_SKILLS,
@@ -49,16 +49,19 @@ export function Ielts() {
   const { run } = useMutation();
   const [results, setResults] = useState<IeltsResult[]>([]);
   const [errors, setErrors] = useState<IeltsError[]>([]);
+  const [sessions, setSessions] = useState<IeltsSession[]>([]);
   const [form, setForm] = useState<Record<string, string>>(emptyForm);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [resultRows, errorRows] = await Promise.all([
+    const [resultRows, errorRows, sessionRows] = await Promise.all([
       repository.listIeltsResults(),
       repository.listIeltsErrors(),
+      repository.listIeltsSessions(),
     ]);
     setResults(resultRows);
     setErrors(errorRows);
+    setSessions(sessionRows);
   }, [repository]);
 
   useEffect(() => {
@@ -201,9 +204,10 @@ export function Ielts() {
           should I work on — "Reading 6.5" is a fact, "you dropped the Task 1
           overview in 4 of 6 attempts" is actionable tomorrow. */}
       <div className="mb-5 space-y-5">
-        <ErrorPatterns errors={errors} />
+        <ErrorPatterns errors={errors} sessions={sessions} />
         <ErrorLogPaste
           onCommitted={(rows) => setErrors((current) => [...current, ...rows])}
+          onSessions={(rows) => setSessions((current) => [...current, ...rows])}
         />
       </div>
 

@@ -22,14 +22,18 @@
  *
  * DETECTION RULE: scan EVERY line of the paste for the pipe shape, wherever it
  * sits. A line qualifies when splitting on unescaped `|` yields at least six
- * fields, field 1 parses as YYYY-MM-DD, and field 2 is one of the five skills.
- * Everything else in the paste is ignored silently — the examiner review is
- * expected to be there and is not an error.
+ * fields AND at least one ANCHOR holds: field 1 shaped like YYYY-MM-DD, or
+ * field 2 one of the five skills. Both anchors valid is the normal row; exactly
+ * one valid means a row the model mangled — surfaced as a REJECTED, EDITABLE
+ * row, never silently dropped, because a dropped row is lost data and the
+ * standing rule is "never silently drop a row". Zero anchors is prose (the
+ * review's own score tables are pipe-shaped) and is ignored silently.
  */
 import type { IeltsError, IeltsErrorSkill } from '../../data/types';
 import {
   IELTS_ERROR_TAXONOMY,
   UNCLASSIFIED,
+  findMode,
   isIeltsErrorSkill,
   isValidCriterion,
   isValidFailureMode,
@@ -45,9 +49,11 @@ export const LOG_FIELDS = [
   'note',
 ] as const;
 
+// revisionOf is NOT here: a revision is a property of the SESSION, set once
+// beside the commit button, not parsed per row. See IeltsSession.revisionOf.
 export type ParsedFields = Pick<
   IeltsError,
-  'date' | 'criterion' | 'failureMode' | 'quote' | 'note' | 'questionType' | 'revisionOf'
+  'date' | 'criterion' | 'failureMode' | 'quote' | 'note' | 'questionType'
 > & { skill: IeltsErrorSkill };
 
 export interface ParsedRow {
@@ -115,28 +121,47 @@ function isRealDate(value: string): boolean {
 
 function validate(fields: ParsedFields): string[] {
   const problems: string[] = [];
-  const taxonomy = IELTS_ERROR_TAXONOMY[fields.skill];
+  // The skill can be an arbitrary string at this boundary — a surfaced row
+  // with only the date anchor valid carries whatever sat in field 2.
+  const taxonomy = isIeltsErrorSkill(fields.skill)
+    ? IELTS_ERROR_TAXONOMY[fields.skill]
+    : undefined;
 
   if (!isRealDate(fields.date)) {
     problems.push(`"${fields.date}" is not a YYYY-MM-DD date.`);
   }
-  if (!isValidCriterion(fields.skill, fields.criterion)) {
+  if (!taxonomy) {
     problems.push(
-      `"${fields.criterion}" is not a ${taxonomy.label} criterion. Expected one of: ${taxonomy.criteria.join(', ')}.`,
+      `"${fields.skill}" is not a skill. Expected one of: listening, reading, writing_task1, writing_task2, speaking.`,
     );
-  }
-  if (!isValidFailureMode(fields.skill, fields.failureMode)) {
-    problems.push(
-      `"${fields.failureMode}" is not a ${taxonomy.label} failure mode. Expected ${UNCLASSIFIED} or one of: ${taxonomy.modes
-        .map((mode) => mode.mode)
-        .join(', ')}.`,
-    );
+  } else {
+    if (!isValidCriterion(fields.skill, fields.criterion)) {
+      problems.push(
+        `"${fields.criterion}" is not a ${taxonomy.label} criterion. Expected one of: ${taxonomy.criteria.join(', ')}.`,
+      );
+    }
+    if (!isValidFailureMode(fields.skill, fields.failureMode)) {
+      problems.push(
+        `"${fields.failureMode}" is not a ${taxonomy.label} failure mode. Expected ${UNCLASSIFIED} or one of: ${taxonomy.modes
+          .map((mode) => mode.mode)
+          .join(', ')}.`,
+      );
+    } else if (fields.failureMode !== UNCLASSIFIED && isValidCriterion(fields.skill, fields.criterion)) {
+      // Cross-check the PAIR, not just each half: every mode belongs to one
+      // criterion, and a valid mode filed under the wrong (but individually
+      // valid) criterion corrupts both counts. Only checked when both halves
+      // pass alone — stacking a derivative problem on an already-flagged half
+      // would say the same thing twice.
+      const definition = findMode(fields.skill, fields.failureMode);
+      if (definition && definition.criterion !== fields.criterion) {
+        problems.push(
+          `"${fields.failureMode}" belongs to the criterion "${definition.criterion}", not "${fields.criterion}".`,
+        );
+      }
+    }
   }
   if (!fields.quote) {
     problems.push('The quote is empty. Use [absent: what is missing] where nothing is quotable.');
-  }
-  if (fields.revisionOf && !isRealDate(fields.revisionOf)) {
-    problems.push(`revision_of "${fields.revisionOf}" is not a YYYY-MM-DD date.`);
   }
   return problems;
 }
@@ -161,10 +186,16 @@ export function parseErrorLog(text: string): ParseResult {
 
     // Markdown table pipes at the ends produce empty leading/trailing fields;
     // drop them before counting so a model that formats the log as a markdown
-    // table is still read rather than silently ignored.
+    // table is still read rather than silently ignored. The trailing strip is
+    // GUARDED: a plain six-field row whose note is empty also ends in a pipe,
+    // and stripping its empty note field down to five fields silently dropped
+    // the whole row — the guard only strips when more than six fields remain,
+    // so an empty note survives as an empty sixth field.
     let fields = splitUnescaped(line);
     if (fields.length > 1 && fields[0] === '') fields = fields.slice(1);
-    if (fields.length > 1 && fields[fields.length - 1] === '') fields = fields.slice(0, -1);
+    if (fields.length > LOG_FIELDS.length && fields[fields.length - 1] === '') {
+      fields = fields.slice(0, -1);
+    }
 
     if (fields.length < LOG_FIELDS.length) return;
     if (isHeaderRow(fields)) {
@@ -175,25 +206,31 @@ export function parseErrorLog(text: string): ParseResult {
     if (fields.every((field) => /^:?-{2,}:?$/.test(field))) return;
 
     const [date, skill, criterion, failureMode, quote, note] = fields;
-    if (!DATE_SHAPE.test(date)) return;
-    if (!isIeltsErrorSkill(skill)) return;
 
-    // Fields seven and eight are not in the documented shape and the prompt
-    // never emits them. They are read when present for the same reason the
-    // fence is optional: tolerating more than was asked for costs nothing, and
-    // question_type / revision_of are otherwise unreachable from a paste.
-    const questionType = fields[6]?.trim() || undefined;
-    const revisionOf = fields[7]?.trim() || undefined;
+    // The anchors. Both valid → a normal row. Exactly one valid → a row the
+    // model mangled, surfaced as rejected and editable rather than silently
+    // dropped. Neither → prose with pipes (the review's own score tables),
+    // ignored silently.
+    const dateAnchor = DATE_SHAPE.test(date);
+    const skillAnchor = isIeltsErrorSkill(skill);
+    if (!dateAnchor && !skillAnchor) return;
+
+    // Field seven is not in the documented shape; the prompt only asks the
+    // two receptive skills for it. It is read as question_type for THOSE
+    // skills only — writing and speaking have no question types, and reading
+    // a stray seventh field into one fabricated metadata. Anything further is
+    // undocumented noise and ignored.
+    const taxonomy = skillAnchor ? IELTS_ERROR_TAXONOMY[skill as IeltsErrorSkill] : undefined;
+    const questionType = taxonomy?.usesQuestionType ? fields[6]?.trim() || undefined : undefined;
 
     const parsed: ParsedFields = {
       date,
-      skill,
+      skill: skill as IeltsErrorSkill,
       criterion,
       failureMode,
       quote,
       note: note || undefined,
       questionType,
-      revisionOf,
     };
     rows.push({ line: index + 1, raw: line, fields: parsed, problems: validate(parsed) });
   });
@@ -209,3 +246,48 @@ Six fields separated by | on one line, anywhere in the paste — fence or no fen
   skill         listening, reading, writing_task1, writing_task2, speaking
   quote         verbatim, or [absent: what is missing]
 A literal pipe inside the quote is written \\|.`;
+
+/**
+ * The identity of a row for the re-insert guard: everything that reaches the
+ * database. Two rows with the same signature are the same content.
+ */
+export function fieldsSignature(fields: ParsedFields): string {
+  return [
+    fields.date,
+    fields.skill,
+    fields.criterion,
+    fields.failureMode,
+    fields.quote,
+    fields.note ?? '',
+    fields.questionType ?? '',
+  ].join(' ');
+}
+
+/**
+ * THE RE-INSERT GUARD. Re-running "Find rows" after a partial commit re-parses
+ * the WHOLE paste — including rows already committed — and without this a
+ * second Commit would insert them again. Splits valid rows into insertable
+ * and already-committed against a multiset of committed signatures: a paste
+ * that legitimately contains the same content twice (two identical slips,
+ * each its own occurrence) consumes one committed count per copy, so only the
+ * copies actually committed are held back.
+ */
+export function partitionAgainstCommitted<T extends { fields: ParsedFields }>(
+  rows: readonly T[],
+  committedCounts: ReadonlyMap<string, number>,
+): { insertable: T[]; alreadyCommitted: T[] } {
+  const remaining = new Map(committedCounts);
+  const insertable: T[] = [];
+  const alreadyCommitted: T[] = [];
+  for (const row of rows) {
+    const key = fieldsSignature(row.fields);
+    const count = remaining.get(key) ?? 0;
+    if (count > 0) {
+      remaining.set(key, count - 1);
+      alreadyCommitted.push(row);
+    } else {
+      insertable.push(row);
+    }
+  }
+  return { insertable, alreadyCommitted };
+}

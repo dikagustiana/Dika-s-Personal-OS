@@ -1,17 +1,24 @@
 import { AlertTriangle, Check, Copy, Save } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { format } from 'date-fns';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
 import { Input } from '../ui/Input';
-import type { IeltsError, IeltsErrorSkill } from '../../data/types';
+import type { IeltsError, IeltsErrorSkill, IeltsSession } from '../../data/types';
 import {
   PARSER_EXPECTATION,
+  fieldsSignature,
   parseErrorLog,
+  partitionAgainstCommitted,
   validateFields,
   type ParsedFields,
 } from '../../logic/ielts/parseErrorLog';
 import { prIeltsMarking } from '../../logic/ielts/marking';
-import { IELTS_ERROR_SKILLS, IELTS_ERROR_TAXONOMY } from '../../logic/ielts/taxonomy';
+import {
+  IELTS_ERROR_SKILLS,
+  IELTS_ERROR_TAXONOMY,
+  isIeltsErrorSkill,
+} from '../../logic/ielts/taxonomy';
 import { useMutation } from '../../hooks/useMutation';
 import { useAppStore } from '../../store/appStore';
 import { cn } from '../../lib/utils';
@@ -29,6 +36,14 @@ import { cn } from '../../lib/utils';
  * So he pastes the whole thing and the parser finds the rows. Everything else
  * in the paste — the examiner review, prose between blocks — is ignored
  * silently, because it is expected to be there and is not an error.
+ *
+ * COMMITTING A PASTE ALSO WRITES THE SESSION — one os_ielts_sessions row per
+ * distinct (date, skill) in the committed rows, carrying the full paste as
+ * raw_feedback. Not a second action: the session is a fact about the paste,
+ * and a separate "also log the session" button would be skipped exactly as
+ * often as it mattered. A paste with ZERO error rows still records a session
+ * after a one-tap skill prompt — the clean-session path, and the reason
+ * sessions are their own table at all.
  */
 
 interface EditableRow {
@@ -38,6 +53,8 @@ interface EditableRow {
   fields: ParsedFields;
   problems: readonly string[];
 }
+
+const pairKey = (date: string, skill: IeltsErrorSkill) => `${date} ${skill}`;
 
 function MarkingPrompt() {
   const [skill, setSkill] = useState<IeltsErrorSkill>('writing_task1');
@@ -106,19 +123,30 @@ function MarkingPrompt() {
 
 function RowEditor({
   row,
+  duplicate,
   onChange,
 }: {
   row: EditableRow;
+  /** Already committed this visit — shown, excluded from the next commit. */
+  duplicate: boolean;
   onChange: (fields: ParsedFields) => void;
 }) {
-  const taxonomy = IELTS_ERROR_TAXONOMY[row.fields.skill];
+  // The skill can be an arbitrary string here: a surfaced row with only the
+  // date anchor valid carries whatever the model wrote in field 2.
+  const taxonomy = isIeltsErrorSkill(row.fields.skill)
+    ? IELTS_ERROR_TAXONOMY[row.fields.skill]
+    : undefined;
   const valid = row.problems.length === 0;
 
   return (
     <div
       className={cn(
         'border-l-2 py-2 pl-3',
-        valid ? 'border-success' : 'border-destructive bg-destructive/5',
+        duplicate
+          ? 'border-border-subtle opacity-60'
+          : valid
+            ? 'border-success'
+            : 'border-destructive bg-destructive/5',
       )}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -126,12 +154,21 @@ function RowEditor({
         <span
           className={cn(
             'text-[10px] font-bold uppercase tracking-wider',
-            valid ? 'text-success' : 'text-destructive',
+            duplicate ? 'text-foreground-muted' : valid ? 'text-success' : 'text-destructive',
           )}
         >
-          {valid ? 'Valid' : 'Needs attention'}
+          {duplicate ? 'Already committed' : valid ? 'Valid' : 'Needs attention'}
         </span>
       </div>
+
+      {/* A row found again after it was committed is SHOWN and held back, not
+          silently re-inserted and not silently hidden. Editing it changes its
+          identity, at which point it commits like any other row. */}
+      {duplicate && (
+        <p className="mt-1 text-xs leading-5 text-foreground-muted">
+          Committed earlier from this paste — it will not be inserted again.
+        </p>
+      )}
 
       {/* Rejected rows stay EDITABLE IN PLACE. A row is never silently dropped
           and one malformed row never blocks the valid ones. */}
@@ -161,12 +198,13 @@ function RowEditor({
           <span className="surface-label">Skill</span>
           <select
             className="native-select mt-1 w-full text-xs"
-            value={row.fields.skill}
+            value={taxonomy ? row.fields.skill : ''}
             onChange={(event) =>
               onChange({ ...row.fields, skill: event.target.value as IeltsErrorSkill })
             }
             aria-label={`Skill, line ${row.line}`}
           >
+            {!taxonomy && <option value="">{row.fields.skill || '— pick one —'}</option>}
             {IELTS_ERROR_SKILLS.map((key) => (
               <option key={key} value={key}>
                 {IELTS_ERROR_TAXONOMY[key].label}
@@ -178,12 +216,14 @@ function RowEditor({
           <span className="surface-label">Criterion</span>
           <select
             className="native-select mt-1 w-full text-xs"
-            value={taxonomy.criteria.includes(row.fields.criterion) ? row.fields.criterion : ''}
+            value={
+              taxonomy?.criteria.includes(row.fields.criterion) ? row.fields.criterion : ''
+            }
             onChange={(event) => onChange({ ...row.fields, criterion: event.target.value })}
             aria-label={`Criterion, line ${row.line}`}
           >
             <option value="">{row.fields.criterion || '— pick one —'}</option>
-            {taxonomy.criteria.map((criterion) => (
+            {(taxonomy?.criteria ?? []).map((criterion) => (
               <option key={criterion} value={criterion}>
                 {criterion}
               </option>
@@ -196,7 +236,7 @@ function RowEditor({
             className="native-select mt-1 w-full text-xs"
             value={
               row.fields.failureMode === 'UNCLASSIFIED' ||
-              taxonomy.modes.some((mode) => mode.mode === row.fields.failureMode)
+              taxonomy?.modes.some((mode) => mode.mode === row.fields.failureMode)
                 ? row.fields.failureMode
                 : ''
             }
@@ -204,7 +244,7 @@ function RowEditor({
             aria-label={`Failure mode, line ${row.line}`}
           >
             <option value="">{row.fields.failureMode || '— pick one —'}</option>
-            {taxonomy.modes.map((mode) => (
+            {(taxonomy?.modes ?? []).map((mode) => (
               <option key={mode.mode} value={mode.mode}>
                 {mode.mode}
               </option>
@@ -213,7 +253,7 @@ function RowEditor({
           </select>
         </label>
         {/* Only meaningful for the two skills that have question types. */}
-        {taxonomy.usesQuestionType && (
+        {taxonomy?.usesQuestionType && (
           <label className="block">
             <span className="surface-label">Question type (optional)</span>
             <Input
@@ -227,25 +267,23 @@ function RowEditor({
             />
           </label>
         )}
-        <label className="block">
-          <span className="surface-label">Rewrite of (optional)</span>
+        {/* The quote is EDITABLE, same as every other field: a model that
+            paraphrased or mangled the verbatim text would otherwise force a
+            re-paste of the whole response to fix one string. */}
+        <label className={cn('block', !taxonomy?.usesQuestionType && 'sm:col-span-2')}>
+          <span className="surface-label">Quote (verbatim)</span>
           <Input
-            type="date"
             className="mt-1"
-            value={row.fields.revisionOf ?? ''}
-            onChange={(event) =>
-              onChange({ ...row.fields, revisionOf: event.target.value || undefined })
-            }
-            aria-label={`Rewrite of, line ${row.line}`}
+            value={row.fields.quote}
+            placeholder="verbatim, or [absent: what is missing]"
+            onChange={(event) => onChange({ ...row.fields, quote: event.target.value })}
+            aria-label={`Quote, line ${row.line}`}
           />
         </label>
       </div>
 
-      <p className="mt-2 break-words text-xs leading-5 text-foreground-secondary">
-        {row.fields.quote}
-      </p>
       {row.fields.note && (
-        <p className="mt-0.5 break-words text-xs leading-5 text-foreground-muted">
+        <p className="mt-2 break-words text-xs leading-5 text-foreground-muted">
           {row.fields.note}
         </p>
       )}
@@ -253,11 +291,34 @@ function RowEditor({
   );
 }
 
-export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[]) => void }) {
+export function ErrorLogPaste({
+  onCommitted,
+  onSessions,
+}: {
+  onCommitted: (rows: IeltsError[]) => void;
+  onSessions: (rows: IeltsSession[]) => void;
+}) {
   const [text, setText] = useState('');
   const [rows, setRows] = useState<EditableRow[] | null>(null);
   const [discardedHeaders, setDiscardedHeaders] = useState(0);
   const [committed, setCommitted] = useState<string | null>(null);
+  // Session-level, set once beside the commit button — a revision is a
+  // property of the session, not of each individual mistake.
+  const [rewriteOf, setRewriteOf] = useState('');
+  // THE RE-INSERT GUARD. "Find rows" re-parses the whole paste, so after a
+  // partial commit the already-committed rows come back valid; without this
+  // multiset a second Commit would insert them again. See
+  // partitionAgainstCommitted.
+  const [committedCounts, setCommittedCounts] = useState<ReadonlyMap<string, number>>(new Map());
+  // Which (date, skill) pairs already produced a session, and from WHICH
+  // paste. Keyed by text so a retry of the same paste never doubles the
+  // session, while a second piece of the same skill on the same day (a
+  // different paste) still records its own row with its own raw_feedback.
+  const [sessionsCreatedFor, setSessionsCreatedFor] = useState<ReadonlyMap<string, string>>(
+    new Map(),
+  );
+  // Clean-session path state.
+  const [cleanDate, setCleanDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const { run, isPending } = useMutation();
   const repository = useAppStore((state) => state.repository);
 
@@ -274,6 +335,9 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
     );
     setDiscardedHeaders(result.discardedHeaders);
     setCommitted(null);
+    // Session-level and PER-PASTE: a rewrite date set for the previous paste
+    // must never silently attach to the next one.
+    setRewriteOf('');
   };
 
   const editRow = (key: string, fields: ParsedFields) =>
@@ -283,16 +347,63 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
       ) ?? null,
     );
 
-  // COMMIT ONLY WHAT IS VALID. One malformed line never rejects the paste.
-  const valid = rows?.filter((row) => row.problems.length === 0) ?? [];
+  // COMMIT ONLY WHAT IS VALID AND NOT ALREADY COMMITTED. One malformed line
+  // never rejects the paste; one committed line is never inserted twice.
+  const { valid, insertable, alreadyCommitted } = useMemo(() => {
+    const validRows = rows?.filter((row) => row.problems.length === 0) ?? [];
+    return { valid: validRows, ...partitionAgainstCommitted(validRows, committedCounts) };
+  }, [rows, committedCounts]);
+  const duplicateKeys = useMemo(
+    () => new Set(alreadyCommitted.map((row) => row.key)),
+    [alreadyCommitted],
+  );
   const rejected = (rows?.length ?? 0) - valid.length;
 
+  const recordSessions = async (
+    pairs: ReadonlyArray<{ date: string; skill: IeltsErrorSkill }>,
+    sourceText: string,
+  ): Promise<IeltsSession[]> => {
+    const fresh = pairs.filter(
+      (pair) => sessionsCreatedFor.get(pairKey(pair.date, pair.skill)) !== sourceText,
+    );
+    if (fresh.length === 0) return [];
+    const sessions = await repository.createIeltsSessions(
+      fresh.map((pair) => ({
+        date: pair.date,
+        skill: pair.skill,
+        rawFeedback: sourceText,
+        revisionOf: rewriteOf || undefined,
+      })),
+    );
+    // Recorded IMMEDIATELY, inside the mutation, so a failure later in the
+    // same commit (the error insert) cannot cause a retry to double these.
+    setSessionsCreatedFor((current) => {
+      const next = new Map(current);
+      for (const pair of fresh) next.set(pairKey(pair.date, pair.skill), sourceText);
+      return next;
+    });
+    onSessions(sessions);
+    return sessions;
+  };
+
   const commit = async () => {
-    if (valid.length === 0) return;
-    // ONE insert for the whole paste — see Repository.createIeltsErrors.
-    const created = await run('Log errors', async () =>
-      repository.createIeltsErrors(
-        valid.map((row) => ({
+    if (insertable.length === 0) return;
+    const sourceText = text;
+    // ONE action for the whole paste: sessions first (so raw_feedback survives
+    // even if the error insert fails — the reverse order re-creates the very
+    // bug this table fixes, errors without a session), then the error rows.
+    const created = await run('Log errors', async () => {
+      const pairs = [
+        ...new Map(
+          insertable.map((row) => [
+            pairKey(row.fields.date, row.fields.skill),
+            { date: row.fields.date, skill: row.fields.skill },
+          ]),
+        ).values(),
+      ];
+      const sessions = await recordSessions(pairs, sourceText);
+      const errors = await repository.createIeltsErrors(
+        insertable.map((row) => ({
           date: row.fields.date,
           skill: row.fields.skill,
           criterion: row.fields.criterion,
@@ -300,20 +411,51 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
           quote: row.fields.quote,
           note: row.fields.note,
           questionType: row.fields.questionType,
-          revisionOf: row.fields.revisionOf,
         })),
-      ),
-    );
+      );
+      return { sessions, errors };
+    });
     if (!created) return;
-    onCommitted(created);
+    setCommittedCounts((current) => {
+      const next = new Map(current);
+      for (const row of insertable) {
+        const key = fieldsSignature(row.fields);
+        next.set(key, (next.get(key) ?? 0) + 1);
+      }
+      return next;
+    });
+    onCommitted(created.errors);
     // Say how many were skipped — never silently drop a row.
+    const sessionNote =
+      created.sessions.length > 0
+        ? ` ${created.sessions.length} ${created.sessions.length === 1 ? 'session' : 'sessions'} recorded.`
+        : '';
     setCommitted(
       rejected > 0
-        ? `${created.length} committed, ${rejected} left below unresolved.`
-        : `${created.length} committed.`,
+        ? `${created.errors.length} committed, ${rejected} left below unresolved.${sessionNote}`
+        : `${created.errors.length} committed.${sessionNote}`,
     );
     setRows((current) => current?.filter((row) => row.problems.length > 0) ?? null);
     if (rejected === 0) setText('');
+  };
+
+  // THE CLEAN-SESSION PATH — the entire point of the sessions table. A paste
+  // with zero error rows is still a session; before this table existed it
+  // produced no row, no date, no session, and `isolated` was unreachable. One
+  // tap on the skill records it, full paste kept as raw_feedback.
+  const logCleanSession = async (skill: IeltsErrorSkill) => {
+    const sourceText = text;
+    if (sessionsCreatedFor.get(pairKey(cleanDate, skill)) === sourceText) {
+      setCommitted(`Already recorded — ${IELTS_ERROR_TAXONOMY[skill].label} on ${cleanDate}.`);
+      return;
+    }
+    const created = await run('Log clean session', () =>
+      recordSessions([{ date: cleanDate, skill }], sourceText),
+    );
+    if (!created || created.length === 0) return;
+    setCommitted(
+      `Clean session recorded — ${IELTS_ERROR_TAXONOMY[skill].label}, ${cleanDate}. No errors, and that now counts.`,
+    );
   };
 
   return (
@@ -326,6 +468,7 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
             <CardTitle>Log errors</CardTitle>
             <p className="mt-1 text-xs leading-5 text-foreground-muted">
               Paste the model's entire reply — review, prose and log. Nothing needs trimming.
+              Committing also records the practice session and keeps the full review.
             </p>
           </div>
         </CardHeader>
@@ -343,14 +486,28 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
               Find rows
             </Button>
             {rows && rows.length > 0 && (
-              <Button onClick={() => void commit()} disabled={isPending || valid.length === 0}>
-                <Save className="size-4" />
-                Commit {valid.length} valid
-              </Button>
+              <>
+                <Button onClick={() => void commit()} disabled={isPending || insertable.length === 0}>
+                  <Save className="size-4" />
+                  Commit {insertable.length} valid
+                </Button>
+                <label className="flex items-center gap-1.5">
+                  <span className="surface-label whitespace-nowrap">Rewrite of</span>
+                  <Input
+                    type="date"
+                    value={rewriteOf}
+                    onChange={(event) => setRewriteOf(event.target.value)}
+                    className="w-auto"
+                    aria-label="Date of the piece this session rewrites (optional)"
+                  />
+                </label>
+              </>
             )}
             {rows && (
               <span className="text-xs text-foreground-muted">
-                {rows.length} {rows.length === 1 ? 'row' : 'rows'} found, {valid.length} valid
+                {rows.length} {rows.length === 1 ? 'row' : 'rows'} found, {insertable.length} to
+                commit
+                {alreadyCommitted.length > 0 && `, ${alreadyCommitted.length} already committed`}
                 {rejected > 0 && `, ${rejected} ${rejected === 1 ? 'needs' : 'need'} attention`}
                 {discardedHeaders > 0 &&
                   `. ${discardedHeaders} header ${discardedHeaders === 1 ? 'row' : 'rows'} discarded`}
@@ -360,20 +517,60 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
             {committed && <span className="text-xs text-success">{committed}</span>}
           </div>
 
-          {/* Zero rows found is stated plainly, with what the parser wanted —
-              a paste that looked like it should have worked must never fail
-              silently. */}
+          {/* Zero rows found is stated plainly — and offered as what it most
+              often IS: a clean session. The parser wanted rows; a genuinely
+              error-free marking response has none, and before the sessions
+              table that practice simply vanished from the denominator. */}
           {rows?.length === 0 && (
-            <div className="mt-3 border border-escalate/40 bg-escalate/5 p-3">
-              <p className="text-xs font-semibold text-foreground">
-                No rows found in that paste.
-              </p>
-              <p className="mt-1 text-xs text-foreground-secondary">
-                The parser scans every line, inside a fence or not, for this shape:
-              </p>
-              <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
-                {PARSER_EXPECTATION}
-              </pre>
+            <div className="mt-3 space-y-3">
+              <div className="border border-success/40 bg-success/5 p-3">
+                <p className="text-xs font-semibold text-foreground">
+                  No error rows in that paste. A clean session?
+                </p>
+                <p className="mt-1 text-xs leading-5 text-foreground-secondary">
+                  Record it — a session with no errors is the strongest evidence a mode stopped
+                  recurring, and it counts toward the denominator. One tap:
+                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Input
+                    type="date"
+                    value={cleanDate}
+                    onChange={(event) => setCleanDate(event.target.value)}
+                    className="w-auto"
+                    aria-label="Clean session date"
+                  />
+                  <label className="flex items-center gap-1.5">
+                    <span className="surface-label whitespace-nowrap">Rewrite of</span>
+                    <Input
+                      type="date"
+                      value={rewriteOf}
+                      onChange={(event) => setRewriteOf(event.target.value)}
+                      className="w-auto"
+                      aria-label="Date of the piece this clean session rewrites (optional)"
+                    />
+                  </label>
+                  {IELTS_ERROR_SKILLS.map((skill) => (
+                    <Button
+                      key={skill}
+                      size="sm"
+                      variant="secondary"
+                      disabled={isPending || !cleanDate}
+                      onClick={() => void logCleanSession(skill)}
+                    >
+                      {IELTS_ERROR_TAXONOMY[skill].label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="border border-escalate/40 bg-escalate/5 p-3">
+                <p className="text-xs text-foreground-secondary">
+                  Expecting errors? The parser scans every line, inside a fence or not, for this
+                  shape:
+                </p>
+                <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-words border border-border-subtle bg-surface-2 p-3 text-[11px] leading-5 text-foreground-secondary">
+                  {PARSER_EXPECTATION}
+                </pre>
+              </div>
             </div>
           )}
 
@@ -383,6 +580,7 @@ export function ErrorLogPaste({ onCommitted }: { onCommitted: (rows: IeltsError[
                 <RowEditor
                   key={row.key}
                   row={row}
+                  duplicate={duplicateKeys.has(row.key)}
                   onChange={(fields) => editRow(row.key, fields)}
                 />
               ))}

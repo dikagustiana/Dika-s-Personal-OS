@@ -409,13 +409,17 @@ export function isValidFailureMode(skill: IeltsErrorSkill, mode: string): boolea
  * note. Parsed here rather than in the view so the count in §6 is computed from
  * the same reading of the note everywhere.
  *
- * Accepts an em dash, an en dash, or a hyphen as the separator: the prompt asks
- * for an em dash and models substitute freely, and a substituted dash must not
- * silently drop the proposal.
+ * Accepts an em dash, an en dash, or a SPACED hyphen as the separator: the
+ * prompt asks for an em dash and models substitute freely, and a substituted
+ * dash must not silently drop the proposal. A bare hyphen is NOT a separator —
+ * proposed names may legitimately contain one (`comma-splice_run_on`), and
+ * treating it as the separator truncated the name and merged distinct
+ * proposals under a fabricated one, destroying the very count that justifies
+ * promoting a proposal into the taxonomy.
  */
 export function parseProposal(note: string | undefined): { name: string; definition: string } | null {
   if (!note) return null;
-  const match = /PROPOSED:\s*([^—–\-\n]+?)\s*[—–-]\s*(.+)/.exec(note);
+  const match = /PROPOSED:\s*(.+?)(?:\s*[—–]\s*|\s+-\s+)(.+)/.exec(note);
   if (!match) {
     // A proposal with no definition is still a proposal — the name is what
     // gets counted, and losing it because the model omitted the dash would

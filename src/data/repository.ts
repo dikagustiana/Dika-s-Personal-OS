@@ -15,6 +15,7 @@ import type {
   FinishLineItem,
   IeltsError,
   IeltsResult,
+  IeltsSession,
   OrphanMilestone,
   Project,
   WeeklyPlan,
@@ -70,6 +71,19 @@ export interface Repository {
     input: ReadonlyArray<Omit<IeltsError, 'id' | 'createdAt'>>,
   ): Promise<IeltsError[]>;
   deleteIeltsError(id: string): Promise<void>;
+
+  /**
+   * IELTS practice sessions — the denominator. Sessions are counted from
+   * THESE rows, never from distinct error dates: a clean session produces no
+   * error row, and missing it understates practice and makes `isolated`
+   * unreachable. Created as a side effect of committing a paste (bulk, like
+   * the errors, for the multi-date paste case); a zero-error paste writes one
+   * after a one-tap skill prompt.
+   */
+  listIeltsSessions(): Promise<IeltsSession[]>;
+  createIeltsSessions(
+    input: ReadonlyArray<Omit<IeltsSession, 'id' | 'createdAt'>>,
+  ): Promise<IeltsSession[]>;
 
   /**
    * Finish line — the entity matrix and the road to it.
