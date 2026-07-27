@@ -23,9 +23,12 @@ import {
   cellsClosedByProject,
   cellSubState,
   isGap,
+  closesNothingForEntity,
   resolveAll,
   resolveCell,
   resolveEdges,
+  routeForCell,
+  unplannedForEntity,
   STATE_GLYPH,
   summarizeMatrix,
   worst,
@@ -412,5 +415,118 @@ describe('missing relation degrades to empty (§10.7)', () => {
     expect(isMissingRelation({ code: '42501', message: 'permission denied' })).toBe(false);
     expect(isMissingRelation({ message: 'network error' })).toBe(false);
     expect(isMissingRelation(null)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The entity level — one column, and the two mirror lists
+// ---------------------------------------------------------------------------
+
+describe('the entity level', () => {
+  // Two metrics under one section, cells for both entities. E1's `input` cell
+  // is linked to a live milestone; E2's twin of the same metric is not — the
+  // routing must differ per CELL, never per view.
+  const section = item({ id: 'sec', kind: 'section' });
+  const metricA = item({ id: 'a', parentId: 'sec' });
+  const metricB = item({ id: 'b', parentId: 'sec', order: 2 });
+  const done = milestone({ done: true, status: 'done' });
+  const open = milestone();
+  const proj = project([done, open], 'p1');
+
+  const cellA1 = cell('input', { itemId: 'a', entityCode: 'E1' });
+  const cellA2 = cell('input', { itemId: 'a', entityCode: 'E2' });
+  const cellB1 = cell('figure', { itemId: 'b', entityCode: 'E1' });
+  const cellB2 = cell('locked', { itemId: 'b', entityCode: 'E2' });
+  const cells = [cellA1, cellA2, cellB1, cellB2];
+  const edges = [edge(cellA1.id, { milestoneId: open.id })];
+  const items = [section, metricA, metricB];
+
+  const build = (edgeRows: FinishLineEdge[]) => {
+    const context = buildContext(cells, [], edgeRows, [proj]);
+    return buildMatrix(items, cells, ENTITIES, resolveAll(context));
+  };
+
+  it('narrows unplanned to one entity — the same metric can differ across two', () => {
+    const matrix = build(edges);
+    const e1 = unplannedForEntity(matrix, 'E1').map((gap) => gap.cell.id);
+    const e2 = unplannedForEntity(matrix, 'E2').map((gap) => gap.cell.id);
+    // E1: metric a is linked (not unplanned), figure b is unplanned.
+    expect(e1).toEqual([cellB1.id]);
+    // E2: metric a has nothing behind it; locked b is not gap-eligible.
+    expect(e2).toEqual([cellA2.id]);
+  });
+
+  it('one link removes the row from Unplanned — the mirror falls together', () => {
+    const before = build([]);
+    expect(unplannedForEntity(before, 'E1').map((g) => g.cell.id)).toContain(cellA1.id);
+    const after = build(edges);
+    expect(unplannedForEntity(after, 'E1').map((g) => g.cell.id)).not.toContain(cellA1.id);
+  });
+
+  it('routes a linked cell to its milestone and an unlinked one to Unplanned', () => {
+    const context = buildContext(cells, [], edges, [proj]);
+    const resolvedA1 = resolveEdges(context.edgesByCell.get(cellA1.id) ?? [], context.projectsById);
+    expect(routeForCell(cellA1, resolvedA1)).toEqual({ kind: 'milestone', projectId: 'p1' });
+    const resolvedA2 = resolveEdges(context.edgesByCell.get(cellA2.id) ?? [], context.projectsById);
+    expect(routeForCell(cellA2, resolvedA2)).toEqual({ kind: 'unplanned' });
+  });
+
+  it('routes a locked cell to its explanation — it is closed by its inputs, not by a link', () => {
+    expect(routeForCell(cellB2, [])).toEqual({ kind: 'explain' });
+  });
+
+  it('does not route through a broken edge — a deleted milestone is not coverage', () => {
+    const brokenEdge = edge(cellA1.id, { milestoneId: 'gone' });
+    const context = buildContext(cells, [], [brokenEdge], [proj]);
+    const resolved = resolveEdges(context.edgesByCell.get(cellA1.id) ?? [], context.projectsById);
+    expect(resolved[0].broken).toBe(true);
+    expect(routeForCell(cellA1, resolved)).toEqual({ kind: 'unplanned' });
+  });
+
+  it('routes a project-level link to the project — declared work without a step is still work', () => {
+    const projectLevel = edge(cellA1.id);
+    const context = buildContext(cells, [], [projectLevel], [proj]);
+    const resolved = resolveEdges(context.edgesByCell.get(cellA1.id) ?? [], context.projectsById);
+    expect(routeForCell(cellA1, resolved)).toEqual({ kind: 'milestone', projectId: 'p1' });
+  });
+});
+
+describe('closes nothing, per entity', () => {
+  const orphan = (projectId: string, milestoneId: string) => ({
+    projectId,
+    projectTitle: projectId,
+    milestoneId,
+    milestoneText: 'm',
+    status: 'in-progress',
+  });
+  const tagged = { ...project([], 'p1'), entityTag: 'E1' };
+  const otherTag = { ...project([], 'p2'), entityTag: 'E2' };
+  const untagged = project([], 'p3');
+
+  it('attributes orphans through entity_tag and nothing else', () => {
+    const result = closesNothingForEntity(
+      [orphan('p1', 'm1'), orphan('p2', 'm2'), orphan('p3', 'm3')],
+      [tagged, otherTag, untagged],
+      'E1',
+    );
+    expect(result.tagged.map((p) => p.id)).toEqual(['p1']);
+    expect(result.count).toBe(1);
+    expect(result.groups[0].milestones[0].milestoneId).toBe('m1');
+  });
+
+  it('reports an empty tagged set rather than a false zero — the caller must explain, not render an empty state', () => {
+    const result = closesNothingForEntity([orphan('p3', 'm3')], [untagged], 'E1');
+    expect(result.tagged).toEqual([]);
+    // count is meaningless here and the view must not print it as a zero.
+    expect(result.groups).toEqual([]);
+  });
+
+  it('is the mirror of Unplanned: a milestone leaving the orphan list leaves this list', () => {
+    const before = closesNothingForEntity([orphan('p1', 'm1')], [tagged], 'E1');
+    expect(before.count).toBe(1);
+    // The DB view recomputes orphans once the milestone gains an edge; the
+    // same read feeding both lists is what makes the counts fall together.
+    const after = closesNothingForEntity([], [tagged], 'E1');
+    expect(after.count).toBe(0);
   });
 });

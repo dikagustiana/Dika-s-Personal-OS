@@ -48,6 +48,14 @@ import {
   type Resolution,
 } from '../../logic/finishLine';
 import { useAppStore } from '../../store/appStore';
+import { FinishLineEntityView } from './FinishLineEntity';
+import {
+  Checking,
+  CouldNotCheck,
+  RESOLUTION_LABEL,
+  RESOLUTION_STYLE,
+  ROW_STYLE,
+} from './finishLineUi';
 
 /**
  * THE PACK AS A MATRIX — line items down, consolidation entities across.
@@ -84,55 +92,9 @@ import { useAppStore } from '../../store/appStore';
  * amber; among the amber, the ones reading `xxx` are the deceptive ones.
  */
 
-/**
- * No colour literals. Amber (`escalate`) is the gap tone throughout; red
- * (`destructive`) is reserved for data that is WRONG rather than missing.
- *
- * Filled vs outlined follows the app's existing convention — blocked is
- * outlined, and `stuck` is the blocked case — so nothing new is invented here.
- */
-const RESOLUTION_STYLE: Record<Resolution, string> = {
-  cycle: 'bg-destructive text-destructive-foreground',
-  // No road exists: you must create a milestone. Filled.
-  unplanned: 'bg-escalate/20 text-escalate',
-  // A road exists and is blocked: you must unblock one. Outlined.
-  stuck: 'border border-escalate text-escalate',
-  'in-progress': 'bg-escalate/10 text-escalate',
-  contradiction: 'border border-destructive text-destructive',
-  pending: 'bg-escalate/10 text-foreground-muted',
-  // Finished. Deliberately unmarked — the absence of amber IS the signal.
-  backed: 'text-foreground-secondary',
-  undefined: 'bg-surface-3 text-foreground-muted',
-  zero: 'text-foreground-muted',
-};
-
-/**
- * Tooltips explain the RESOLUTION. They are English, as every other tooltip
- * in the app is, and they no longer restate what the legend already glosses in
- * Indonesian — `zero: 'Reported nil'` sat directly beside a legend reading
- * `nol` and made one view speak two languages about one glyph. The legend owns
- * the glyph gloss; these own the explanation.
- */
-const RESOLUTION_LABEL: Record<Resolution, string> = {
-  cycle: 'Dependency cycle — the seed is wrong',
-  unplanned: 'Unplanned — nothing stands behind this yet',
-  stuck: 'Stuck — every linked milestone is blocked',
-  'in-progress': 'In progress — work is under way',
-  contradiction:
-    'Contradiction — every linked milestone is done, yet the number still does not exist',
-  pending: 'Waiting, with no inputs recorded',
-  backed: 'Backed — every linked milestone is done',
-  undefined: 'Undefined — zero divisor, not work outstanding',
-  zero: 'Nil, and deferred — nil is not treated as a gap yet',
-};
-
-const ROW_STYLE: Record<string, string> = {
-  det: 'pl-7 text-foreground-muted',
-  sub: 'pl-4 font-semibold text-foreground-secondary',
-  tot: 'pl-4 font-semibold text-foreground border-y border-border',
-  lock: 'pl-4 text-foreground-muted',
-  plain: 'pl-4 text-foreground-secondary',
-};
+// RESOLUTION_STYLE, RESOLUTION_LABEL and ROW_STYLE moved to finishLineUi.tsx,
+// shared with the per-entity level — one copy so the two levels cannot drift
+// into rendering one resolution two ways.
 
 /**
  * REWRITTEN, not extended. `xxx angka ada, hidup di Excel` described one thing
@@ -196,6 +158,10 @@ export function FinishLine() {
   const [filter, setFilter] = useState<MatrixFilter>('all');
   const [linking, setLinking] = useState(false);
   const [cellFocus, setCellFocus] = useState<ReadonlySet<string> | null>(null);
+  // 'group' or an entity code. The group matrix answers "what shape is the
+  // whole programme in"; the entity level is where work gets assigned. A
+  // second LEVEL, not a replacement — the matrix is untouched.
+  const [level, setLevel] = useState<string>('group');
 
   const load = useCallback(async () => {
     const [
@@ -295,9 +261,17 @@ export function FinishLine() {
   );
 
   const visible = useMemo(() => filterMatrix(matrix, filter), [matrix, filter]);
+  const sortedEntities = useMemo(
+    () => [...entityRows].sort((a, b) => a.order - b.order),
+    [entityRows],
+  );
+  const activeEntity = sortedEntities.find((entity) => entity.code === level);
 
   useEffect(() => {
     if (!finishLineFocus || itemRows.length === 0) return;
+    // Deep links target the group matrix; an entity tab left open must not
+    // swallow the handoff.
+    setLevel('group');
     if (finishLineFocus.cellIds) {
       // Arriving from a project: show exactly the cells that project closes.
       setCellFocus(new Set(finishLineFocus.cellIds));
@@ -332,12 +306,20 @@ export function FinishLine() {
     setScrollTarget(null);
   }, [scrollTarget]);
 
+  // Both setters resolve void, so the action returns an explicit sentinel —
+  // `run` signals failure with undefined, and a void success WAS undefined
+  // too, which made `if (done === undefined) return` swallow every success:
+  // the links saved and the view never reloaded to show them. Found by
+  // driving the picker in a real browser; invisible to the repository tests.
   const saveCellEdges = async (
     cellId: string,
     picked: { projectId: string; milestoneId: string }[],
   ) => {
-    const done = await run('Link milestones', () => repository.setCellEdges(cellId, picked));
-    if (done === undefined) return;
+    const done = await run('Link milestones', async () => {
+      await repository.setCellEdges(cellId, picked);
+      return true as const;
+    });
+    if (!done) return;
     await load();
   };
 
@@ -346,10 +328,11 @@ export function FinishLine() {
     milestoneId: string,
     cellIds: string[],
   ) => {
-    const done = await run('Link pack lines', () =>
-      repository.setMilestoneEdges(projectId, milestoneId, cellIds),
-    );
-    if (done === undefined) return;
+    const done = await run('Link pack lines', async () => {
+      await repository.setMilestoneEdges(projectId, milestoneId, cellIds);
+      return true as const;
+    });
+    if (!done) return;
     await load();
   };
 
@@ -386,7 +369,39 @@ export function FinishLine() {
         ))}
       </div>
 
-      {summary.cycles > 0 && (
+      {/* THE LEVEL SELECTOR — the group matrix, or one entity's own view.
+          Adds a level; replaces nothing. Same segmented shape as the matrix
+          filter. Entities come from the database, in their sort_order. */}
+      {entityRows.length > 0 && (
+        <div
+          className="mb-5 flex flex-wrap items-center gap-1"
+          role="group"
+          aria-label="Choose the level"
+        >
+          {['group', ...sortedEntities.map((entity) => entity.code)].map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => {
+                setLevel(code);
+                // A panel opened at one level must not linger into another.
+                setOpenCellId(null);
+              }}
+              aria-pressed={level === code}
+              className={cn(
+                'min-h-8 rounded-sm border px-2.5 text-[11px] font-semibold transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                level === code
+                  ? 'border-primary bg-primary/10 text-foreground'
+                  : 'border-border text-foreground-muted hover:text-foreground-secondary',
+              )}
+            >
+              {code === 'group' ? 'Group' : code}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {level === 'group' && summary.cycles > 0 && (
         <Card className="mb-5 border-destructive">
           <CardContent className="pt-5">
             <p className="flex items-center gap-2 text-sm font-semibold text-destructive">
@@ -401,22 +416,47 @@ export function FinishLine() {
         </Card>
       )}
 
-      {/* Gated on `loaded`: before the first response there is no count and no
-          clean bill, and "checking" must not be spelled as either. */}
-      {loaded ? (
-        <GapFilterRow
-          state={unplannedCard}
-          stuckCount={stuckRows.length}
-          gapEligible={summary.gapEligible}
-          totalCells={summary.totalCells}
-          filter={filter}
-          onFilter={setFilter}
+      {/* THE ENTITY LEVEL. One column, its two mirror lists, and the same
+          shared cell panel and linking anchor below. */}
+      {activeEntity && (
+        <FinishLineEntityView
+          // Keyed by entity so switching REMOUNTS: open lists, section state
+          // and scroll targets are one entity's, and carrying them across —
+          // ASI's expanded Unplanned arriving already-open on SAMB — reads as
+          // state about the wrong column. Same pattern as key={workspace} in
+          // App.tsx.
+          key={activeEntity.code}
+          entity={activeEntity}
+          matrix={matrix}
+          context={context}
+          itemsById={itemsById}
+          orphanState={orphanCard}
+          workProjects={projectRows}
+          onOpenPanel={(cellId) => setOpenCellId(cellId)}
+          onOpenProject={(projectId) => {
+            setProjectFocus({ projectId, openMilestones: true });
+            setWorkView('projects');
+          }}
         />
-      ) : (
-        <Checking label="Unplanned" />
       )}
 
-      {cellFocus && (
+      {/* Gated on `loaded`: before the first response there is no count and no
+          clean bill, and "checking" must not be spelled as either. */}
+      {level === 'group' &&
+        (loaded ? (
+          <GapFilterRow
+            state={unplannedCard}
+            stuckCount={stuckRows.length}
+            gapEligible={summary.gapEligible}
+            totalCells={summary.totalCells}
+            filter={filter}
+            onFilter={setFilter}
+          />
+        ) : (
+          <Checking label="Unplanned" />
+        ))}
+
+      {level === 'group' && cellFocus && (
         <div className="mb-3 flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 rounded-sm border border-border bg-surface-2 px-3">
           <span className="text-xs tabular-nums text-foreground-secondary">
             Showing the {cellFocus.size} cell{cellFocus.size === 1 ? '' : 's'} one project makes
@@ -428,7 +468,7 @@ export function FinishLine() {
         </div>
       )}
 
-      {matrixFailure ? (
+      {level !== 'group' ? null : matrixFailure ? (
         <Card className={cn(matrixFailure.reason === 'failed' && 'border-destructive')}>
           <CardContent className="pt-5">
             <CouldNotCheck label="Matrix" failure={matrixFailure} />
@@ -554,7 +594,7 @@ export function FinishLine() {
         />
       )}
 
-      {openRowId && itemsById.get(openRowId)?.blocks && (
+      {level === 'group' && openRowId && itemsById.get(openRowId)?.blocks && (
         <Card className="mt-5">
           <CardContent className="pt-5">
             <p className="surface-label">{itemsById.get(openRowId)?.item}</p>
@@ -565,7 +605,7 @@ export function FinishLine() {
         </Card>
       )}
 
-      {!matrixFailure && summary.totalCells > 0 && (
+      {level === 'group' && !matrixFailure && summary.totalCells > 0 && (
         <p className="mt-4 text-xs tabular-nums text-foreground-muted">
           {summary.totalCells} cells · {summary.gapEligible} need work behind them ·{' '}
           {summary.gaps} are gaps · {summary.backed} backed
@@ -644,89 +684,33 @@ export function FinishLine() {
         )}
       </section>
 
-      {loaded ? (
-        <>
-          <OrphanCard
-        state={orphanCard}
-        onOpenProject={(projectId) => {
-          setProjectFocus({ projectId, openMilestones: true });
-          setWorkView('projects');
-        }}
-      />
+      {/* Group-only: the entity level carries its own Closes-nothing list,
+          scoped by entity_tag, so repeating the global card there would be a
+          second, unscoped answer to the same question. */}
+      {level === 'group' &&
+        (loaded ? (
+          <>
+            <OrphanCard
+              state={orphanCard}
+              onOpenProject={(projectId) => {
+                setProjectFocus({ projectId, openMilestones: true });
+                setWorkView('projects');
+              }}
+            />
 
-      <DanglingCard state={danglingCard} />
-        </>
-      ) : (
-        <div className="mt-5">
-          <Checking label="Milestones that close nothing" />
-        </div>
-      )}
+            <DanglingCard state={danglingCard} />
+          </>
+        ) : (
+          <div className="mt-5">
+            <Checking label="Milestones that close nothing" />
+          </div>
+        ))}
     </div>
   );
 }
 
-/**
- * The state between "not asked yet" and an answer.
- *
- * Its whole job is to not be either of the other two. A card that counts
- * problems has no honest zero to show before its read returns, and no clean
- * bill to give — so it says neither, in one 44px row.
- */
-function Checking({ label }: { label: string }) {
-  return (
-    <div className="mb-3 rounded-lg border border-border-subtle bg-card px-4">
-      <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1 py-1">
-        <span className="surface-label">{label}</span>
-        <span className="text-xs text-foreground-muted">Checking…</span>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Could not check — the third state, everywhere
-// ---------------------------------------------------------------------------
-
-/**
- * ===========================================================================
- * THIS RENDERS NO NUMBER. NOT EVEN ZERO.
- * ===========================================================================
- * An empty state is safe for a card that displays data and a LIE for a card
- * that counts problems. `0 milestones make no pack line trustworthy — None`
- * shipped while the truth was 458. The wording is also deliberately unlike the
- * confirmed-zero wording: "could not check" and "none" must never be
- * mistakable for one another at a glance.
- */
-function CouldNotCheck({
-  label,
-  failure,
-}: {
-  label: string;
-  failure: { reason: 'missing-relation' | 'failed'; detail: string };
-}) {
-  return (
-    <div>
-      <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-4 gap-y-1">
-        <span className="surface-label">{label}</span>
-        <span
-          className={cn(
-            'flex items-center gap-2 text-xs font-semibold',
-            failure.reason === 'failed' ? 'text-destructive' : 'text-escalate',
-          )}
-        >
-          <TriangleAlert className="size-3.5" />
-          Could not check
-        </span>
-      </div>
-      <p className="mt-1 text-xs leading-5 text-foreground-muted">
-        {failure.reason === 'missing-relation'
-          ? 'This relation is not in the database yet, so there is no count to report — not a zero, and not a clean bill.'
-          : 'The read did not complete, so there is no count to report — not a zero, and not a clean bill.'}
-      </p>
-      <p className="mt-1 text-[11px] leading-5 text-foreground-muted">{failure.detail}</p>
-    </div>
-  );
-}
+// Checking and CouldNotCheck moved to finishLineUi.tsx — shared with the
+// per-entity level, same one-copy reasoning as the resolution styles.
 
 // ---------------------------------------------------------------------------
 // The gap count, as a filter on the matrix rather than a second list
