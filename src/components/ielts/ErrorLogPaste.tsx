@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, Copy, Save } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { Button } from '../ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card';
@@ -125,11 +125,14 @@ function RowEditor({
   row,
   duplicate,
   onChange,
+  onCommitAnyway,
 }: {
   row: EditableRow;
   /** Already committed this visit — shown, excluded from the next commit. */
   duplicate: boolean;
   onChange: (fields: ParsedFields) => void;
+  /** Lifts the hold for THIS row — a new occurrence from a different piece. */
+  onCommitAnyway: () => void;
 }) {
   // The skill can be an arbitrary string here: a surfaced row with only the
   // date anchor valid carries whatever the model wrote in field 2.
@@ -162,12 +165,23 @@ function RowEditor({
       </div>
 
       {/* A row found again after it was committed is SHOWN and held back, not
-          silently re-inserted and not silently hidden. Editing it changes its
-          identity, at which point it commits like any other row. */}
+          silently re-inserted and not silently hidden. Two honest exits: edit
+          it (a changed row is new content), or say it IS a genuine second
+          occurrence — identical fields from a different piece happen, most
+          plausibly with [absent: …] quotes — and lift the hold for this row. */}
       {duplicate && (
-        <p className="mt-1 text-xs leading-5 text-foreground-muted">
-          Committed earlier from this paste — it will not be inserted again.
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-xs leading-5 text-foreground-muted">
+            Identical to a row already committed — held back.
+          </p>
+          <button
+            type="button"
+            onClick={onCommitAnyway}
+            className="rounded-sm text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            New occurrence — commit it anyway
+          </button>
+        </div>
       )}
 
       {/* Rejected rows stay EDITABLE IN PLACE. A row is never silently dropped
@@ -307,16 +321,22 @@ export function ErrorLogPaste({
   const [rewriteOf, setRewriteOf] = useState('');
   // THE RE-INSERT GUARD. "Find rows" re-parses the whole paste, so after a
   // partial commit the already-committed rows come back valid; without this
-  // multiset a second Commit would insert them again. See
-  // partitionAgainstCommitted.
+  // multiset a second Commit would insert them again. Deliberately NOT reset
+  // per paste: fixing a typo in the textarea and re-committing is the exact
+  // flow the guard exists for, and a changed text must not disarm it. The
+  // rare legitimate collision — identical fields from a DIFFERENT piece —
+  // exits through the visible per-row override below.
   const [committedCounts, setCommittedCounts] = useState<ReadonlyMap<string, number>>(new Map());
+  // Row keys the owner explicitly released from the hold this preview.
+  const [overrides, setOverrides] = useState<ReadonlySet<string>>(new Set());
   // Which (date, skill) pairs already produced a session, and from WHICH
   // paste. Keyed by text so a retry of the same paste never doubles the
   // session, while a second piece of the same skill on the same day (a
   // different paste) still records its own row with its own raw_feedback.
-  const [sessionsCreatedFor, setSessionsCreatedFor] = useState<ReadonlyMap<string, string>>(
-    new Map(),
-  );
+  // A REF, not state: the retry in the failure toast re-runs a captured
+  // closure, and a state snapshot in that closure would be stale — the retry
+  // would re-create sessions the first attempt already wrote.
+  const sessionPairsRef = useRef<Map<string, string>>(new Map());
   // Clean-session path state.
   const [cleanDate, setCleanDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const { run, isPending } = useMutation();
@@ -335,6 +355,7 @@ export function ErrorLogPaste({
     );
     setDiscardedHeaders(result.discardedHeaders);
     setCommitted(null);
+    setOverrides(new Set());
     // Session-level and PER-PASTE: a rewrite date set for the previous paste
     // must never silently attach to the next one.
     setRewriteOf('');
@@ -348,62 +369,86 @@ export function ErrorLogPaste({
     );
 
   // COMMIT ONLY WHAT IS VALID AND NOT ALREADY COMMITTED. One malformed line
-  // never rejects the paste; one committed line is never inserted twice.
+  // never rejects the paste; one committed line is never inserted twice
+  // without the owner saying so.
   const { valid, insertable, alreadyCommitted } = useMemo(() => {
     const validRows = rows?.filter((row) => row.problems.length === 0) ?? [];
-    return { valid: validRows, ...partitionAgainstCommitted(validRows, committedCounts) };
-  }, [rows, committedCounts]);
+    const released = validRows.filter((row) => overrides.has(row.key));
+    const held = validRows.filter((row) => !overrides.has(row.key));
+    const parts = partitionAgainstCommitted(held, committedCounts);
+    return {
+      valid: validRows,
+      insertable: [...parts.insertable, ...released],
+      alreadyCommitted: parts.alreadyCommitted,
+    };
+  }, [rows, committedCounts, overrides]);
   const duplicateKeys = useMemo(
     () => new Set(alreadyCommitted.map((row) => row.key)),
     [alreadyCommitted],
   );
   const rejected = (rows?.length ?? 0) - valid.length;
 
-  const recordSessions = async (
-    pairs: ReadonlyArray<{ date: string; skill: IeltsErrorSkill }>,
-    sourceText: string,
-  ): Promise<IeltsSession[]> => {
-    const fresh = pairs.filter(
-      (pair) => sessionsCreatedFor.get(pairKey(pair.date, pair.skill)) !== sourceText,
-    );
-    if (fresh.length === 0) return [];
-    const sessions = await repository.createIeltsSessions(
-      fresh.map((pair) => ({
-        date: pair.date,
-        skill: pair.skill,
-        rawFeedback: sourceText,
-        revisionOf: rewriteOf || undefined,
-      })),
-    );
-    // Recorded IMMEDIATELY, inside the mutation, so a failure later in the
-    // same commit (the error insert) cannot cause a retry to double these.
-    setSessionsCreatedFor((current) => {
-      const next = new Map(current);
-      for (const pair of fresh) next.set(pairKey(pair.date, pair.skill), sourceText);
-      return next;
-    });
-    onSessions(sessions);
-    return sessions;
-  };
-
+  /**
+   * Sessions and errors are two writes with no transaction across them, so the
+   * order and the retry story carry the safety:
+   *
+   * - Sessions FIRST: if the error insert fails, raw_feedback has already
+   *   survived — the reverse order re-creates the very bug the sessions table
+   *   fixes (practice with no session row).
+   * - Two separate run() calls, so a failure toast names what actually failed
+   *   and "nothing was saved" is never claimed over a half-saved commit.
+   * - ALL post-success bookkeeping lives INSIDE each action: the toast's
+   *   retry re-runs the captured action alone, so anything left outside it
+   *   would be skipped on a successful retry — committed rows would stay
+   *   "insertable" and re-insert on the next click.
+   * - sessionPairsRef is mutated, not set through state, so a retried closure
+   *   sees the pairs the first attempt already wrote.
+   */
   const commit = async () => {
     if (insertable.length === 0) return;
     const sourceText = text;
-    // ONE action for the whole paste: sessions first (so raw_feedback survives
-    // even if the error insert fails — the reverse order re-creates the very
-    // bug this table fixes, errors without a session), then the error rows.
-    const created = await run('Log errors', async () => {
-      const pairs = [
-        ...new Map(
-          insertable.map((row) => [
-            pairKey(row.fields.date, row.fields.skill),
-            { date: row.fields.date, skill: row.fields.skill },
-          ]),
-        ).values(),
-      ];
-      const sessions = await recordSessions(pairs, sourceText);
+    const batch = insertable;
+    const rejectedCount = rejected;
+    const revision = rewriteOf || undefined;
+
+    const pairs = [
+      ...new Map(
+        batch.map((row) => [
+          pairKey(row.fields.date, row.fields.skill),
+          { date: row.fields.date, skill: row.fields.skill },
+        ]),
+      ).values(),
+    ];
+    const freshPairs = pairs.filter(
+      (pair) => sessionPairsRef.current.get(pairKey(pair.date, pair.skill)) !== sourceText,
+    );
+
+    let sessionCount = 0;
+    if (freshPairs.length > 0) {
+      const sessions = await run('Record session', async () => {
+        const created = await repository.createIeltsSessions(
+          freshPairs.map((pair) => ({
+            date: pair.date,
+            skill: pair.skill,
+            rawFeedback: sourceText,
+            revisionOf: revision,
+          })),
+        );
+        for (const pair of freshPairs) {
+          sessionPairsRef.current.set(pairKey(pair.date, pair.skill), sourceText);
+        }
+        onSessions(created);
+        return created;
+      });
+      // Session write failed: nothing was saved, the toast said so honestly,
+      // and the error rows are not attempted without their session.
+      if (!sessions) return;
+      sessionCount = sessions.length;
+    }
+
+    await run('Log errors', async () => {
       const errors = await repository.createIeltsErrors(
-        insertable.map((row) => ({
+        batch.map((row) => ({
           date: row.fields.date,
           skill: row.fields.skill,
           criterion: row.fields.criterion,
@@ -413,49 +458,60 @@ export function ErrorLogPaste({
           questionType: row.fields.questionType,
         })),
       );
-      return { sessions, errors };
+      setCommittedCounts((current) => {
+        const next = new Map(current);
+        for (const row of batch) {
+          const key = fieldsSignature(row.fields);
+          next.set(key, (next.get(key) ?? 0) + 1);
+        }
+        return next;
+      });
+      onCommitted(errors);
+      // Say how many were skipped — never silently drop a row.
+      const sessionNote =
+        sessionCount > 0
+          ? ` ${sessionCount} ${sessionCount === 1 ? 'session' : 'sessions'} recorded.`
+          : '';
+      setCommitted(
+        rejectedCount > 0
+          ? `${errors.length} committed, ${rejectedCount} left below unresolved.${sessionNote}`
+          : `${errors.length} committed.${sessionNote}`,
+      );
+      setRows((current) => current?.filter((row) => row.problems.length > 0) ?? null);
+      setOverrides(new Set());
+      if (rejectedCount === 0) setText('');
+      return errors;
     });
-    if (!created) return;
-    setCommittedCounts((current) => {
-      const next = new Map(current);
-      for (const row of insertable) {
-        const key = fieldsSignature(row.fields);
-        next.set(key, (next.get(key) ?? 0) + 1);
-      }
-      return next;
-    });
-    onCommitted(created.errors);
-    // Say how many were skipped — never silently drop a row.
-    const sessionNote =
-      created.sessions.length > 0
-        ? ` ${created.sessions.length} ${created.sessions.length === 1 ? 'session' : 'sessions'} recorded.`
-        : '';
-    setCommitted(
-      rejected > 0
-        ? `${created.errors.length} committed, ${rejected} left below unresolved.${sessionNote}`
-        : `${created.errors.length} committed.${sessionNote}`,
-    );
-    setRows((current) => current?.filter((row) => row.problems.length > 0) ?? null);
-    if (rejected === 0) setText('');
   };
 
   // THE CLEAN-SESSION PATH — the entire point of the sessions table. A paste
   // with zero error rows is still a session; before this table existed it
   // produced no row, no date, no session, and `isolated` was unreachable. One
-  // tap on the skill records it, full paste kept as raw_feedback.
+  // tap on the skill records it, full paste kept as raw_feedback. Same retry
+  // rules as commit: bookkeeping inside the action, pair guard through the ref.
   const logCleanSession = async (skill: IeltsErrorSkill) => {
     const sourceText = text;
-    if (sessionsCreatedFor.get(pairKey(cleanDate, skill)) === sourceText) {
+    const key = pairKey(cleanDate, skill);
+    if (sessionPairsRef.current.get(key) === sourceText) {
       setCommitted(`Already recorded — ${IELTS_ERROR_TAXONOMY[skill].label} on ${cleanDate}.`);
       return;
     }
-    const created = await run('Log clean session', () =>
-      recordSessions([{ date: cleanDate, skill }], sourceText),
-    );
-    if (!created || created.length === 0) return;
-    setCommitted(
-      `Clean session recorded — ${IELTS_ERROR_TAXONOMY[skill].label}, ${cleanDate}. No errors, and that now counts.`,
-    );
+    await run('Log clean session', async () => {
+      const created = await repository.createIeltsSessions([
+        {
+          date: cleanDate,
+          skill,
+          rawFeedback: sourceText,
+          revisionOf: rewriteOf || undefined,
+        },
+      ]);
+      sessionPairsRef.current.set(key, sourceText);
+      onSessions(created);
+      setCommitted(
+        `Clean session recorded — ${IELTS_ERROR_TAXONOMY[skill].label}, ${cleanDate}. No errors, and that now counts.`,
+      );
+      return created;
+    });
   };
 
   return (
@@ -582,6 +638,9 @@ export function ErrorLogPaste({
                   row={row}
                   duplicate={duplicateKeys.has(row.key)}
                   onChange={(fields) => editRow(row.key, fields)}
+                  onCommitAnyway={() =>
+                    setOverrides((current) => new Set(current).add(row.key))
+                  }
                 />
               ))}
             </div>
