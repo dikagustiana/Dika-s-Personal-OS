@@ -21,6 +21,7 @@ import type {
   TaskEntry,
   WeeklyGoal,
 } from '../data/types';
+import type { ReadResult } from '../data/readResult';
 import { cellsByMilestone, cellsClosedByProject } from '../logic/finishLine';
 import { appendDocument, removeDocumentAt } from '../logic/documents';
 import {
@@ -98,12 +99,22 @@ export interface ProjectCardProps {
   /**
    * The finish-line edges, supplied by views that load them (WORK Projects).
    * Powers the PACK LINES tile and the per-milestone markers — the answer to
-   * "why does this project matter". Absent, the card renders exactly as
-   * before: no count, no marker, no empty invitation.
+   * "why does this project matter".
+   *
+   * THREE CASES, AND THEY ARE NOT THE SAME:
+   *   null            this domain has no pack. Render as before the pack
+   *                   existed: no count, no marker, no empty invitation.
+   *   {ok: false}     the pack exists and the read did not land. The tile says
+   *                   `—`, NEVER `0` — a confident zero here is the same
+   *                   failure that shipped `458 milestones` as `None`.
+   *   {ok: true}      real edges, and a genuine zero is printed plainly.
    */
-  finishLineEdges?: FinishLineEdge[];
-  /** Navigates to the Finish line view, scrolled to the cell. */
-  onOpenFinishLine?: (itemId: string, entityCode?: string) => void;
+  finishLineEdges?: ReadResult<FinishLineEdge> | null;
+  /**
+   * Navigates to the Finish line view. `cellIds` narrows the matrix to exactly
+   * the cells this project makes trustworthy.
+   */
+  onOpenFinishLine?: (itemId: string, entityCode?: string, cellIds?: string[]) => void;
 }
 
 /**
@@ -138,18 +149,19 @@ export function ProjectCard({
 
   const now = today ?? new Date();
 
-  // The reverse direction of the finish line: which pack lines this project's
-  // work would make trustworthy, and which of its milestones are the ones
-  // that move the pack. Both empty when the view supplied no pack.
   // The project -> pack direction: how many CELLS this project's milestones
   // close. Cells, not rows — the matrix's grain is (line item x entity).
-  const packCellCount = useMemo(
-    () => (finishLineEdges ? cellsClosedByProject(finishLineEdges, project.id).size : 0),
-    [finishLineEdges, project.id],
+  //
+  // A failed read is treated exactly like no pack at all, which makes the tile
+  // print `—`. It must never fall through to a zero.
+  const packEdges = finishLineEdges?.ok ? finishLineEdges.rows : undefined;
+  const packCellIds = useMemo(
+    () => (packEdges ? cellsClosedByProject(packEdges, project.id) : undefined),
+    [packEdges, project.id],
   );
   const packCellsByMilestone = useMemo(
-    () => (finishLineEdges ? cellsByMilestone(finishLineEdges, project.id) : undefined),
-    [finishLineEdges, project.id],
+    () => (packEdges ? cellsByMilestone(packEdges, project.id) : undefined),
+    [packEdges, project.id],
   );
   const packMilestoneIds = useMemo(
     () => (packCellsByMilestone ? new Set(packCellsByMilestone.keys()) : undefined),
@@ -325,9 +337,13 @@ export function ProjectCard({
         {!compact && (
           <MetricTiles
             project={project}
-            packCells={packCellCount}
-            hasPackData={finishLineEdges !== undefined}
-            onOpenPack={onOpenFinishLine ? () => onOpenFinishLine(project.id) : undefined}
+            packCells={packCellIds?.size ?? 0}
+            hasPackData={packCellIds !== undefined}
+            onOpenPack={
+              onOpenFinishLine && packCellIds
+                ? () => onOpenFinishLine(project.id, undefined, [...packCellIds])
+                : undefined
+            }
             rollup={counts}
           />
         )}

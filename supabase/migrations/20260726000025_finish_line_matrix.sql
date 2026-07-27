@@ -1,5 +1,6 @@
 -- Finish line: entity matrix + connection layer.
--- Replaces the never-applied original contents of this file.
+-- Never applied as written: this file was rewritten to DESCRIBE the schema that
+-- is already live in production, not to be replayed against it.
 
 -- 1. Back up the pack-era rows before deleting them
 create table if not exists private.os_finish_line_items_backup_pack as

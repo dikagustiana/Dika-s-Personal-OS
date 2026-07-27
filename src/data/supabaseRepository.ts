@@ -7,7 +7,7 @@ import {
   guardEdgeTarget,
   type CellWriteOrigin,
 } from './finishLineGuards';
-import { isMissingRelation } from './missingRelation';
+import { okRows, readFailure, type ReadResult } from './readResult';
 import type { Repository } from './repository';
 import type {
   DailyLog,
@@ -755,121 +755,114 @@ class SupabaseRepository implements Repository {
 
   // --- finish line: the entity matrix ----------------------------------------
   //
-  // EVERY READ HERE DEGRADES TO EMPTY when the relation is missing. The
-  // frontend ships before the migration is applied — that has already broken
-  // production twice — so an absent table renders the normal empty state
-  // rather than an unhandled rejection. See `missingRelation`.
+  // EVERY READ HERE RETURNS A THREE-WAY RESULT, never an array. A missing
+  // relation is still not a crash — the frontend ships before the migration is
+  // applied — but it is no longer indistinguishable from an empty table.
+  //
+  // These reads feed cards that COUNT PROBLEMS. `0 milestones make no pack
+  // line trustworthy — None` shipped to production while the truth was 458,
+  // because a failed read became `[]` on the way out of this file. The fix is
+  // here, in the return type, not in the cards. See readResult.ts.
 
-  async listFinishLineItems(): Promise<FinishLineItem[]> {
+  async listFinishLineItems(): Promise<ReadResult<FinishLineItem>> {
     const { data, error } = await this.client
       .from('os_finish_line_items')
       .select('id, item, kind, parent_id, sort_order, tag, unit, dp, agg, style, flag, blocks')
       .in('kind', ['section', 'metric', 'note'])
       .order('sort_order', { ascending: true });
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listFinishLineItems failed: ${error.message}`);
-    }
-    return (data as FinishLineItemRow[]).map(rowToFinishLineItem);
+    if (error) return readFailure('listFinishLineItems', error);
+    return okRows((data as FinishLineItemRow[]).map(rowToFinishLineItem));
   }
 
-  async listFinishLineEntities(): Promise<FinishLineEntity[]> {
+  async listFinishLineEntities(): Promise<ReadResult<FinishLineEntity>> {
     const { data, error } = await this.client
       .from('os_finish_line_entities')
       .select('code, label, sort_order')
       .order('sort_order', { ascending: true });
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listFinishLineEntities failed: ${error.message}`);
-    }
-    return (data as { code: string; label: string; sort_order: number }[]).map((row) => ({
-      code: row.code,
-      label: row.label,
-      order: row.sort_order,
-    }));
+    if (error) return readFailure('listFinishLineEntities', error);
+    return okRows(
+      (data as { code: string; label: string; sort_order: number }[]).map((row) => ({
+        code: row.code,
+        label: row.label,
+        order: row.sort_order,
+      })),
+    );
   }
 
-  async listFinishLineCells(): Promise<FinishLineCell[]> {
+  async listFinishLineCells(): Promise<ReadResult<FinishLineCell>> {
     const { data, error } = await this.client
       .from('os_finish_line_cells')
       .select('id, item_id, entity_code, state, note');
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listFinishLineCells failed: ${error.message}`);
-    }
-    return (data as FinishLineCellRow[]).map(rowToFinishLineCell);
+    if (error) return readFailure('listFinishLineCells', error);
+    return okRows((data as FinishLineCellRow[]).map(rowToFinishLineCell));
   }
 
-  async listFinishLineDeps(): Promise<FinishLineDep[]> {
+  async listFinishLineDeps(): Promise<ReadResult<FinishLineDep>> {
     const { data, error } = await this.client
       .from('os_finish_line_deps')
       .select('cell_id, input_id');
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listFinishLineDeps failed: ${error.message}`);
-    }
-    return (data as { cell_id: string; input_id: string }[]).map((row) => ({
-      cellId: row.cell_id,
-      inputId: row.input_id,
-    }));
+    if (error) return readFailure('listFinishLineDeps', error);
+    return okRows(
+      (data as { cell_id: string; input_id: string }[]).map((row) => ({
+        cellId: row.cell_id,
+        inputId: row.input_id,
+      })),
+    );
   }
 
-  async listFinishLineEdges(): Promise<FinishLineEdge[]> {
+  async listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>> {
     const { data, error } = await this.client
       .from('os_finish_line_item_projects')
       .select('id, cell_id, project_id, milestone_id')
       .not('cell_id', 'is', null);
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listFinishLineEdges failed: ${error.message}`);
-    }
-    return (data as FinishLineEdgeRow[]).map((row) => {
-      const edge: FinishLineEdge = {
-        id: row.id,
-        cellId: row.cell_id as string,
-        projectId: row.project_id,
-      };
-      if (row.milestone_id) edge.milestoneId = row.milestone_id;
-      return edge;
-    });
+    if (error) return readFailure('listFinishLineEdges', error);
+    return okRows(
+      (data as FinishLineEdgeRow[]).map((row) => {
+        const edge: FinishLineEdge = {
+          id: row.id,
+          cellId: row.cell_id as string,
+          projectId: row.project_id,
+        };
+        if (row.milestone_id) edge.milestoneId = row.milestone_id;
+        return edge;
+      }),
+    );
   }
 
-  async listDanglingLinks(): Promise<DanglingLink[]> {
+  async listDanglingLinks(): Promise<ReadResult<DanglingLink>> {
     const { data, error } = await this.client
       .from('os_finish_line_dangling_links')
-      // Exactly the columns §5.10's view exposes. It carries no project
-      // title, so the UI resolves the title from the project list it already has.
+      // Exactly the columns the view exposes. It carries no project title, so
+      // the UI resolves the title from the project list it already has.
       .select('id, cell_id, project_id, milestone_id');
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listDanglingLinks failed: ${error.message}`);
-    }
-    return (data as DanglingLinkRow[]).map((row) => {
-      const link: DanglingLink = {
-        id: row.id,
-        projectId: row.project_id,
-        milestoneId: row.milestone_id,
-      };
-      if (row.cell_id) link.cellId = row.cell_id;
-      return link;
-    });
+    if (error) return readFailure('listDanglingLinks', error);
+    return okRows(
+      (data as DanglingLinkRow[]).map((row) => {
+        const link: DanglingLink = {
+          id: row.id,
+          projectId: row.project_id,
+          milestoneId: row.milestone_id,
+        };
+        if (row.cell_id) link.cellId = row.cell_id;
+        return link;
+      }),
+    );
   }
 
-  async listOrphanMilestones(): Promise<OrphanMilestone[]> {
+  async listOrphanMilestones(): Promise<ReadResult<OrphanMilestone>> {
     const { data, error } = await this.client
       .from('os_finish_line_orphan_milestones')
       .select('project_id, project_title, milestone_id, milestone_text, status');
-    if (error) {
-      if (isMissingRelation(error)) return [];
-      throw new Error(`listOrphanMilestones failed: ${error.message}`);
-    }
-    return (data as OrphanRow[]).map((row) => ({
-      projectId: row.project_id,
-      projectTitle: row.project_title,
-      milestoneId: row.milestone_id,
-      milestoneText: row.milestone_text ?? '',
-      status: row.status ?? '',
-    }));
+    if (error) return readFailure('listOrphanMilestones', error);
+    return okRows(
+      (data as OrphanRow[]).map((row) => ({
+        projectId: row.project_id,
+        projectTitle: row.project_title,
+        milestoneId: row.milestone_id,
+        milestoneText: row.milestone_text ?? '',
+        status: row.status ?? '',
+      })),
+    );
   }
 
   async setFinishLineCellState(
@@ -973,27 +966,82 @@ class SupabaseRepository implements Repository {
     }
   }
 
-  /** The same operation inverted: the cells one milestone closes. */
+  /**
+   * THE PRIMARY AUTHORING PATH: the cells one milestone closes.
+   *
+   * Anchored on the milestone rather than the cell because the arithmetic says
+   * so — 136 linkable cells against the in-scope milestones, and one milestone
+   * routinely makes the same line trustworthy across four entities plus a
+   * derived percentage row. From the cell side that is six separate pickers;
+   * from here it is six ticks in one commit.
+   *
+   * The same two rules as `setCellEdges`, both in the mutation path:
+   * only a gap-eligible cell may carry an edge, and an unchanged commit is a
+   * no-op rather than a delete-then-reinsert of identical rows.
+   */
   async setMilestoneEdges(
     projectId: string,
     milestoneId: string,
     cellIds: string[],
   ): Promise<void> {
-    const { error: clearError } = await this.client
+    // This guard was absent entirely on this path: the cell-anchored write
+    // checked the target state and the milestone-anchored one did not, so the
+    // rule held only for the picker that happened to be used.
+    if (cellIds.length > 0) {
+      const { data: targets, error: targetError } = await this.client
+        .from('os_finish_line_cells')
+        .select('id, state')
+        .in('id', cellIds);
+      if (targetError) throw new Error(`setMilestoneEdges failed: ${targetError.message}`);
+      const found = new Map(
+        (targets as { id: string; state: CellState }[]).map((row) => [row.id, row.state]),
+      );
+      for (const cellId of cellIds) {
+        const state = found.get(cellId);
+        if (!state) throw new Error(`Cell not found: ${cellId}`);
+        guardEdgeTarget(state);
+      }
+    }
+
+    const { data: existingRows, error: existingError } = await this.client
       .from('os_finish_line_item_projects')
-      .delete()
+      .select('id, cell_id')
       .eq('project_id', projectId)
       .eq('milestone_id', milestoneId);
-    if (clearError) throw new Error(`setMilestoneEdges failed: ${clearError.message}`);
-    if (cellIds.length === 0) return;
-    const { error } = await this.client.from('os_finish_line_item_projects').insert(
-      cellIds.map((cellId) => ({
-        cell_id: cellId,
-        project_id: projectId,
-        milestone_id: milestoneId,
-      })),
+    if (existingError) throw new Error(`setMilestoneEdges failed: ${existingError.message}`);
+
+    // Idempotency is computed here. The unique constraint is the BACKSTOP, not
+    // the mechanism — catching 23505 would mean every unchanged re-commit made
+    // a round trip that failed on purpose.
+    const existing = new Map(
+      (existingRows as { id: string; cell_id: string | null }[])
+        .filter((row) => row.cell_id)
+        .map((row) => [row.cell_id as string, row.id]),
     );
-    if (error) throw new Error(`setMilestoneEdges failed: ${error.message}`);
+    const wanted = new Set(cellIds);
+    const toDelete = [...existing.entries()]
+      .filter(([cellId]) => !wanted.has(cellId))
+      .map(([, id]) => id);
+    const toInsert = cellIds.filter((cellId) => !existing.has(cellId));
+    if (toDelete.length === 0 && toInsert.length === 0) return; // unchanged
+
+    if (toDelete.length > 0) {
+      const { error } = await this.client
+        .from('os_finish_line_item_projects')
+        .delete()
+        .in('id', toDelete);
+      if (error) throw new Error(`setMilestoneEdges failed: ${error.message}`);
+    }
+    if (toInsert.length > 0) {
+      const { error } = await this.client.from('os_finish_line_item_projects').insert(
+        toInsert.map((cellId) => ({
+          cell_id: cellId,
+          project_id: projectId,
+          milestone_id: milestoneId,
+        })),
+      );
+      if (error) throw new Error(`setMilestoneEdges failed: ${error.message}`);
+    }
   }
 
 }

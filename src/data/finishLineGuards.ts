@@ -60,8 +60,9 @@ export function guardCellState(state: CellState, origin: CellWriteOrigin): CellS
   }
   if (!STATES.has(state)) {
     throw new FinishLineGuardError(
-      `Unknown cell state '${state}'. There are exactly five, and there is ` +
-        'deliberately no state for "a figure exists but the method is unreliable".',
+      `Unknown cell state '${state}'. There are exactly five, and no sixth is ` +
+        'pending: "a figure exists but the method is unreliable" is DERIVED, not ' +
+        'stored — it is a gap-eligible cell with no live edge. See isGapEligible.',
     );
   }
   return state;
@@ -78,24 +79,84 @@ export function guardCellNote(note: string | undefined): string | undefined {
 }
 
 /**
- * Only an `input` cell can be closed by a milestone.
+ * ===========================================================================
+ * THE ONE PREDICATE. `figure` IS NOT TERMINAL.
+ * ===========================================================================
  *
- * `locked` is closed transitively when its inputs land — an edge onto one
- * would be a second, contradictory way to say it is done. `undefined` is
- * arithmetic, not work outstanding. `zero` and `figure` are not gaps at all.
+ * Which cell states need work standing behind them — and therefore which can
+ * carry an edge, and which count as gaps. The two questions have the same
+ * answer, so they get one function and not two lists that can drift.
  *
- * ENFORCED HERE, not in the UI. The picker only offers `input` cells, but a
- * guard that lives only in the component is one refactor away from being gone,
- * and the row it would write is invisible until someone wonders why a `locked`
- * cell claims to have a milestone.
+ *   figure     YES — the number exists; NOTHING attests its method is sound
+ *                    until work stands behind it. It renders `xxx`, which
+ *                    reads as finished, and it is not.
+ *   input      YES — the number does not exist yet.
+ *   locked     no  — derived; resolves transitively from its inputs through
+ *                    os_finish_line_deps. An edge onto one would be a second,
+ *                    contradictory way to say it is done.
+ *   undefined  no  — arithmetic, not work. Zero divisor.
+ *   zero       DEFERRED — see below.
+ *
+ * The earlier model said `figure` and `zero` have no edge and are not gaps.
+ * That contradicted the target state: if the target is "a number exists AND
+ * the method behind it is sound", an unbacked figure has not reached it. The
+ * live view `os_finish_line_unplanned` already encodes the corrected model
+ * (`state in ('figure','input')`) and returns 136 rows, not 44. A UI that
+ * shows 44 shows a third of the truth, and the two thirds it hides are the
+ * ones that look finished.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY `zero` IS DEFERRED, AND WHY THE DEFERRAL LIVES HERE AND NOWHERE ELSE
+ * ---------------------------------------------------------------------------
+ * 44 cells are `zero` and they are two different facts: 7 in trading entities
+ * where nil is an assertion someone must stand behind, and 37 where nil means
+ * the entity is not trading yet. Telling them apart needs a `trading` flag on
+ * the entity that does not exist, so the whole question is deferred.
+ *
+ * THIS DECISION WILL BE REVERSED. When it is, it must be one line — moving
+ * 'zero' into the set below. That is the entire reason this is a named
+ * predicate rather than `state !== 'zero'` scattered across five files: the
+ * guard, the client mirror of the view's predicate, and the cards all call
+ * THIS. If any of them kept its own list, the deferral would exist in two
+ * places and come apart the moment it is lifted.
+ *
+ * The case that will force it, recorded so it is recognised on arrival:
+ * `COGS — Logistic provider` / SAMB is `zero`, carries a seeded note saying
+ * the cost was never separated, and four blocked milestones in `SAMB (parent)`
+ * are visibly about exactly that. Under the current rule those four can attach
+ * to nothing. Known, accepted, and deliberately not solved here.
+ */
+export type GapEligibleState = Extract<CellState, 'figure' | 'input'>;
+
+const GAP_ELIGIBLE: ReadonlySet<CellState> = new Set<CellState>(['figure', 'input']);
+
+/**
+ * A type predicate, so the compiler carries the deferral too: after this
+ * returns false, `zero` is still in the narrowed type and a caller that forgot
+ * to handle it fails to build rather than falling through to a default.
+ */
+export function isGapEligible(state: CellState): state is GapEligibleState {
+  return GAP_ELIGIBLE.has(state);
+}
+
+/**
+ * A milestone edge may only point at a gap-eligible cell.
+ *
+ * ENFORCED HERE, not in the UI. The picker only offers gap-eligible cells, but
+ * a guard that lives only in the component is one refactor away from being
+ * gone, and the row it would write is invisible until someone wonders why a
+ * `locked` cell claims to have a milestone.
  */
 export function guardEdgeTarget(state: CellState): CellState {
-  if (state !== 'input') {
+  if (!isGapEligible(state)) {
     throw new FinishLineGuardError(
-      `A milestone edge may only point at an 'input' cell; this one is '${state}'. ` +
+      `A milestone edge may only point at a cell that needs work behind it; ` +
+        `this one is '${state}'. ` +
         (state === 'locked'
           ? 'A locked cell closes when its inputs land — link the inputs instead.'
-          : 'That state is not closable by work.'),
+          : state === 'zero'
+            ? 'Nil is deferred until entities carry a trading flag; see isGapEligible.'
+            : 'That state is arithmetic, not work outstanding.'),
     );
   }
   return state;

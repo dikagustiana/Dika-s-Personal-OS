@@ -3,6 +3,7 @@ import {
   FinishLineGuardError,
   guardCellState,
   guardEdgeTarget,
+  isGapEligible,
 } from '../data/finishLineGuards';
 import { isMissingRelation } from '../data/missingRelation';
 import type {
@@ -20,7 +21,7 @@ import {
   buildMatrix,
   cellsByMilestone,
   cellsClosedByProject,
-  inputSubState,
+  cellSubState,
   isGap,
   resolveAll,
   resolveCell,
@@ -70,72 +71,98 @@ function item(over: Partial<FinishLineItem> & { id: string }): FinishLineItem {
   return { item: over.id, kind: 'metric', order: 1, ...over };
 }
 
-describe('severity order', () => {
+describe('severity order — rewritten, figure is no longer the safe end', () => {
   it('ranks a cycle above everything — wrong data must not be averaged away', () => {
     expect(worst('cycle', 'unplanned')).toBe('cycle');
-    expect(worst('figure', 'cycle')).toBe('cycle');
+    expect(worst('backed', 'cycle')).toBe('cycle');
   });
 
-  it('ranks unplanned worst among the real gap states', () => {
+  it('holds the specified order end to end', () => {
+    // unplanned > stuck > in-progress > contradiction > backed > undefined > zero
     expect(worst('unplanned', 'stuck')).toBe('unplanned');
     expect(worst('stuck', 'in-progress')).toBe('stuck');
     expect(worst('in-progress', 'contradiction')).toBe('in-progress');
-    expect(worst('contradiction', 'pending')).toBe('contradiction');
+    expect(worst('contradiction', 'backed')).toBe('contradiction');
+    expect(worst('backed', 'undefined')).toBe('backed');
     expect(worst('undefined', 'zero')).toBe('undefined');
-    expect(worst('zero', 'figure')).toBe('zero');
   });
 
-  it('never counts undefined, zero or figure as a gap', () => {
+  it('places pending between contradiction and backed, disturbing no stated pair', () => {
+    expect(worst('contradiction', 'pending')).toBe('contradiction');
+    expect(worst('pending', 'backed')).toBe('pending');
+  });
+
+  it('never counts undefined, zero or backed as a gap', () => {
     expect(isGap('undefined')).toBe(false);
     expect(isGap('zero')).toBe(false);
-    expect(isGap('figure')).toBe(false);
+    expect(isGap('backed')).toBe(false);
     expect(isGap('unplanned')).toBe(true);
     expect(isGap('stuck')).toBe(true);
   });
 });
 
-describe('inputSubState — layer 2', () => {
+describe('cellSubState — layer 2, for figure AND input', () => {
   const p = (ms: Milestone[]) => new Map([['p1', project(ms)]]);
 
   it('is unplanned with no edge at all', () => {
-    expect(inputSubState(resolveEdges([], p([])))).toBe('unplanned');
+    expect(cellSubState('input', resolveEdges([], p([])))).toBe('unplanned');
+  });
+
+  it('is unplanned for a FIGURE with no edge — a number nothing stands behind', () => {
+    expect(cellSubState('figure', resolveEdges([], p([])))).toBe('unplanned');
   });
 
   it('is stuck when every linked milestone is blocked', () => {
     const m1 = milestone({ status: 'blocked' });
     const m2 = milestone({ status: 'blocked' });
     const edges = [edge('c', { milestoneId: m1.id }), edge('c', { milestoneId: m2.id })];
-    expect(inputSubState(resolveEdges(edges, p([m1, m2])))).toBe('stuck');
+    expect(cellSubState('input', resolveEdges(edges, p([m1, m2])))).toBe('stuck');
   });
 
   it('is in-progress when at least one is open and not blocked', () => {
     const m1 = milestone({ status: 'blocked' });
     const m2 = milestone({ status: 'in-progress' });
     const edges = [edge('c', { milestoneId: m1.id }), edge('c', { milestoneId: m2.id })];
-    expect(inputSubState(resolveEdges(edges, p([m1, m2])))).toBe('in-progress');
+    expect(cellSubState('input', resolveEdges(edges, p([m1, m2])))).toBe('in-progress');
   });
 
   it('is a contradiction when every linked milestone is done and the cell is still input', () => {
     const m1 = milestone({ done: true, status: 'done' });
     const edges = [edge('c', { milestoneId: m1.id })];
-    expect(inputSubState(resolveEdges(edges, p([m1])))).toBe('contradiction');
+    expect(cellSubState('input', resolveEdges(edges, p([m1])))).toBe('contradiction');
+  });
+
+  it('is BACKED, not a contradiction, when a figure has all its milestones done', () => {
+    // The whole point of the model change: a figure whose work is finished has
+    // reached the target state. Only an `input` disagreeing with done work is
+    // a contradiction.
+    const m1 = milestone({ done: true, status: 'done' });
+    const edges = [edge('c', { milestoneId: m1.id })];
+    expect(cellSubState('figure', resolveEdges(edges, p([m1])))).toBe('backed');
+    expect(isGap('backed')).toBe(false);
   });
 
   it('does not count a broken edge as coverage', () => {
     const edges = [edge('c', { milestoneId: 'deleted' })];
     const resolved = resolveEdges(edges, p([]));
     expect(resolved[0].broken).toBe(true);
-    expect(inputSubState(resolved)).toBe('unplanned');
+    expect(cellSubState('input', resolved)).toBe('unplanned');
   });
 });
 
 describe('resolveCell — layer 3 rollup', () => {
-  it('passes through the non-gap states untouched', () => {
-    for (const state of ['figure', 'zero', 'undefined'] as CellState[]) {
+  it('passes through the two terminal states untouched', () => {
+    for (const state of ['zero', 'undefined'] as CellState[]) {
       const c = cell(state);
       const ctx = buildContext([c], [], [], []);
       expect(resolveCell(c.id, ctx)).toBe(state);
     }
+  });
+
+  it('does NOT pass a figure through — it resolves through its edges', () => {
+    const c = cell('figure');
+    const ctx = buildContext([c], [], [], []);
+    expect(resolveCell(c.id, ctx)).toBe('unplanned');
   });
 
   it('takes the worst sub-state among a locked cell inputs', () => {
@@ -266,7 +293,7 @@ describe('buildMatrix', () => {
     const gapCell = cell('input', { itemId: 'm1', entityCode: 'E1' });
     const settled = cell('figure', { itemId: 'm1', entityCode: 'E1' });
     const withGap = buildMatrix(items, [gapCell], ENTITIES, new Map([[gapCell.id, 'unplanned']]));
-    const without = buildMatrix(items, [settled], ENTITIES, new Map([[settled.id, 'figure']]));
+    const without = buildMatrix(items, [settled], ENTITIES, new Map([[settled.id, 'backed']]));
     expect(withGap[0].defaultOpen).toBe(true);
     expect(without[0].defaultOpen).toBe(false);
   });
@@ -319,15 +346,39 @@ describe('project -> pack direction', () => {
   });
 });
 
-describe('edges may only point at an input cell (§7.1, mutation path)', () => {
+describe('the one predicate: isGapEligible', () => {
+  it('covers figure and input, and nothing else', () => {
+    expect(isGapEligible('figure')).toBe(true);
+    expect(isGapEligible('input')).toBe(true);
+    expect(isGapEligible('locked')).toBe(false);
+    expect(isGapEligible('undefined')).toBe(false);
+  });
+
+  it('defers zero — and this is the ONE line that reverses when it is lifted', () => {
+    expect(isGapEligible('zero')).toBe(false);
+  });
+
+  it('is the same answer the edge guard enforces, by construction', () => {
+    for (const state of ['figure', 'zero', 'undefined', 'input', 'locked'] as CellState[]) {
+      if (isGapEligible(state)) expect(guardEdgeTarget(state)).toBe(state);
+      else expect(() => guardEdgeTarget(state)).toThrow(FinishLineGuardError);
+    }
+  });
+});
+
+describe('edges may only point at a gap-eligible cell (mutation path)', () => {
   it('rejects an edge onto a locked cell — it closes when its inputs land', () => {
     expect(() => guardEdgeTarget('locked')).toThrow(FinishLineGuardError);
   });
 
-  it('rejects an edge onto undefined, zero and figure', () => {
-    for (const state of ['undefined', 'zero', 'figure'] as CellState[]) {
+  it('rejects an edge onto undefined and zero', () => {
+    for (const state of ['undefined', 'zero'] as CellState[]) {
       expect(() => guardEdgeTarget(state)).toThrow(FinishLineGuardError);
     }
+  });
+
+  it('ACCEPTS an edge onto a figure — this is the model change', () => {
+    expect(guardEdgeTarget('figure')).toBe('figure');
   });
 
   it('accepts an edge onto an input cell', () => {

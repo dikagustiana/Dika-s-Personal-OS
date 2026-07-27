@@ -6,6 +6,7 @@ import {
   type CellWriteOrigin,
 } from './finishLineGuards';
 import type { Repository } from './repository';
+import { okRows, type ReadResult } from './readResult';
 import {
   seedDailyLogs,
   seedEntries,
@@ -262,24 +263,24 @@ export class MockRepository implements Repository {
   private readonly finishLineDeps: FinishLineDep[] = [];
   private finishLineEdges: FinishLineEdge[] = [];
 
-  async listFinishLineItems(): Promise<FinishLineItem[]> {
-    return clone([...this.finishLineItems].sort((a, b) => a.order - b.order));
+  async listFinishLineItems(): Promise<ReadResult<FinishLineItem>> {
+    return okRows(clone([...this.finishLineItems].sort((a, b) => a.order - b.order)));
   }
 
-  async listFinishLineEntities(): Promise<FinishLineEntity[]> {
-    return clone([...this.finishLineEntities].sort((a, b) => a.order - b.order));
+  async listFinishLineEntities(): Promise<ReadResult<FinishLineEntity>> {
+    return okRows(clone([...this.finishLineEntities].sort((a, b) => a.order - b.order)));
   }
 
-  async listFinishLineCells(): Promise<FinishLineCell[]> {
-    return clone([...this.finishLineCells.values()]);
+  async listFinishLineCells(): Promise<ReadResult<FinishLineCell>> {
+    return okRows(clone([...this.finishLineCells.values()]));
   }
 
-  async listFinishLineDeps(): Promise<FinishLineDep[]> {
-    return clone(this.finishLineDeps);
+  async listFinishLineDeps(): Promise<ReadResult<FinishLineDep>> {
+    return okRows(clone(this.finishLineDeps));
   }
 
-  async listFinishLineEdges(): Promise<FinishLineEdge[]> {
-    return clone(this.finishLineEdges);
+  async listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>> {
+    return okRows(clone(this.finishLineEdges));
   }
 
   /**
@@ -287,28 +288,36 @@ export class MockRepository implements Repository {
    * jsonb array. There is no foreign key and there cannot be one, so this gap
    * is surfaced rather than solved — and never auto-deleted.
    */
-  async listDanglingLinks(): Promise<DanglingLink[]> {
+  async listDanglingLinks(): Promise<ReadResult<DanglingLink>> {
     const live = new Set<string>();
     for (const project of this.projects.values()) {
       for (const milestone of project.milestones) live.add(`${project.id}:${milestone.id}`);
     }
-    return this.finishLineEdges
-      .filter(
-        (edge) =>
-          edge.milestoneId !== undefined && !live.has(`${edge.projectId}:${edge.milestoneId}`),
-      )
-      .map((edge) => {
-        const link: DanglingLink = {
-          id: edge.id,
-          projectId: edge.projectId,
-          milestoneId: edge.milestoneId as string,
-        };
-        link.cellId = edge.cellId;
-        return link;
-      });
+    return okRows(
+      this.finishLineEdges
+        .filter(
+          (edge) =>
+            edge.milestoneId !== undefined && !live.has(`${edge.projectId}:${edge.milestoneId}`),
+        )
+        .map((edge) => {
+          const link: DanglingLink = {
+            id: edge.id,
+            projectId: edge.projectId,
+            milestoneId: edge.milestoneId as string,
+          };
+          link.cellId = edge.cellId;
+          return link;
+        }),
+    );
   }
 
-  async listOrphanMilestones(): Promise<OrphanMilestone[]> {
+  /**
+   * Mirrors the view's SCOPE as well as its predicate: WORK only, monthly
+   * close excluded. It previously walked every project in every domain, so the
+   * mock's orphan count and production's could never agree — and the mock is
+   * what the tests reason about.
+   */
+  async listOrphanMilestones(): Promise<ReadResult<OrphanMilestone>> {
     const linked = new Set(
       this.finishLineEdges
         .filter((edge) => edge.milestoneId !== undefined)
@@ -316,6 +325,7 @@ export class MockRepository implements Repository {
     );
     const orphans: OrphanMilestone[] = [];
     for (const project of this.projects.values()) {
+      if (project.domain !== 'work' || project.recurring === 'monthly') continue;
       for (const milestone of project.milestones) {
         if (linked.has(`${project.id}:${milestone.id}`)) continue;
         orphans.push({
@@ -327,7 +337,7 @@ export class MockRepository implements Repository {
         });
       }
     }
-    return orphans;
+    return okRows(orphans);
   }
 
   async setFinishLineCellState(
@@ -391,6 +401,22 @@ export class MockRepository implements Repository {
     milestoneId: string,
     cellIds: string[],
   ): Promise<void> {
+    // Same two rules as production, which this path used to skip entirely.
+    for (const cellId of cellIds) {
+      const target = this.finishLineCells.get(cellId);
+      if (!target) throw new Error(`Cell not found: ${cellId}`);
+      guardEdgeTarget(target.state);
+    }
+    const existing = new Set(
+      this.finishLineEdges
+        .filter((edge) => edge.projectId === projectId && edge.milestoneId === milestoneId)
+        .map((edge) => edge.cellId),
+    );
+    const wanted = new Set(cellIds);
+    const unchanged =
+      existing.size === wanted.size && [...wanted].every((id) => existing.has(id));
+    if (unchanged) return;
+
     this.finishLineEdges = this.finishLineEdges.filter(
       (edge) => !(edge.projectId === projectId && edge.milestoneId === milestoneId),
     );

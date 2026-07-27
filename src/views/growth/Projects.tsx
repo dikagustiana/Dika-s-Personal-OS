@@ -9,6 +9,7 @@ import {
 } from '../../components/ProjectEditor';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
+import { readThrew, type ReadResult } from '../../data/readResult';
 import type { FinishLineEdge, Project, TaskEntry, WeeklyPlan } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
@@ -44,7 +45,9 @@ export function Projects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
-  const [finishLineEdges, setFinishLineEdges] = useState<FinishLineEdge[]>([]);
+  // `null` means this domain has no pack at all; a failed ReadResult means the
+  // pack exists and we could not read it. Neither may render as a zero.
+  const [finishLineEdges, setFinishLineEdges] = useState<ReadResult<FinishLineEdge> | null>(null);
   const [creating, setCreating] = useState(false);
   const [entityFilter, setEntityFilter] = useState<string>(ALL_ENTITIES);
   const [draft, setDraft] = useState<ProjectDraft>(emptyProjectDraft);
@@ -60,16 +63,17 @@ export function Projects() {
     setTasks(taskEntries.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setPlan(weeklyPlan);
     // The finish-line pack is WORK-only, and its absence must not take the
-    // project list down: cards simply render without a "Makes trustworthy"
-    // section, exactly as they did before the pack existed.
+    // project list down. A FAILED read is not an empty one, though: the tile
+    // renders `—` ("not loaded") rather than a confident zero, which is what
+    // `hasPackData: false` means downstream.
     if (domain === 'work') {
       try {
         setFinishLineEdges(await repository.listFinishLineEdges());
-      } catch {
-        setFinishLineEdges([]);
+      } catch (error: unknown) {
+        setFinishLineEdges(readThrew('listFinishLineEdges', error));
       }
     } else {
-      setFinishLineEdges([]);
+      setFinishLineEdges(null);
     }
   }, [domain, repository]);
 
@@ -186,13 +190,18 @@ export function Projects() {
       current.map((item) => (item.id === updated.id ? updated : item)),
     );
 
-  // The reverse of Finish line's "closes via": a card's Makes-trustworthy row
-  // lands on the pack, scrolled to and expanded at that line — the same
-  // one-shot handoff shape projectFocus uses in the other direction.
+  // The reverse of Finish line's "closes via": a card's PACK LINES tile lands
+  // on the matrix NARROWED TO THE CELLS THAT PROJECT CLOSES — the same
+  // one-shot handoff shape projectFocus uses in the other direction. Cell ids
+  // rather than a line id, because a project's cells are scattered across
+  // sections and entities and scrolling to one of them would imply it was the
+  // only one.
   const openFinishLine =
     domain === 'work'
-      ? (itemId: string) => {
-          setFinishLineFocus({ itemId });
+      ? (itemId: string, entityCode?: string, cellIds?: string[]) => {
+          setFinishLineFocus(
+            cellIds ? { itemId, cellIds } : entityCode ? { itemId, entityCode } : { itemId },
+          );
           setWorkView('finish-line');
         }
       : undefined;
@@ -216,7 +225,7 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
-        finishLineEdges={domain === 'work' ? finishLineEdges : undefined}
+        finishLineEdges={domain === 'work' ? finishLineEdges : null}
         onOpenFinishLine={openFinishLine}
       />
       <ProjectChildren
@@ -234,7 +243,7 @@ export function Projects() {
         updateProject={(id, patch) => repository.updateProject(id, patch)}
         onDelete={deleteProject}
         onChange={onChange}
-        finishLineEdges={domain === 'work' ? finishLineEdges : undefined}
+        finishLineEdges={domain === 'work' ? finishLineEdges : null}
         onOpenFinishLine={openFinishLine}
       />
     </div>
