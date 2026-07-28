@@ -27,10 +27,12 @@ import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
 import type {
   BrainDumpEntry,
   HabitEntry,
+  Project,
   TaskEntry,
   TimeBlockEntry,
   WeeklyPlan,
 } from '../../data/types';
+import type { EscalationTarget } from '../../logic/milestones';
 import { calculateDailyScore } from '../../logic/score';
 import { isScoredTask, scoredTasks } from '../../logic/dailyLog';
 import { getIsoWeekKey } from '../../logic/week';
@@ -65,6 +67,7 @@ export function Today() {
   const [habits, setHabits] = useState<HabitEntry[]>([]);
   const [dumps, setDumps] = useState<BrainDumpEntry[]>([]);
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [urgentTitle, setUrgentTitle] = useState('');
@@ -84,11 +87,14 @@ export function Today() {
   // 60s clock interval below no longer triggers a full refetch each minute —
   // data loads on mount and again only when the calendar date rolls over.
   const loadToday = useCallback(async () => {
-    const [entryData, logData, planData] = await Promise.all([
+    const [entryData, logData, planData, projectData] = await Promise.all([
       repository.listEntries({ domain }),
       repository.getDailyLog(todayKey, domain),
       repository.getWeeklyPlan(getIsoWeekKey(parseISO(todayKey)), domain),
+      // For attributing a block to a milestone, and for the escalation offer.
+      repository.listProjects(domain),
     ]);
+    setProjects(projectData);
     setTasks(entryData.filter((entry): entry is TaskEntry => entry.type === 'task'));
     setHabits(
       entryData
@@ -287,9 +293,18 @@ export function Today() {
   const setBlockStatus = async (
     block: TimeBlockEntry,
     status: TimeBlockEntry['status'],
+    detail?: Pick<TimeBlockEntry, 'blockedOn' | 'carryNote'>,
   ) => {
+    // Leaving `blocked` clears the reason: it belonged to that wall, and a
+    // stale one on a replanned block is worse than none.
+    const patch: Partial<TimeBlockEntry> = { status };
+    if (status === 'blocked') patch.blockedOn = detail?.blockedOn;
+    else patch.blockedOn = undefined;
+    if (status === 'carried') patch.carryNote = detail?.carryNote;
+    else patch.carryNote = undefined;
+
     const updated = await run('Update timeblock', () =>
-      repository.updateEntry(block.id, { status }),
+      repository.updateEntry(block.id, patch),
     );
     if (!updated) return;
     const nextBlocks = blocks.map((item) =>
@@ -322,6 +337,51 @@ export function Today() {
   };
 
   /** Category / task-link refinements made on the row of an existing block. */
+  /**
+   * The escalation offer's write, and the reason the whole feature exists.
+   *
+   * 37 milestones are blocked and NOT ONE of 477 carries a real escalation
+   * target — every value is the literal `none` or absent, so the Escalations
+   * view has never had anything to show. The cause is structural: milestones
+   * get marked blocked in retrospect, days later, when nobody remembers what
+   * they were waiting on. A time block ends at the moment of collision, which
+   * is the cheapest and most accurate moment to capture it.
+   *
+   * Only ever called from an explicit tap on a named person. Declining the
+   * offer calls nothing, so the milestone is untouched.
+   */
+  const escalateMilestone = async (
+    projectId: string,
+    milestoneId: string,
+    target: EscalationTarget,
+    reason: string,
+  ) => {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+    const milestones = project.milestones.map((milestone) =>
+      milestone.id === milestoneId
+        ? {
+            ...milestone,
+            status: 'blocked' as const,
+            escalateTo: target,
+            // Append rather than overwrite: the milestone's note may already
+            // carry context this block knows nothing about.
+            note: [milestone.note?.trim(), reason.trim() && `Waiting on ${reason.trim()}`]
+              .filter(Boolean)
+              .join(' · '),
+          }
+        : milestone,
+    );
+    const updated = await run('Escalate milestone', () =>
+      repository.updateProject(projectId, { milestones }),
+    );
+    if (updated) {
+      setProjects((current) =>
+        current.map((item) => (item.id === projectId ? (updated as Project) : item)),
+      );
+    }
+  };
+
   const updateBlock = async (
     block: TimeBlockEntry,
     patch: Partial<Pick<TimeBlockEntry, 'category' | 'taskId' | 'label'>>,
@@ -389,10 +449,12 @@ export function Today() {
           now={now}
           blocks={blocks}
           tasks={openTasks}
+          projects={projects}
           onCreate={createBlock}
           onSetStatus={setBlockStatus}
           onDelete={deleteBlock}
           onUpdate={updateBlock}
+          onEscalateMilestone={escalateMilestone}
         />
       </section>
 

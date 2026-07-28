@@ -7,6 +7,7 @@ import {
   guardEdgeTarget,
   type CellWriteOrigin,
 } from './finishLineGuards';
+import { guardTimeBlock } from './timeBlockGuards';
 import { okRows, readFailure, type ReadResult } from './readResult';
 import type { Repository } from './repository';
 import type {
@@ -499,6 +500,7 @@ class SupabaseRepository implements Repository {
       createdAt: now,
       updatedAt: now,
     } as Entry;
+    guardTimeBlock(entry);
     const { data, error } = await this.client
       .from('os_entries')
       .insert(entryToRow(entry))
@@ -518,6 +520,9 @@ class SupabaseRepository implements Repository {
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString(),
     } as Entry;
+    // Guarded on the MERGED entry: a patch adding milestoneId to a block that
+    // already carries taskId is only visible against the result.
+    guardTimeBlock(merged);
     const row = entryToRow(merged);
     const { data, error } = await this.client
       .from('os_entries')

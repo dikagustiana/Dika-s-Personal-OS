@@ -380,6 +380,39 @@ export const seedEntries: Entry[] = [
     createdAt: subDays(today, 2).toISOString(),
     updatedAt: subDays(today, 2).toISOString(),
   },
+  // Yesterday's unfinished WORK, so the carry-over row on the dashboard has
+  // something to render. One of each kind: `carried` continues under its own
+  // steam, `blocked` needs someone else — which is the only difference between
+  // them and the entire reason they are separate statuses.
+  {
+    id: '60000000-0000-4000-8000-000000000010',
+    type: 'timeblock',
+    domain: 'work',
+    date: format(subDays(today, 1), 'yyyy-MM-dd'),
+    start: '09:00',
+    end: '11:00',
+    label: 'Consolidation pack — margin layering',
+    status: 'carried',
+    carryNote: 'channel split still to reconcile',
+    category: 'deep-work',
+    tags: [],
+    createdAt: subDays(today, 1).toISOString(),
+    updatedAt: subDays(today, 1).toISOString(),
+  },
+  {
+    id: '60000000-0000-4000-8000-000000000011',
+    type: 'timeblock',
+    domain: 'work',
+    date: format(subDays(today, 1), 'yyyy-MM-dd'),
+    start: '14:00',
+    end: '15:30',
+    label: 'Volume & capacity inputs',
+    status: 'blocked',
+    blockedOn: 'a figure from another team',
+    tags: [],
+    createdAt: subDays(today, 1).toISOString(),
+    updatedAt: subDays(today, 1).toISOString(),
+  },
   {
     id: '60000000-0000-4000-8000-000000000001',
     type: 'timeblock',
