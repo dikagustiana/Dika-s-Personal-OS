@@ -223,6 +223,34 @@ describe('resolveCell — layer 3 rollup', () => {
     expect(resolveCell(a.id, ctx)).toBe('cycle');
   });
 
+  it('carries the cycle all the way to the summary the warning card reads', () => {
+    // REGRESSION: the test above passed while the rendered path was broken.
+    // resolveAll returned the memo, and the memo deliberately never caches a
+    // `cycle`, so both cells were absent from it, the matrix saw
+    // `resolution: undefined`, summarizeMatrix skipped them at its undefined
+    // guard, and `summary.cycles` stayed 0 — the warning card could not render
+    // for any cycle whatsoever. Assert through resolveAll, not resolveCell.
+    const a = cell('locked', { itemId: 'row', entityCode: 'E1' });
+    const b = cell('locked', { itemId: 'row', entityCode: 'E2' });
+    const deps: FinishLineDep[] = [
+      { cellId: a.id, inputId: b.id },
+      { cellId: b.id, inputId: a.id },
+    ];
+    const ctx = buildContext([a, b], deps, [], []);
+    const resolutions = resolveAll(ctx);
+
+    expect(resolutions.get(a.id)).toBe('cycle');
+    expect(resolutions.get(b.id)).toBe('cycle');
+
+    const matrix = buildMatrix(
+      [item({ id: 'sec', kind: 'section' }), item({ id: 'row', parentId: 'sec' })],
+      [a, b],
+      ENTITIES,
+      resolutions,
+    );
+    expect(summarizeMatrix(matrix).cycles).toBe(2);
+  });
+
   it('is pending when a locked cell has nothing recorded to wait on', () => {
     const locked = cell('locked');
     const ctx = buildContext([locked], [], [], []);

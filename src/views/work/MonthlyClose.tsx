@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ProjectCard } from '../../components/ProjectCard';
 import type { Project } from '../../data/types';
 import { ensureMonthlyClose, periodLabel, targetPeriod } from '../../logic/monthlyClose';
+import { isCloseDone } from '../../logic/workDashboard';
 import { useAppStore } from '../../store/appStore';
 
 /**
@@ -66,9 +67,11 @@ export function MonthlyClose() {
       )}
 
       {periods.map(({ period, label, projects: cycle }) => {
-        const done = cycle.filter((project) =>
-          project.milestones.every((milestone) => milestone.done),
-        ).length;
+        // `isCloseDone`, not `milestones.every(done)`: closing a period marks
+        // the projects done and leaves the checklists untouched on purpose, so
+        // the milestone-derived count read "0 of 6" for a period the dashboard
+        // tile had just reported as fully closed.
+        const done = cycle.filter(isCloseDone).length;
         return (
           <section key={period} className="mb-8">
             <div className="mb-3 flex items-end justify-between border-b border-border-subtle pb-3">
