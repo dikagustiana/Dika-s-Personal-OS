@@ -56,11 +56,6 @@ export function getNextWeekKey(weekKey: string): string {
   return getIsoWeekKey(addWeeks(dateFromIsoWeekKey(weekKey), 1));
 }
 
-export function isDateInWeek(date: string, weekKey: string): boolean {
-  const range = getWeekRange(weekKey);
-  return date >= range.from && date < range.to;
-}
-
 /**
  * Summarizes a week over an explicit number of days, not over logged days.
  *

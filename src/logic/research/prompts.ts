@@ -589,14 +589,3 @@ CONSTRAINTS
 - Tag everything you produce: (b) if verified against a record you opened, (c) if it is recollection or inference. Nothing here is (a).
 - This output SEEDS a pipeline but verifies nothing. Every dataset and paper you return arrives as an unverified register item; every finding arrives as a layer (c) claim. Do not present anything as established.`;
 }
-
-/**
- * The shapes prScope output can seed, extracted for the review step. Nothing is
- * created automatically: the owner reviews and seeds each item explicitly, and
- * nothing arrives verified.
- */
-export interface ScopeSeed {
-  datasets: Array<{ name: string; source: string }>;
-  papers: Array<{ name: string; source: string }>;
-  findings: string[];
-}

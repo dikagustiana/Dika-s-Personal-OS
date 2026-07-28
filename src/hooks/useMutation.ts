@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import { pushToast, useToastStore } from '../store/toastStore';
+import { pushToast } from '../store/toastStore';
 
 export type MutationStatus = 'idle' | 'pending' | 'success' | 'error';
 
@@ -53,9 +53,4 @@ export function useMutation() {
     isError: status === 'error',
     isSuccess: status === 'success',
   };
-}
-
-/** Number of unresolved failures, for anything that wants to show a marker. */
-export function useFailureCount(): number {
-  return useToastStore((state) => state.toasts.length);
 }

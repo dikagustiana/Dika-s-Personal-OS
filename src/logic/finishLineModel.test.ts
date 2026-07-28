@@ -135,8 +135,11 @@ describe('§9.1 the gap population — 136, not 44', () => {
   });
 
   it('resolves all 136 as unplanned while no edge exists, matching the view', () => {
-    // os_finish_line_item_projects holds 0 rows today, so every gap-eligible
-    // cell is unplanned and the view returns 136.
+    // NOT a claim about live data: os_finish_line_item_projects holds 48 rows,
+    // and 21 gap-eligible cells have work attached because of them. This case
+    // passes NO edges deliberately, to pin the with-nothing-linked baseline —
+    // every gap-eligible cell is unplanned and the view returns 136. The live
+    // per-entity split is asserted in the entity cases below.
     const context = buildContext(cells, [], [], []);
     const matrix = buildMatrix(items, cells, entities, resolveAll(context));
     const summary = summarizeMatrix(matrix);
