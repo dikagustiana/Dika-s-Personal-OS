@@ -634,6 +634,100 @@ export const STATE_GLYPH: Record<CellState, string> = {
   locked: '·',
 };
 
+/**
+ * ===========================================================================
+ * WHAT EACH STATE MEANS, IN WORDS. ONE DEFINITION, READ BY BOTH READERS.
+ * ===========================================================================
+ * The badge alone is jargon — `Input` does not tell anyone what to do about
+ * it — and until now the meaning lived only in a hover tooltip, which is to
+ * say it did not exist on a phone at all. So the sentence is rendered in the
+ * cell panel AND kept on the tooltip, and both read THIS map. One string per
+ * state, defined once: changing a sentence here changes it in both places,
+ * which is the only way the two can be guaranteed not to drift apart.
+ *
+ * Each sentence is `label — consequence`. The label names the state, the
+ * consequence says what it means for the reader; `stateLabelOf` splits on the
+ * first em dash so the label can be emphasised without a second copy of the
+ * text existing anywhere.
+ *
+ * ---------------------------------------------------------------------------
+ * `zero` AND `undefined` MUST NOT BE SOFTENED INTO EACH OTHER.
+ * ---------------------------------------------------------------------------
+ * They render almost identically in a matrix and they mean opposite things: a
+ * correct zero is FINISHED — the business genuinely does not have that line —
+ * and an undefined cell has NOT BEEN STARTED, because nobody has yet decided
+ * whether the line applies. Collapsing them was a real earlier proposal; the
+ * wording below is what keeps the distinction alive in front of a reader.
+ */
+export const STATE_SENTENCE: Record<CellState, string> = {
+  figure: 'Angka tersedia — sumbernya jelas dan bisa dipercaya.',
+  input:
+    'In progress — work is under way. Angkanya belum bisa dipercaya sampai sumbernya selesai.',
+  zero: 'Nol yang benar — bisnis ini tidak punya baris itu, bukan datanya hilang.',
+  undefined: 'Belum terdefinisi — belum diputuskan apakah baris ini berlaku di sini.',
+  locked: 'Terkunci — menunggu keputusan atau input di luar kendali kita.',
+};
+
+/** The em dash that separates a state sentence's label from its consequence. */
+const SENTENCE_SPLIT = ' — ';
+
+/**
+ * Splits a state sentence into its two clauses so the label can be emphasised.
+ * Derived, never a second copy: the text itself lives only in STATE_SENTENCE.
+ */
+export function stateClauses(state: CellState): { label: string; consequence: string } {
+  const sentence = STATE_SENTENCE[state];
+  const at = sentence.indexOf(SENTENCE_SPLIT);
+  if (at === -1) return { label: sentence, consequence: '' };
+  return {
+    label: sentence.slice(0, at),
+    consequence: sentence.slice(at + SENTENCE_SPLIT.length),
+  };
+}
+
+/**
+ * ===========================================================================
+ * THE STATE AND THE ACCOUNTS CONTRADICT EACH OTHER.
+ * ===========================================================================
+ * `zero` asserts the business does not have that line. Measured against the
+ * loaded workbook, a material number of cells say `zero` while carrying a long
+ * list of accounts with real COA codes behind them — including cost lines the
+ * entity in question self-evidently does have. One of the two facts is wrong.
+ *
+ * WHICH one is wrong is a data decision nobody has made: it may be the cell
+ * state, or it may be that those accounts are mis-mapped. So this reports the
+ * contradiction and resolves nothing — it changes no state and hides no
+ * account. The cell stays open and its accounts stay reachable, because
+ * making it inert would put those accounts out of reach, which is the exact
+ * opposite of what the panel is for.
+ *
+ * `undefined` and `locked` get the same treatment: neither is a state that
+ * should sit over a populated account list.
+ */
+export type ContradictableState = 'zero' | 'undefined' | 'locked';
+
+/**
+ * How the state is NAMED inside the contradiction line — "Ditandai nol, tapi
+ * ada N akun di baliknya". Short and accusatory, not the full sentence: the
+ * line is about the clash, and the state's own sentence still renders directly
+ * beneath it. Keyed to the three states only, so a state that has no business
+ * contradicting an account list cannot acquire wording for doing so.
+ */
+export const CONTRADICTION_NOUN: Record<ContradictableState, string> = {
+  zero: 'nol',
+  undefined: 'belum terdefinisi',
+  locked: 'terkunci',
+};
+
+export function stateContradictsAccounts(state: CellState, accountCount: number): boolean {
+  return accountCount > 0 && state in CONTRADICTION_NOUN;
+}
+
+/** The contradiction wording for a state, or undefined when there is none. */
+export function contradictionNoun(state: CellState): string | undefined {
+  return CONTRADICTION_NOUN[state as ContradictableState];
+}
+
 // ---------------------------------------------------------------------------
 // The project -> pack direction
 // ---------------------------------------------------------------------------

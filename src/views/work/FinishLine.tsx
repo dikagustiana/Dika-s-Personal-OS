@@ -1,5 +1,5 @@
 import { ChevronRight, Link2, Search, TriangleAlert } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { EmptyRow } from '../../components/ui/EmptyRow';
@@ -42,13 +42,16 @@ import {
   resolveEdges,
   slotMatches,
   STATE_GLYPH,
+  STATE_SENTENCE,
   summarizeMatrix,
   type MatrixFilter,
   type MatrixRow,
   type MatrixSection,
   type Resolution,
 } from '../../logic/finishLine';
+import { accountsByCell } from '../../logic/finishLineAccounts';
 import { useAppStore } from '../../store/appStore';
+import { CellDetailPanel } from './CellDetailPanel';
 import { FinishLineEntityView } from './FinishLineEntity';
 import {
   Checking,
@@ -56,6 +59,7 @@ import {
   RESOLUTION_LABEL,
   RESOLUTION_STYLE,
   ROW_STYLE,
+  STATE_TONE,
 } from './finishLineUi';
 
 /**
@@ -246,6 +250,20 @@ export function FinishLine() {
   const summary = useMemo(() => summarizeMatrix(matrix), [matrix]);
   const itemsById = useMemo(() => new Map(itemRows.map((i) => [i.id, i])), [itemRows]);
   const openCell = openCellId ? context.cellsById.get(openCellId) : undefined;
+
+  /**
+   * The accounts behind each cell, and whether we actually know.
+   *
+   * `accounts.ok` is carried separately and never collapsed into "the map is
+   * empty": a failed read and a genuinely empty cell produce the same map, and
+   * the cell panel has to be able to tell a reader which of the two it is.
+   */
+  const accountsByCellId = useMemo(() => accountsByCell(rowsOf(accounts)), [accounts]);
+  const accountsKnown = accounts.ok;
+  const entityLabelByCode = useMemo(
+    () => new Map(entityRows.map((entity) => [entity.code, entity.label])),
+    [entityRows],
+  );
 
   /**
    * The matrix as a whole is only trustworthy if EVERY read behind it landed.
@@ -552,8 +570,20 @@ export function FinishLine() {
                           cellFocus={cellFocus}
                           openCellId={openCellId}
                           openRowId={openRowId}
+                          accountsByCellId={accountsByCellId}
+                          accountsKnown={accountsKnown}
                           onToggleCell={(id) => setOpenCellId((c) => (c === id ? null : id))}
                           onToggleRow={(id) => setOpenRowId((c) => (c === id ? null : id))}
+                          renderPanel={(cell) => (
+                            <CellDetailPanel
+                              cell={cell}
+                              item={itemsById.get(cell.itemId)}
+                              entityLabel={entityLabelByCode.get(cell.entityCode) ?? cell.entityCode}
+                              accounts={accountsByCellId.get(cell.id) ?? []}
+                              accountsKnown={accountsKnown}
+                              onClose={() => setOpenCellId(null)}
+                            />
+                          )}
                         />
                       ))}
                   </tbody>
@@ -823,8 +853,11 @@ function Row({
   cellFocus,
   openCellId,
   openRowId,
+  accountsByCellId,
+  accountsKnown,
   onToggleCell,
   onToggleRow,
+  renderPanel,
 }: {
   row: MatrixRow;
   columns: number;
@@ -832,8 +865,18 @@ function Row({
   cellFocus: ReadonlySet<string> | null;
   openCellId: string | null;
   openRowId: string | null;
+  /** Accounts per cell, so a cell knows whether anything sits behind it. */
+  accountsByCellId: Map<string, FinishLineAccount[]>;
+  /** False before the account read returns — an empty map is then not a zero. */
+  accountsKnown: boolean;
   onToggleCell: (id: string) => void;
   onToggleRow: (id: string) => void;
+  /**
+   * The open cell's panel, built by the parent where the linking props live
+   * and placed HERE, in the table, directly beneath this row. Passing the node
+   * rather than eight props keeps the panel's dependencies out of the matrix.
+   */
+  renderPanel: (cell: FinishLineCell) => ReactNode;
 }) {
   const { item } = row;
 
@@ -847,7 +890,12 @@ function Row({
     );
   }
 
+  // Which of this row's five cells, if any, is the open one. The panel is
+  // placed under the row it belongs to, so only that row renders it.
+  const openSlot = row.cells.find((slot) => slot.cell && slot.cell.id === openCellId);
+
   return (
+    <Fragment>
     <tr id={`finish-line-${item.id}`} className="scroll-mt-24 hover:bg-surface-2">
       <th
         scope="row"
@@ -893,6 +941,19 @@ function Row({
         const dimmed =
           (filter !== 'all' && !slotMatches(slot, filter)) ||
           (cellFocus !== null && !(slot.cell && cellFocus.has(slot.cell.id)));
+        const cellAccounts = slot.cell ? (accountsByCellId.get(slot.cell.id) ?? []) : [];
+        /**
+         * A NIL WITH NOTHING BEHIND IT HAS NOTHING TO OPEN — the state is the
+         * whole story, so it gets no click target. A nil WITH accounts is a
+         * different case entirely and stays open: such cells hold a substantial
+         * share of the mapped account population, and making them inert would
+         * put every one of those accounts out of reach. Before the read
+         * returns `accountsKnown` is false and nothing is disabled — an
+         * unloaded list is not proof of zero.
+         */
+        const nothingBehind =
+          accountsKnown && slot.cell?.state === 'zero' && cellAccounts.length === 0;
+        const isOpen = Boolean(slot.cell && slot.cell.id === openCellId);
         return (
           <td
             key={slot.entity.code}
@@ -900,15 +961,27 @@ function Row({
           >
             <button
               type="button"
-              disabled={!slot.cell}
+              disabled={!slot.cell || nothingBehind}
               onClick={() => slot.cell && onToggleCell(slot.cell.id)}
+              aria-expanded={slot.cell && !nothingBehind ? isOpen : undefined}
               aria-label={`${item.item}, ${slot.entity.label}${resolution ? `, ${RESOLUTION_LABEL[resolution]}` : ''}`}
-              title={resolution ? RESOLUTION_LABEL[resolution] : undefined}
+              /* The tooltip keeps the state sentence for the matrix, where no
+                 panel is open. Same map the panel reads — see STATE_SENTENCE. */
+              title={
+                slot.cell
+                  ? [STATE_SENTENCE[slot.cell.state], resolution && RESOLUTION_LABEL[resolution]]
+                      .filter(Boolean)
+                      .join('\n')
+                  : undefined
+              }
               className={cn(
                 'min-h-11 w-full px-3 py-1.5 text-right tabular-nums transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                 resolution && RESOLUTION_STYLE[resolution],
-                slot.cell && 'hover:bg-surface-3',
-                openCellId === slot.cell?.id && 'ring-2 ring-inset ring-ring',
+                slot.cell && !nothingBehind && 'hover:bg-surface-3',
+                /* WHICH of the five is open has to be answerable at a glance —
+                   tinted in the cell's own state hue, so the mark on the cell
+                   and the tint on the panel's sentence read as one fact. */
+                isOpen && slot.cell && STATE_TONE[slot.cell.state].cell,
                 slot.cell?.note && 'underline decoration-dotted underline-offset-4',
                 dimmed && 'opacity-30',
               )}
@@ -921,6 +994,27 @@ function Row({
         );
       })}
     </tr>
+
+    {/* THE PANEL, IN PLACE. Directly beneath the row it belongs to and
+        spanning the table — not a modal, not a drawer, not a route. One at a
+        time: `openCellId` holds a single id, so clicking a different cell
+        moves the panel rather than opening a second one. */}
+    {openSlot?.cell && (
+      <tr>
+        <td colSpan={columns + 1} className="p-0">
+          {/* The matrix scrolls sideways at 640px minimum; the panel must not.
+              Sticky to the scroller's left edge and never wider than the
+              viewport, so a phone reads the panel by scrolling DOWN only —
+              half the reason a tooltip was not good enough for the state
+              sentence in the first place. On a wide screen the min() picks the
+              table width and this is a no-op. */}
+          <div className="sticky left-0 w-[min(100%,calc(100vw-2rem))]">
+            {renderPanel(openSlot.cell)}
+          </div>
+        </td>
+      </tr>
+    )}
+    </Fragment>
   );
 }
 
