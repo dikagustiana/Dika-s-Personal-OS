@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { TriangleAlert, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import type { ReadFailure } from '../../data/readResult';
 import type { CellState, FinishLineAccount, FinishLineCell, FinishLineItem } from '../../data/types';
 import { cn } from '../../lib/utils';
 import { contradictionNoun, stateClauses } from '../../logic/finishLine';
@@ -43,6 +44,7 @@ export function CellDetailPanel({
   entityLabel,
   accounts,
   accountsKnown,
+  accountsFailure,
   onClose,
 }: {
   cell: FinishLineCell;
@@ -56,6 +58,14 @@ export function CellDetailPanel({
    * most-repeated failure, and it is invisible by construction.
    */
   accountsKnown: boolean;
+  /**
+   * The failure itself, when the read FAILED rather than merely not having
+   * returned yet. This is the diagnostic ReadResult exists to preserve: the
+   * production 500 rendered only as "Belum termuat", which reads as a normal
+   * state, and the owner could not tell a failure from a slow load. When set,
+   * the panel says the read failed and shows the detail.
+   */
+  accountsFailure?: ReadFailure;
   onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -174,7 +184,30 @@ export function CellDetailPanel({
 
       {/* --- the accounts themselves --------------------------------------- */}
       <div className="mt-3 border-t border-border-subtle pt-3">
-        {!accountsKnown ? (
+        {accountsFailure ? (
+          /* THE READ FAILED. Named as a failure, with the diagnostic, in the
+             same red-vs-amber split CouldNotCheck uses — a failure that reads
+             as a normal state is how the production 500 went undiagnosed. */
+          <div>
+            <p
+              className={cn(
+                'flex items-center gap-2 text-[11px] font-semibold',
+                accountsFailure.reason === 'failed' ? 'text-destructive' : 'text-escalate',
+              )}
+            >
+              <TriangleAlert className="size-3.5 shrink-0" />
+              Could not read the account detail
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-foreground-muted">
+              {accountsFailure.reason === 'missing-relation'
+                ? 'The accounts relation is not in this database yet — not a zero, and not a clean bill.'
+                : 'The read did not complete, so what sits behind this cell is unknown — not none.'}
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-foreground-muted">
+              {accountsFailure.detail}
+            </p>
+          </div>
+        ) : !accountsKnown ? (
           /* NOT a zero. The read did not return, so there is no count to give
              and no clean bill either — saying "no accounts" here would turn a
              failed read into good news. */
