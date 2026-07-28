@@ -8,6 +8,8 @@ import type {
   Domain,
   Entry,
   EntryType,
+  FinishLineAccount,
+  FinishLineAccountMapRow,
   FinishLineCell,
   FinishLineDep,
   FinishLineEdge,
@@ -110,6 +112,14 @@ export interface Repository {
   listFinishLineCells(): Promise<ReadResult<FinishLineCell>>;
   listFinishLineDeps(): Promise<ReadResult<FinishLineDep>>;
   listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>>;
+  /**
+   * Account-level detail underneath the cells. Read-only in the app: every
+   * field the workbook owns is authored there, and a second place to change a
+   * driver would be a second source of truth. There is deliberately no
+   * create/update/delete counterpart.
+   */
+  listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>>;
+  listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>>;
   listDanglingLinks(): Promise<ReadResult<DanglingLink>>;
   listOrphanMilestones(): Promise<ReadResult<OrphanMilestone>>;
 
