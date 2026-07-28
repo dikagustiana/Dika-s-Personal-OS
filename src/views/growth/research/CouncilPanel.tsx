@@ -335,6 +335,12 @@ export function CouncilPanel({
   const [transcript, setTranscript] = useState<CouncilTranscript | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<CouncilSessionRow[]>([]);
+  /**
+   * A failed history read must not render as "no past sessions". Empty-on-
+   * failure is this project's most-repeated defect (see data/readResult.ts) —
+   * paid-for transcripts appearing to not exist is exactly the harm.
+   */
+  const [historyFailed, setHistoryFailed] = useState(false);
 
   const blocked = councilBlockedReason(mode, capabilities);
   const available = councilAvailable(mode, capabilities);
@@ -343,10 +349,19 @@ export function CouncilPanel({
   const running = progress !== null && !transcript;
 
   useEffect(() => {
+    setHistoryFailed(false);
     void repository.research
       .listCouncilSessions(projectId ? { projectId, mode } : { mode })
-      .then(setHistory)
-      .catch(() => setHistory([]));
+      .then((rows) => {
+        setHistory(rows);
+        setHistoryFailed(false);
+      })
+      .catch(() => {
+        // The list is cleared so stale rows cannot masquerade as current, and
+        // the failure is SAID rather than rendered as an empty history.
+        setHistory([]);
+        setHistoryFailed(true);
+      });
   }, [mode, projectId, repository]);
 
   // The council button is ABSENT when unavailable, not disabled — a button
@@ -453,6 +468,13 @@ export function CouncilPanel({
       )}
 
       {transcript && <TranscriptView transcript={transcript} />}
+
+      {historyFailed && (
+        <p className="text-xs text-foreground-muted">
+          Past sessions could not be read — the stored transcripts still exist, this list simply
+          failed to load. Not an empty history.
+        </p>
+      )}
 
       {history.length > 0 && (
         <div className="space-y-2">

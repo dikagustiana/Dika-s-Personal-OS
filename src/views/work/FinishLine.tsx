@@ -228,6 +228,7 @@ export function FinishLine() {
       setProjects(failure);
       setDangling(failure);
       setOrphans(failure);
+      setAccounts(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -495,6 +496,24 @@ export function FinishLine() {
         </div>
       )}
 
+      {/* ==================================================================
+          THE ACCOUNT READ GETS A FAILURE SURFACE OF ITS OWN.
+          It failed silently in production: the 500 rendered only as the
+          neutral phrase "Belum termuat", which reads as a normal state, and
+          the diagnostic the ReadResult deliberately preserved was never
+          shown to anyone. The matrix read has had this card from the start —
+          the accounts read simply never got one. Rendered at BOTH levels,
+          because the entity view consumes accounts too. Gated on `loaded` so
+          the not-read-yet seed does not flash as a failure during load.
+          ================================================================== */}
+      {loaded && !accounts.ok && (
+        <Card className={cn('mb-5', accounts.reason === 'failed' && 'border-destructive')}>
+          <CardContent className="pt-5">
+            <CouldNotCheck label="Account detail" failure={accounts} />
+          </CardContent>
+        </Card>
+      )}
+
       {level !== 'group' ? null : matrixFailure ? (
         <Card className={cn(matrixFailure.reason === 'failed' && 'border-destructive')}>
           <CardContent className="pt-5">
@@ -581,6 +600,7 @@ export function FinishLine() {
                               entityLabel={entityLabelByCode.get(cell.entityCode) ?? cell.entityCode}
                               accounts={accountsByCellId.get(cell.id) ?? []}
                               accountsKnown={accountsKnown}
+                              accountsFailure={loaded && !accounts.ok ? accounts : undefined}
                               onClose={() => setOpenCellId(null)}
                             />
                           )}
