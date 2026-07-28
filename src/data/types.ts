@@ -526,6 +526,66 @@ export interface FinishLineDep {
 }
 
 /**
+ * One account underneath a cell — the level the consolidation mapping workbook
+ * is actually maintained at.
+ *
+ * AUTHORITY IS SPLIT BY FIELD, NOT BY ARTEFACT. The workbook owns
+ * `dataIdeal`, `driverType`, `driverSource`, `pic`, `business` and `isDummy`;
+ * the app displays them and NEVER edits them, because a second place to change
+ * a driver is a second source of truth. The app owns the milestone links, the
+ * cell states and everything in os_finish_line_items — the workbook has no
+ * concept of those.
+ *
+ * `cellId` is DERIVED from the mapping table by os_finish_line_remap_accounts,
+ * never authored here. Absent means the account's Function x Business matched
+ * no metric: it is surfaced in the unmapped list, never dropped, because
+ * dropping it would understate the account population behind every cell and
+ * make coverage look better than it is.
+ */
+export interface FinishLineAccount {
+  id: string;
+  /** Absent ⇒ unmapped. Never filter these out. */
+  cellId?: string;
+  coaEntity?: string;
+  coaConsol?: string;
+  accountName: string;
+  /** Raw workbook facts, kept because the mapping is re-run against them. */
+  function?: string;
+  nature?: string;
+  business?: string;
+  /**
+   * A cell sitting mostly on dummy accounts is not trustworthy however
+   * complete its drivers are — the drivers describe placeholders. Surfaced,
+   * never resolved away.
+   */
+  isDummy: boolean;
+  /** Absent ⇒ this account is NOT YET DESIGNED. The first gap list. */
+  driverType?: string;
+  driverSource?: string;
+  dataIdeal?: string;
+  pic?: string;
+  notes?: string;
+  order: number;
+  /** Shown on screen: a stale import that looks live is worse than none. */
+  importedAt: string;
+}
+
+/**
+ * Function x Business -> metric, authored as DATA.
+ *
+ * A hardcoded mapping would rot the moment the chart of accounts changes, and
+ * every correction would need a deploy. A pair with no row here is unmapped by
+ * design — which is how functions below operating income (finance, other
+ * income, tax) stay out of a matrix that has no metric for them.
+ */
+export interface FinishLineAccountMapRow {
+  id: string;
+  function: string;
+  business: string;
+  itemId: string;
+}
+
+/**
  * One edge on the road: which milestone closes which cell.
  *
  * `milestoneId` is a plain string into `Project.milestones` (jsonb array

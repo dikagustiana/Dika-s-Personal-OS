@@ -18,6 +18,7 @@ import {
 import type {
   CellState,
   DanglingLink,
+  FinishLineAccount,
   FinishLineCell,
   FinishLineDep,
   FinishLineEdge,
@@ -149,6 +150,10 @@ export function FinishLine() {
   const [projects, setProjects] = useState<ReadResult<Project>>(unread);
   const [dangling, setDangling] = useState<ReadResult<DanglingLink>>(unread);
   const [orphans, setOrphans] = useState<ReadResult<OrphanMilestone>>(unread);
+  // The account level. A read failure here must NOT blank the matrix — the
+  // pack is readable without account detail — so it degrades to no accounts
+  // and the coverage line simply does not render.
+  const [accounts, setAccounts] = useState<ReadResult<FinishLineAccount>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -173,6 +178,7 @@ export function FinishLine() {
       loadedProjects,
       loadedDangling,
       loadedOrphans,
+      loadedAccounts,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -189,6 +195,7 @@ export function FinishLine() {
         .catch((error: unknown) => readThrew('listProjects', error)),
       repository.listDanglingLinks(),
       repository.listOrphanMilestones(),
+      repository.listFinishLineAccounts(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -198,6 +205,7 @@ export function FinishLine() {
     setProjects(loadedProjects);
     setDangling(loadedDangling);
     setOrphans(loadedOrphans);
+    setAccounts(loadedAccounts);
     setLoaded(true);
   }, [repository]);
 
@@ -420,6 +428,7 @@ export function FinishLine() {
           shared cell panel and linking anchor below. */}
       {activeEntity && (
         <FinishLineEntityView
+          accounts={rowsOf(accounts)}
           // Keyed by entity so switching REMOUNTS: open lists, section state
           // and scroll targets are one entity's, and carrying them across —
           // ASI's expanded Unplanned arriving already-open on SAMB — reads as

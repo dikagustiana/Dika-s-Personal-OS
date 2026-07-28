@@ -1,10 +1,12 @@
 import { ChevronRight } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
+import { format, parseISO } from 'date-fns';
 import { Card, CardContent } from '../../components/ui/Card';
 import { EmptyRow } from '../../components/ui/EmptyRow';
 import type { CardState } from '../../data/readResult';
 import type {
   CellState,
+  FinishLineAccount,
   FinishLineEntity,
   FinishLineItem,
   OrphanMilestone,
@@ -22,6 +24,16 @@ import {
   type ResolveContext,
   type Resolution,
 } from '../../logic/finishLine';
+import {
+  accountsByCell,
+  accountsForEntity,
+  coverageOf,
+  gapCounts,
+  groupUnmapped,
+  hasDriver,
+  latestImportedAt,
+  sortAccounts,
+} from '../../logic/finishLineAccounts';
 import { CouldNotCheck, RESOLUTION_LABEL, RESOLUTION_STYLE, ROW_STYLE } from './finishLineUi';
 
 /**
@@ -53,6 +65,7 @@ const FLASH_MS = 1600;
 export function FinishLineEntityView({
   entity,
   matrix,
+  accounts,
   context,
   itemsById,
   orphanState,
@@ -62,6 +75,8 @@ export function FinishLineEntityView({
 }: {
   entity: FinishLineEntity;
   matrix: MatrixSection[];
+  /** Account-level detail, mapped and unmapped alike. */
+  accounts: FinishLineAccount[];
   context: ResolveContext;
   itemsById: Map<string, FinishLineItem>;
   orphanState: CardState<OrphanMilestone>;
@@ -93,6 +108,34 @@ export function FinishLineEntityView({
     () => workProjects.filter((project) => !project.entityTag).length,
     [workProjects],
   );
+
+  // --- the account level ----------------------------------------------------
+  // Scoped by the entity code carried in the data, never by position in a list
+  // of five: a sixth entity added to os_finish_line_entities flows through here
+  // with no change.
+  const entityAccounts = useMemo(
+    () => accountsForEntity(accounts, entity.code, [...context.cellsById.values()]),
+    [accounts, entity.code, context.cellsById],
+  );
+  const accountsForCell = useMemo(() => accountsByCell(entityAccounts), [entityAccounts]);
+  const unmappedGroups = useMemo(() => groupUnmapped(entityAccounts), [entityAccounts]);
+
+  /**
+   * The two gap counts, carried in one object that has no total. `gapCounts`
+   * refuses to produce a combined figure; this is only where they are read.
+   */
+  const gaps = useMemo(
+    () => gapCounts(entityAccounts, unplanned.length),
+    [entityAccounts, unplanned.length],
+  );
+
+  const importedLabel = useMemo(() => {
+    const stamp = latestImportedAt(entityAccounts);
+    return stamp ? format(parseISO(stamp), 'd MMM') : undefined;
+  }, [entityAccounts]);
+
+  const [openAccountCell, setOpenAccountCell] = useState<string | null>(null);
+  const [unmappedOpen, setUnmappedOpen] = useState(false);
 
   // The unplanned row must exist in the DOM before it can be scrolled to, so
   // the target is consumed one render after the list opens — the same
@@ -140,6 +183,48 @@ export function FinishLineEntityView({
               : closes.count}
           </p>
         </div>
+
+        {/* ================================================================
+            THE TWO GAPS, SIDE BY SIDE AND NEVER ADDED.
+
+            They are different problems needing different actions: an account
+            with no driver has not been DESIGNED and the owner has to think
+            about it; a cell with no milestone IS designed and has not been
+            ASSIGNED, which is a conversation. Before the account level
+            existed the app could only show the second, so both looked like
+            one problem. There is deliberately no combined figure anywhere —
+            a single number here would hide the only distinction that matters.
+            ================================================================ */}
+        {entityAccounts.length > 0 && (
+          <dl className="mt-3 grid gap-2 border-t border-border-subtle pt-3 sm:grid-cols-2">
+            <div>
+              <dt className="text-[11px] font-semibold text-foreground-secondary">
+                <span className="tabular-nums">{gaps.undesignedAccounts}</span> accounts have no
+                driver
+              </dt>
+              <dd className="text-[11px] text-foreground-muted">
+                Not yet designed — needs thinking through
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] font-semibold text-foreground-secondary">
+                <span className="tabular-nums">{gaps.unassignedCells}</span> cells have no milestone
+              </dt>
+              <dd className="text-[11px] text-foreground-muted">
+                Designed, not assigned — needs delegating
+              </dd>
+            </div>
+          </dl>
+        )}
+
+        {/* The honesty field: a stale import that looks live is worse than no
+            import at all. */}
+        {importedLabel && (
+          <p className="mt-2 text-[11px] text-foreground-muted">
+            Account detail imported {importedLabel}. Driver, owner and target state are maintained in
+            the consolidation workbook and are read-only here.
+          </p>
+        )}
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -221,8 +306,14 @@ export function FinishLineEntityView({
                       const slot = row.cells.find((s) => s.entity.code === entity.code);
                       const state: CellState | undefined = slot?.cell?.state;
                       const resolution: Resolution | undefined = slot?.resolution;
+                      const cellAccounts = slot?.cell
+                        ? (accountsForCell.get(slot.cell.id) ?? [])
+                        : [];
+                      const coverage = slot?.cell ? coverageOf(cellAccounts) : undefined;
+                      const accountsOpen = Boolean(slot?.cell && openAccountCell === slot.cell.id);
                       return (
-                        <tr key={row.item.id} className="hover:bg-surface-2">
+                        <Fragment key={row.item.id}>
+                        <tr className="hover:bg-surface-2">
                           <th
                             scope="row"
                             className={cn(
@@ -236,7 +327,39 @@ export function FinishLineEntityView({
                                 ROW_STYLE[row.item.style ?? 'plain'],
                               )}
                             >
-                              <span className="min-w-0 flex-1 truncate">{row.item.item}</span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate">{row.item.item}</span>
+                                {/* ACCOUNT COVERAGE, never aggregated into a
+                                    single cell-level driver. One metric-entity
+                                    pair can carry dozens of accounts with
+                                    different drivers; a lone "driver" field
+                                    here would let the cell claim one it does
+                                    not have. Counts only. */}
+                                {coverage && coverage.total > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenAccountCell((current) =>
+                                        current === slot?.cell?.id ? null : (slot?.cell?.id ?? null),
+                                      )
+                                    }
+                                    aria-expanded={openAccountCell === slot?.cell?.id}
+                                    aria-label={`${coverage.total} accounts behind ${row.item.item}, ${entity.label}`}
+                                    className="mt-0.5 block text-left text-[10px] tabular-nums text-foreground-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  >
+                                    {coverage.total} accounts · {coverage.withDriver} with a driver ·{' '}
+                                    {coverage.withoutDriver} without
+                                    {/* Dummy is reported BESIDE driver coverage,
+                                        never folded into it: a cell can be
+                                        fully driver-complete and still
+                                        untrustworthy because the drivers
+                                        describe placeholders. */}
+                                    {coverage.dummy > 0 && (
+                                      <span className="text-escalate"> · {coverage.dummy} dummy</span>
+                                    )}
+                                  </button>
+                                )}
+                              </span>
                               {row.item.flag && (
                                 <span
                                   className="shrink-0 text-escalate"
@@ -276,6 +399,74 @@ export function FinishLineEntityView({
                             </button>
                           </td>
                         </tr>
+
+                        {/* The accounts behind this cell. Undesigned ones
+                            (no driver) sort FIRST — they are the ones that
+                            need thinking, and burying them under sixteen
+                            complete ones defeats the purpose of the list.
+
+                            EVERY FIELD HERE IS READ-ONLY. There is no input,
+                            no select and no pencil anywhere in this block: the
+                            workbook owns data_ideal, driver_type, pic and
+                            is_dummy, and a second place to change them would
+                            be a second source of truth. */}
+                        {accountsOpen && (
+                          <tr>
+                            <td colSpan={2} className="bg-surface-2 px-4 py-3">
+                              <ul className="divide-y divide-border-subtle">
+                                {sortAccounts(cellAccounts).map((entry) => (
+                                  <li key={entry.id} className="py-2">
+                                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                      <span className="min-w-0 text-xs font-semibold text-foreground">
+                                        {entry.accountName}
+                                      </span>
+                                      {entry.isDummy && (
+                                        <span className="shrink-0 border border-escalate px-1 text-[9px] font-bold uppercase tracking-wider text-escalate">
+                                          Dummy
+                                        </span>
+                                      )}
+                                      {hasDriver(entry) ? (
+                                        <span className="text-[10px] text-foreground-muted">
+                                          {entry.driverType}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[10px] font-semibold text-destructive">
+                                          No driver yet
+                                        </span>
+                                      )}
+                                      {entry.pic && (
+                                        <span className="text-[10px] text-foreground-muted">
+                                          · {entry.pic}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {/* data_ideal and driver_source live on the
+                                        ACCOUNT row, not repeated per cell:
+                                        they are frequently identical across a
+                                        cell's accounts and repeating them
+                                        would crowd out the difference. */}
+                                    {entry.dataIdeal && (
+                                      <p className="mt-0.5 text-[11px] leading-4 text-foreground-secondary">
+                                        {entry.dataIdeal}
+                                      </p>
+                                    )}
+                                    {entry.driverSource && (
+                                      <p className="mt-0.5 text-[10px] text-foreground-muted">
+                                        Source: {entry.driverSource}
+                                      </p>
+                                    )}
+                                    {entry.notes && (
+                                      <p className="mt-0.5 text-[10px] italic text-foreground-muted">
+                                        {entry.notes}
+                                      </p>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </td>
+                          </tr>
+                        )}
+                        </Fragment>
                       );
                     })}
                 </tbody>
@@ -284,6 +475,67 @@ export function FinishLineEntityView({
           </table>
         </div>
       </Card>
+
+      {/* ================================================================== */}
+      {/* UNMAPPED ACCOUNTS — surfaced, never dropped.                        */}
+      {/*                                                                     */}
+      {/* An account whose Function x Business matches no metric has no cell   */}
+      {/* to sit under. Discarding it would understate the account population  */}
+      {/* behind every cell and make coverage look better than it is. So it is */}
+      {/* stored with a null cell and rendered here, grouped by the pair that  */}
+      {/* failed to match — because the action is "add a mapping", not "fix    */}
+      {/* eighty-four accounts".                                              */}
+      {/*                                                                     */}
+      {/* This list is itself a finding: functions below operating income have */}
+      {/* no metric in the current matrix, so it says what the pack does not   */}
+      {/* yet cover.                                                          */}
+      {/* ================================================================== */}
+      {unmappedGroups.length > 0 && (
+        <Card className="mt-5">
+          <CardContent className="pt-4">
+            <button
+              type="button"
+              onClick={() => setUnmappedOpen((open) => !open)}
+              aria-expanded={unmappedOpen}
+              className="flex w-full items-baseline gap-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="min-w-0 flex-1 font-semibold text-foreground">
+                Accounts with no metric
+              </span>
+              <span className="shrink-0 tabular-nums text-foreground-muted">
+                {unmappedGroups.reduce((sum, group) => sum + group.count, 0)}
+              </span>
+            </button>
+            <p className="mt-1 text-[11px] text-foreground-muted">
+              Their Function × Business pair maps to no metric in this pack. Not counted in any
+              cell&rsquo;s coverage, and not discarded.
+            </p>
+            {unmappedOpen && (
+              <ul className="mt-2 divide-y divide-border-subtle">
+                {unmappedGroups.map((group) => (
+                  <li
+                    key={`${group.function}-${group.business}`}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 py-2"
+                  >
+                    <span className="min-w-0 flex-1 text-xs text-foreground">
+                      {group.function}
+                      <span className="text-foreground-muted"> × {group.business}</span>
+                    </span>
+                    {group.entities.length > 0 && (
+                      <span className="shrink-0 text-[10px] text-foreground-muted">
+                        {group.entities.join(', ')}
+                      </span>
+                    )}
+                    <span className="shrink-0 text-xs tabular-nums text-foreground-secondary">
+                      {group.count}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* ------------------------------------------------------------------ */}
       {/* Unplanned — this column's gap-eligible cells with nothing behind    */}

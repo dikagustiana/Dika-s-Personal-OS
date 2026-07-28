@@ -12,6 +12,8 @@ import { okRows, readFailure, type ReadResult } from './readResult';
 import type { Repository } from './repository';
 import type {
   DailyLog,
+  FinishLineAccount,
+  FinishLineAccountMapRow,
   DateConfidence,
   Domain,
   Entry,
@@ -868,6 +870,65 @@ class SupabaseRepository implements Repository {
     );
   }
 
+  /**
+   * READ ONLY, and there is no write counterpart anywhere in this class. The
+   * workbook owns data_ideal, driver_type, driver_source, pic, business and
+   * is_dummy; the app displays them. If a driver is wrong it is wrong in the
+   * workbook, and adding an edit path here would create the second source of
+   * truth this split exists to prevent.
+   *
+   * Unmapped accounts (cell_id null) are returned WITH the rest — filtering
+   * them out here would understate the account population and make coverage
+   * look better than it is.
+   */
+  async listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>> {
+    const { data, error } = await this.client
+      .from('os_finish_line_accounts')
+      .select(
+        'id, cell_id, coa_entity, coa_consol, account_name, function, nature, business, is_dummy, driver_type, driver_source, data_ideal, pic, notes, sort_order, imported_at',
+      )
+      .order('sort_order', { ascending: true });
+    if (error) return readFailure('listFinishLineAccounts', error);
+    return okRows(
+      (data as FinishLineAccountRow[]).map((row) => {
+        const account: FinishLineAccount = {
+          id: row.id,
+          accountName: row.account_name,
+          isDummy: row.is_dummy,
+          order: row.sort_order,
+          importedAt: toIso(row.imported_at),
+        };
+        if (row.cell_id) account.cellId = row.cell_id;
+        if (row.coa_entity) account.coaEntity = row.coa_entity;
+        if (row.coa_consol) account.coaConsol = row.coa_consol;
+        if (row.function) account.function = row.function;
+        if (row.nature) account.nature = row.nature;
+        if (row.business) account.business = row.business;
+        if (row.driver_type) account.driverType = row.driver_type;
+        if (row.driver_source) account.driverSource = row.driver_source;
+        if (row.data_ideal) account.dataIdeal = row.data_ideal;
+        if (row.pic) account.pic = row.pic;
+        if (row.notes) account.notes = row.notes;
+        return account;
+      }),
+    );
+  }
+
+  async listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>> {
+    const { data, error } = await this.client
+      .from('os_finish_line_account_map')
+      .select('id, function, business, item_id');
+    if (error) return readFailure('listFinishLineAccountMap', error);
+    return okRows(
+      (data as FinishLineAccountMapRowShape[]).map((row) => ({
+        id: row.id,
+        function: row.function,
+        business: row.business,
+        itemId: row.item_id,
+      })),
+    );
+  }
+
   async listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>> {
     const { data, error } = await this.client
       .from('os_finish_line_item_projects')
@@ -1134,6 +1195,33 @@ interface FinishLineEdgeRow {
   cell_id: string | null;
   project_id: string;
   milestone_id: string | null;
+}
+
+interface FinishLineAccountRow {
+  id: string;
+  /** Null ⇒ unmapped. Kept, never filtered. */
+  cell_id: string | null;
+  coa_entity: string | null;
+  coa_consol: string | null;
+  account_name: string;
+  function: string | null;
+  nature: string | null;
+  business: string | null;
+  is_dummy: boolean;
+  driver_type: string | null;
+  driver_source: string | null;
+  data_ideal: string | null;
+  pic: string | null;
+  notes: string | null;
+  sort_order: number;
+  imported_at: string;
+}
+
+interface FinishLineAccountMapRowShape {
+  id: string;
+  function: string;
+  business: string;
+  item_id: string;
 }
 
 interface DanglingLinkRow {

@@ -17,6 +17,8 @@ import {
 } from './seed';
 import type {
   DailyLog,
+  FinishLineAccount,
+  FinishLineAccountMapRow,
   Domain,
   Entry,
   CellState,
@@ -314,6 +316,25 @@ export class MockRepository implements Repository {
 
   async listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>> {
     return okRows(clone(this.finishLineEdges));
+  }
+
+  /**
+   * Empty for the same reason the matrix is: account names are the owner's
+   * chart of accounts and this repo is public. The account level is loaded
+   * into the database, never seeded from here.
+   *
+   * Read-only, like every account path — there is no mock write counterpart
+   * because there is no real one.
+   */
+  private readonly finishLineAccounts: FinishLineAccount[] = [];
+  private readonly finishLineAccountMap: FinishLineAccountMapRow[] = [];
+
+  async listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>> {
+    return okRows(clone(this.finishLineAccounts));
+  }
+
+  async listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>> {
+    return okRows(clone(this.finishLineAccountMap));
   }
 
   /**
