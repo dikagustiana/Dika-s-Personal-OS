@@ -281,11 +281,28 @@ export function resolveCell(
   return result;
 }
 
-/** Resolves every cell once, sharing the memo. */
+/**
+ * Resolves every cell once, sharing the memo.
+ *
+ * RETURNS ITS OWN MAP, NOT THE MEMO. The memo deliberately refuses to cache a
+ * `cycle` (it is path-dependent, see above), so a cell in a cycle — and every
+ * locked cell downstream of one, since `worst` propagates `cycle` upward —
+ * simply had no entry when this returned the memo. The matrix then saw
+ * `resolution: undefined`, `summarizeMatrix` skipped it at its `undefined`
+ * guard, and `summary.cycles` could never leave zero: the "cells sit in a
+ * dependency cycle" warning was unreachable, and those cells silently dropped
+ * out of `lockedGaps` too. A real cycle among the 80 dependency rows would
+ * have been invisible — the exact opposite of treating a cycle as a hard error
+ * surfaced in the UI. Collecting each return value keeps the memo's caching
+ * rule intact while giving every cell a resolution.
+ */
 export function resolveAll(context: ResolveContext): Map<string, Resolution> {
   const memo = new Map<string, Resolution>();
-  for (const cellId of context.cellsById.keys()) resolveCell(cellId, context, memo);
-  return memo;
+  const resolutions = new Map<string, Resolution>();
+  for (const cellId of context.cellsById.keys()) {
+    resolutions.set(cellId, resolveCell(cellId, context, memo));
+  }
+  return resolutions;
 }
 
 // ---------------------------------------------------------------------------

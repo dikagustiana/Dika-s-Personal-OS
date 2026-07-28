@@ -3,6 +3,7 @@ import type { Milestone, Project, TaskEntry, WeeklyGoal } from '../data/types';
 import { workingDay } from './monthlyClose';
 import {
   closeEntityCount,
+  isCloseDone,
   collectNeedsAction,
   goalProgress,
   isPinnable,
@@ -396,6 +397,39 @@ describe('closeEntityCount', () => {
       }),
     );
     expect(closeEntityCount(projects, today)).toMatchObject({ done: 6, total: 6 });
+  });
+});
+
+describe('isCloseDone — the one definition both screens read', () => {
+  // REGRESSION: the Monthly Close header counted `milestones.every(done)`
+  // while the dashboard tile counted `status === 'done'`. After closing a
+  // period the tile read "6 of 6 · entities closed" and Monthly Close read
+  // "0 of 6 closes done" for the same period, one click apart.
+  it('is true on a closed-out project whose checklist is untouched', () => {
+    expect(
+      isCloseDone(
+        project({
+          id: 'a',
+          status: 'done',
+          milestones: [milestone({ id: 'm' }), milestone({ id: 'm2' })],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it('is false on an active project whose checklist is fully ticked', () => {
+    expect(
+      isCloseDone(
+        project({
+          id: 'b',
+          milestones: [milestone({ id: 'm', done: true, status: 'done' })],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it('is false on an active project with no milestones — [].every() is true', () => {
+    expect(isCloseDone(project({ id: 'c', milestones: [] }))).toBe(false);
   });
 });
 

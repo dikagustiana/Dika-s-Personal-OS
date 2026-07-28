@@ -213,14 +213,28 @@ export function summarizeCloseCycle(
 }
 
 /**
- * Entity counts for the tile, independent of whether the card is showing.
+ * THE ONE DEFINITION of a finished close. Every screen that counts closes must
+ * call this — the Monthly Close header counted `milestones.every(done)`
+ * instead, which is the contradiction the comment below predicted: the tile
+ * read "6 of 6 · entities closed" while Monthly Close read "0 of 6 closes
+ * done" for the same period, one click apart.
  *
  * Done is the project's own `status`, not its checklist. Closing out a period
  * marks the six projects done and deliberately leaves their milestones
  * unticked — nobody ticks 40-odd boxes to record a fact they already know — so
  * a milestone-derived count would read "0 of 6" on the same screen where the
- * card has just been dismissed as complete. The tile has to answer the same
- * question the card does.
+ * card has just been dismissed as complete. It also counted a close with no
+ * milestones at all as done, because `[].every(...)` is true.
+ */
+export function isCloseDone(project: Project): boolean {
+  return project.status === 'done';
+}
+
+/**
+ * Entity counts for the tile, independent of whether the card is showing.
+ *
+ * The tile has to answer the same question the card does, so it reads
+ * `isCloseDone` rather than spelling the rule out again.
  */
 export function closeEntityCount(
   projects: Project[],
@@ -229,7 +243,7 @@ export function closeEntityCount(
   const period = targetPeriod(today);
   const cycle = cycleFor(projects, period);
   return {
-    done: cycle.filter((project) => project.status === 'done').length,
+    done: cycle.filter(isCloseDone).length,
     total: cycle.length,
     label: periodLabel(period),
   };
