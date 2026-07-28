@@ -1,5 +1,5 @@
 import { ChevronRight } from 'lucide-react';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { format, parseISO } from 'date-fns';
 import { Card, CardContent } from '../../components/ui/Card';
 import { EmptyRow } from '../../components/ui/EmptyRow';
@@ -19,6 +19,7 @@ import {
   resolveEdges,
   routeForCell,
   STATE_GLYPH,
+  STATE_SENTENCE,
   unplannedForEntity,
   type MatrixSection,
   type ResolveContext,
@@ -30,9 +31,7 @@ import {
   coverageOf,
   gapCounts,
   groupUnmapped,
-  hasDriver,
   latestImportedAt,
-  sortAccounts,
 } from '../../logic/finishLineAccounts';
 import { CouldNotCheck, RESOLUTION_LABEL, RESOLUTION_STYLE, ROW_STYLE } from './finishLineUi';
 
@@ -134,7 +133,6 @@ export function FinishLineEntityView({
     return stamp ? format(parseISO(stamp), 'd MMM') : undefined;
   }, [entityAccounts]);
 
-  const [openAccountCell, setOpenAccountCell] = useState<string | null>(null);
   const [unmappedOpen, setUnmappedOpen] = useState(false);
 
   // The unplanned row must exist in the DOM before it can be scrolled to, so
@@ -310,10 +308,8 @@ export function FinishLineEntityView({
                         ? (accountsForCell.get(slot.cell.id) ?? [])
                         : [];
                       const coverage = slot?.cell ? coverageOf(cellAccounts) : undefined;
-                      const accountsOpen = Boolean(slot?.cell && openAccountCell === slot.cell.id);
                       return (
-                        <Fragment key={row.item.id}>
-                        <tr className="hover:bg-surface-2">
+                        <tr key={row.item.id} className="hover:bg-surface-2">
                           <th
                             scope="row"
                             className={cn(
@@ -329,24 +325,23 @@ export function FinishLineEntityView({
                             >
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate">{row.item.item}</span>
-                                {/* ACCOUNT COVERAGE, never aggregated into a
-                                    single cell-level driver. One metric-entity
-                                    pair can carry dozens of accounts with
-                                    different drivers; a lone "driver" field
-                                    here would let the cell claim one it does
-                                    not have. Counts only. */}
+                                {/* ACCOUNT COVERAGE — A COUNT, NOT A DOOR.
+                                    Never aggregated into a single cell-level
+                                    driver: one metric-entity pair can carry
+                                    dozens of accounts with different drivers,
+                                    and a lone "driver" field here would let the
+                                    cell claim one it does not have.
+
+                                    This line USED to open the account detail,
+                                    and that was the mistake. Detail hangs off
+                                    the CELL now — the group matrix's `xxx` — so
+                                    that state, driver, owner and accounts are
+                                    all read against one named entity instead of
+                                    a row silently picking one. The summary
+                                    stays because it is a true aggregate; it is
+                                    simply no longer a second way in. */}
                                 {coverage && coverage.total > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setOpenAccountCell((current) =>
-                                        current === slot?.cell?.id ? null : (slot?.cell?.id ?? null),
-                                      )
-                                    }
-                                    aria-expanded={openAccountCell === slot?.cell?.id}
-                                    aria-label={`${coverage.total} accounts behind ${row.item.item}, ${entity.label}`}
-                                    className="mt-0.5 block text-left text-[10px] tabular-nums text-foreground-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                  >
+                                  <span className="mt-0.5 block text-[10px] tabular-nums text-foreground-muted">
                                     {coverage.total} accounts · {coverage.withDriver} with a driver ·{' '}
                                     {coverage.withoutDriver} without
                                     {/* Dummy is reported BESIDE driver coverage,
@@ -357,7 +352,7 @@ export function FinishLineEntityView({
                                     {coverage.dummy > 0 && (
                                       <span className="text-escalate"> · {coverage.dummy} dummy</span>
                                     )}
-                                  </button>
+                                  </span>
                                 )}
                               </span>
                               {row.item.flag && (
@@ -387,7 +382,18 @@ export function FinishLineEntityView({
                               disabled={!slot?.cell}
                               onClick={() => slot?.cell && clickCell(slot.cell.id)}
                               aria-label={`${row.item.item}, ${entity.label}${resolution ? `, ${RESOLUTION_LABEL[resolution]}` : ''}`}
-                              title={resolution ? RESOLUTION_LABEL[resolution] : undefined}
+                              /* Same STATE_SENTENCE map the cell panel reads —
+                                 one definition, so the two cannot drift. */
+                              title={
+                                slot?.cell
+                                  ? [
+                                      STATE_SENTENCE[slot.cell.state],
+                                      resolution && RESOLUTION_LABEL[resolution],
+                                    ]
+                                      .filter(Boolean)
+                                      .join('\n')
+                                  : undefined
+                              }
                               className={cn(
                                 'min-h-11 w-full px-3 py-1.5 text-right tabular-nums transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                                 resolution && RESOLUTION_STYLE[resolution],
@@ -399,74 +405,6 @@ export function FinishLineEntityView({
                             </button>
                           </td>
                         </tr>
-
-                        {/* The accounts behind this cell. Undesigned ones
-                            (no driver) sort FIRST — they are the ones that
-                            need thinking, and burying them under sixteen
-                            complete ones defeats the purpose of the list.
-
-                            EVERY FIELD HERE IS READ-ONLY. There is no input,
-                            no select and no pencil anywhere in this block: the
-                            workbook owns data_ideal, driver_type, pic and
-                            is_dummy, and a second place to change them would
-                            be a second source of truth. */}
-                        {accountsOpen && (
-                          <tr>
-                            <td colSpan={2} className="bg-surface-2 px-4 py-3">
-                              <ul className="divide-y divide-border-subtle">
-                                {sortAccounts(cellAccounts).map((entry) => (
-                                  <li key={entry.id} className="py-2">
-                                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                      <span className="min-w-0 text-xs font-semibold text-foreground">
-                                        {entry.accountName}
-                                      </span>
-                                      {entry.isDummy && (
-                                        <span className="shrink-0 border border-escalate px-1 text-[9px] font-bold uppercase tracking-wider text-escalate">
-                                          Dummy
-                                        </span>
-                                      )}
-                                      {hasDriver(entry) ? (
-                                        <span className="text-[10px] text-foreground-muted">
-                                          {entry.driverType}
-                                        </span>
-                                      ) : (
-                                        <span className="text-[10px] font-semibold text-destructive">
-                                          No driver yet
-                                        </span>
-                                      )}
-                                      {entry.pic && (
-                                        <span className="text-[10px] text-foreground-muted">
-                                          · {entry.pic}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {/* data_ideal and driver_source live on the
-                                        ACCOUNT row, not repeated per cell:
-                                        they are frequently identical across a
-                                        cell's accounts and repeating them
-                                        would crowd out the difference. */}
-                                    {entry.dataIdeal && (
-                                      <p className="mt-0.5 text-[11px] leading-4 text-foreground-secondary">
-                                        {entry.dataIdeal}
-                                      </p>
-                                    )}
-                                    {entry.driverSource && (
-                                      <p className="mt-0.5 text-[10px] text-foreground-muted">
-                                        Source: {entry.driverSource}
-                                      </p>
-                                    )}
-                                    {entry.notes && (
-                                      <p className="mt-0.5 text-[10px] italic text-foreground-muted">
-                                        {entry.notes}
-                                      </p>
-                                    )}
-                                  </li>
-                                ))}
-                              </ul>
-                            </td>
-                          </tr>
-                        )}
-                        </Fragment>
                       );
                     })}
                 </tbody>

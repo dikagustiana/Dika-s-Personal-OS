@@ -1,5 +1,14 @@
-import { TriangleAlert } from 'lucide-react';
+import {
+  CircleCheck,
+  CircleHelp,
+  CircleSlash,
+  Clock,
+  Lock,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
+import type { CellState } from '../../data/types';
 import type { Resolution } from '../../logic/finishLine';
 
 /**
@@ -43,6 +52,48 @@ export const RESOLUTION_LABEL: Record<Resolution, string> = {
   backed: 'Backed — every linked milestone is done',
   undefined: 'Undefined — zero divisor, not work outstanding',
   zero: 'Nil, and deferred — nil is not treated as a gap yet',
+};
+
+/**
+ * ===========================================================================
+ * ONE HUE PER STATE, USED IN BOTH PLACES A STATE IS SHOWN.
+ * ===========================================================================
+ * `line` tints the explanation inside the panel. `cell` marks the OPEN cell in
+ * the matrix — a row carries five of them, so "which one is this panel about"
+ * has to be answerable without counting columns. Both draw the same hue, so
+ * the tint under the glyph and the tint on the sentence read as one fact.
+ *
+ * No colour literals: every tone is a semantic token. `zero` and `undefined`
+ * are deliberately NOT interchangeable — a solid quiet border for the nil that
+ * is finished, a dashed one for the cell nobody has decided about yet, because
+ * they mean opposite things and a matrix already renders them nearly alike.
+ */
+export const STATE_TONE: Record<CellState, { line: string; cell: string; icon: LucideIcon }> = {
+  figure: {
+    line: 'border-success/40 bg-success/10 text-success',
+    cell: 'bg-success/15 border-[1.5px] border-success',
+    icon: CircleCheck,
+  },
+  input: {
+    line: 'border-escalate/40 bg-escalate/10 text-escalate',
+    cell: 'bg-escalate/15 border-[1.5px] border-escalate',
+    icon: Clock,
+  },
+  zero: {
+    line: 'border-border bg-surface-2 text-foreground-secondary',
+    cell: 'bg-surface-3 border-[1.5px] border-border',
+    icon: CircleSlash,
+  },
+  undefined: {
+    line: 'border-dashed border-border bg-surface-3 text-foreground-muted',
+    cell: 'bg-surface-3 border-[1.5px] border-dashed border-border',
+    icon: CircleHelp,
+  },
+  locked: {
+    line: 'border-primary/30 bg-primary/10 text-primary',
+    cell: 'bg-primary/15 border-[1.5px] border-primary',
+    icon: Lock,
+  },
 };
 
 export const ROW_STYLE: Record<string, string> = {
