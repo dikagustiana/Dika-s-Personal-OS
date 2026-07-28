@@ -19,6 +19,7 @@ import type {
   CellState,
   DanglingLink,
   FinishLineAccount,
+  FinishLineAccountMapRow,
   FinishLineCell,
   FinishLineDep,
   FinishLineEdge,
@@ -51,6 +52,7 @@ import {
 } from '../../logic/finishLine';
 import { accountsByCell } from '../../logic/finishLineAccounts';
 import { useAppStore } from '../../store/appStore';
+import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
 import { FinishLineEntityView } from './FinishLineEntity';
 import {
@@ -158,6 +160,9 @@ export function FinishLine() {
   // pack is readable without account detail — so it degrades to no accounts
   // and the coverage line simply does not render.
   const [accounts, setAccounts] = useState<ReadResult<FinishLineAccount>>(unread);
+  // The mapping, loaded for the paste path: a commit without it would resolve
+  // every pasted row to unmapped and quietly strip cells, so no map, no commit.
+  const [accountMap, setAccountMap] = useState<ReadResult<FinishLineAccountMapRow>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -183,6 +188,7 @@ export function FinishLine() {
       loadedDangling,
       loadedOrphans,
       loadedAccounts,
+      loadedAccountMap,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -200,6 +206,7 @@ export function FinishLine() {
       repository.listDanglingLinks(),
       repository.listOrphanMilestones(),
       repository.listFinishLineAccounts(),
+      repository.listFinishLineAccountMap(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -210,6 +217,7 @@ export function FinishLine() {
     setDangling(loadedDangling);
     setOrphans(loadedOrphans);
     setAccounts(loadedAccounts);
+    setAccountMap(loadedAccountMap);
     setLoaded(true);
   }, [repository]);
 
@@ -229,6 +237,7 @@ export function FinishLine() {
       setDangling(failure);
       setOrphans(failure);
       setAccounts(failure);
+      setAccountMap(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -742,6 +751,34 @@ export function FinishLine() {
           </Card>
         )}
       </section>
+
+      {/* The one write path into the account level: paste from the sheet,
+          preview, commit. Group-only — the paste concerns the whole account
+          population, and the entity views read what it writes. */}
+      {level === 'group' && loaded && (
+        <AccountPasteCard
+          accounts={rowsOf(accounts)}
+          accountsKnown={accounts.ok}
+          mapResult={accountMap}
+          cells={cellRows}
+          items={itemRows}
+          isPending={isPending}
+          onCommit={async (input) => {
+            // The action resolves a sentinel because the repository call is
+            // void — and run() signals failure with undefined, which a void
+            // success would be indistinguishable from.
+            const done = await run('Update account detail', async () => {
+              await repository.applyFinishLineAccountPaste(input);
+              return true;
+            });
+            if (done === undefined) return false;
+            // Coverage and both gap counts are computed, never stored — the
+            // reload re-derives them from what was just written.
+            await load();
+            return true;
+          }}
+        />
+      )}
 
       {/* Group-only: the entity level carries its own Closes-nothing list,
           scoped by entity_tag, so repeating the global card there would be a

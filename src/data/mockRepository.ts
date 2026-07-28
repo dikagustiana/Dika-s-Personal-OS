@@ -19,6 +19,7 @@ import type {
   DailyLog,
   FinishLineAccount,
   FinishLineAccountMapRow,
+  FinishLineAccountWrite,
   Domain,
   Entry,
   CellState,
@@ -326,11 +327,50 @@ export class MockRepository implements Repository {
    * Read-only, like every account path — there is no mock write counterpart
    * because there is no real one.
    */
+  /**
+   * Empty for the same reason the matrix is: account names are the owner's
+   * chart of accounts and this repo is public. The account level is loaded
+   * into the database — or pasted through applyFinishLineAccountPaste, the
+   * one write path — never seeded from here.
+   */
   private readonly finishLineAccounts: FinishLineAccount[] = [];
   private readonly finishLineAccountMap: FinishLineAccountMapRow[] = [];
 
   async listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>> {
     return okRows(clone(this.finishLineAccounts));
+  }
+
+  async applyFinishLineAccountPaste(input: {
+    upserts: FinishLineAccountWrite[];
+    deleteIds: string[];
+  }): Promise<void> {
+    const touchedAt = new Date().toISOString();
+    for (const id of input.deleteIds) {
+      const at = this.finishLineAccounts.findIndex((a) => a.id === id);
+      if (at >= 0) this.finishLineAccounts.splice(at, 1);
+    }
+    for (const row of input.upserts) {
+      const next: FinishLineAccount = {
+        id: row.id ?? `acc-${Math.random().toString(36).slice(2, 10)}`,
+        accountName: row.accountName,
+        isDummy: row.isDummy,
+        order: row.sortOrder,
+        importedAt: touchedAt,
+      };
+      if (row.cellId) next.cellId = row.cellId;
+      if (row.coaEntity) next.coaEntity = row.coaEntity;
+      if (row.coaConsol) next.coaConsol = row.coaConsol;
+      if (row.function) next.function = row.function;
+      if (row.nature) next.nature = row.nature;
+      if (row.business) next.business = row.business;
+      if (row.driverType) next.driverType = row.driverType;
+      if (row.driverSource) next.driverSource = row.driverSource;
+      if (row.dataIdeal) next.dataIdeal = row.dataIdeal;
+      if (row.pic) next.pic = row.pic;
+      const at = row.id ? this.finishLineAccounts.findIndex((a) => a.id === row.id) : -1;
+      if (at >= 0) this.finishLineAccounts[at] = next;
+      else this.finishLineAccounts.push(next);
+    }
   }
 
   async listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>> {

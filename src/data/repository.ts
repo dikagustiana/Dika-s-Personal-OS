@@ -10,6 +10,7 @@ import type {
   EntryType,
   FinishLineAccount,
   FinishLineAccountMapRow,
+  FinishLineAccountWrite,
   FinishLineCell,
   FinishLineDep,
   FinishLineEdge,
@@ -113,13 +114,25 @@ export interface Repository {
   listFinishLineDeps(): Promise<ReadResult<FinishLineDep>>;
   listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>>;
   /**
-   * Account-level detail underneath the cells. Read-only in the app: every
-   * field the workbook owns is authored there, and a second place to change a
-   * driver would be a second source of truth. There is deliberately no
-   * create/update/delete counterpart.
+   * Account-level detail underneath the cells. The workbook stays
+   * authoritative: no field it owns is editable inline, and the ONE write
+   * path is an explicit paste of rows copied from the sheet —
+   * applyFinishLineAccountPaste, below. A paste is a button, not a cron:
+   * the owner triggers it and imported_at records when.
    */
   listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>>;
   listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>>;
+
+  /**
+   * Commits a parsed, previewed paste. Rows with an id update (imported_at
+   * refreshed); rows without insert; deleteIds is non-empty ONLY in
+   * replace-all mode — upsert mode cannot delete by construction. cell_id is
+   * stored exactly as resolved by the diff; cell STATES are never touched.
+   */
+  applyFinishLineAccountPaste(input: {
+    upserts: FinishLineAccountWrite[];
+    deleteIds: string[];
+  }): Promise<void>;
   listDanglingLinks(): Promise<ReadResult<DanglingLink>>;
   listOrphanMilestones(): Promise<ReadResult<OrphanMilestone>>;
 
