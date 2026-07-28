@@ -1,10 +1,17 @@
-import { ArrowRight,  Check, CircleSlash2 } from 'lucide-react';
+import { ArrowRight, Check, CircleSlash2, CornerUpRight } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import type { TaskEntry, TimeBlockEntry } from '../data/types';
 import { getCurrentSlot, slotsForDomain } from '../logic/timebox';
 import { cn } from '../lib/utils';
+
+const STRIP_STATUS_LABEL: Partial<Record<TimeBlockEntry['status'], string>> = {
+  done: 'Done',
+  skipped: 'Skipped',
+  carried: 'Carried',
+  blocked: 'Blocked',
+};
 
 export interface NowStripProps {
   /** Today's blocks for the WORK domain. */
@@ -88,7 +95,10 @@ export function NowStrip({
           <span
             className={cn(
               'min-w-0 flex-1 truncate text-sm font-semibold text-foreground',
-              block.status !== 'planned' && 'text-foreground-muted line-through',
+              // Only a closed-out block is struck through; carried and
+              // blocked are live work that continues.
+              (block.status === 'done' || block.status === 'skipped') &&
+                'text-foreground-muted line-through',
             )}
           >
             {block.label}
@@ -104,6 +114,25 @@ export function NowStrip({
                 <Check className="size-4" />
                 Done
               </Button>
+              {/* Carried belongs here even though the strip is deliberately
+                  minimal: without it, Skip is again the only non-done option
+                  and silently absorbs "worked on it, didn't finish" — the exact
+                  conflation this feature exists to end. It costs one tap and no
+                  typing, so it fits the strip's rule.
+
+                  Blocked is NOT here: it requires a reason, and typing into the
+                  strip would break the one-click contract. It lives in the
+                  grid, where the reason field can open inline. */}
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disabled}
+                onClick={() => void onSetStatus(block, 'carried')}
+                aria-label={`Carry ${block.label} to another day`}
+              >
+                <CornerUpRight className="size-4" />
+                Carried
+              </Button>
               <Button
                 size="sm"
                 variant="ghost"
@@ -116,8 +145,11 @@ export function NowStrip({
               </Button>
             </span>
           ) : (
+            // Reads the status rather than assuming there are only two: a
+            // carried or blocked block used to print "Skipped" here, which is
+            // the exact conflation those statuses exist to end.
             <span className="shrink-0 text-xs text-foreground-muted">
-              {block.status === 'done' ? 'Done' : 'Skipped'} — next slot {slot.end}
+              {STRIP_STATUS_LABEL[block.status] ?? 'Closed'} — next slot {slot.end}
             </span>
           )}
         </>

@@ -6,7 +6,7 @@ import {
   useState,
   type FormEvent,
 } from 'react';
-import { format, getISOWeek, subDays } from 'date-fns';
+import { format, getISOWeek, parseISO, subDays } from 'date-fns';
 import { NowStrip } from '../../components/NowStrip';
 import { ProjectCard } from '../../components/ProjectCard';
 import { Button } from '../../components/ui/Button';
@@ -33,6 +33,11 @@ import { buildProjectTree, findNode, rollupMilestones } from '../../logic/hierar
 import { collectEscalations } from '../../logic/milestones';
 import { closeWindowState } from '../../logic/monthlyClose';
 import { calculateDailyScore } from '../../logic/score';
+import {
+  carryOverFor,
+  formatDuration,
+  scheduleAgainDraft,
+} from '../../logic/timeBlockCarry';
 import { daysElapsedInWeek, getIsoWeekKey, getWeekRange, summarizeWeek } from '../../logic/week';
 import {
   closeEntityCount,
@@ -193,6 +198,8 @@ export function Dashboard() {
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [habits, setHabits] = useState<HabitEntry[]>([]);
   const [blocks, setBlocks] = useState<TimeBlockEntry[]>([]);
+  /** Every timeblock, any date. Carry-over only — never a score input. */
+  const [allBlocks, setAllBlocks] = useState<TimeBlockEntry[]>([]);
   const [plan, setPlan] = useState<WeeklyPlan | null>(null);
   const [logs, setLogs] = useState<DailyLog[]>([]);
   const [editingPins, setEditingPins] = useState(false);
@@ -237,11 +244,14 @@ export function Dashboard() {
     setHabits(
       entries.filter((entry): entry is HabitEntry => entry.type === 'habit' && entry.active),
     );
-    setBlocks(
-      entries.filter(
-        (entry): entry is TimeBlockEntry => entry.type === 'timeblock' && entry.date === todayKey,
-      ),
+    const timeblocks = entries.filter(
+      (entry): entry is TimeBlockEntry => entry.type === 'timeblock',
     );
+    // `blocks` stays TODAY ONLY because it is a score input — widening it would
+    // put other days into the timebox denominator and move the daily score,
+    // which is a protected formula. Carry-over reads its own unfiltered list.
+    setBlocks(timeblocks.filter((block) => block.date === todayKey));
+    setAllBlocks(timeblocks);
     setPlan(weekPlan);
     setLogs(logData);
     setLog(todayLog);
@@ -288,6 +298,41 @@ export function Dashboard() {
     () => windowHabitConsistency(logs, today, HABIT_WINDOW_DAYS),
     [logs, today],
   );
+  const carryOver = useMemo(
+    () => carryOverFor(allBlocks, projects, todayKey),
+    [allBlocks, projects, todayKey],
+  );
+  const carryOverLabel = useMemo(() => {
+    const anchor = carryOver[0]?.block.date;
+    if (!anchor) return '';
+    return format(parseISO(anchor), 'EEE d MMM');
+  }, [carryOver]);
+
+  /**
+   * Creates today's continuation: same label, attribution and category, with
+   * `carriedFrom` pointing at the day it continues and NO slot chosen. The
+   * owner places it; the app does not.
+   */
+  const scheduleAgain = async (block: TimeBlockEntry) => {
+    const input: Omit<TimeBlockEntry, 'id' | 'createdAt' | 'updatedAt'> = {
+      type: 'timeblock',
+      domain: 'work',
+      tags: [],
+      // The block keeps its former window as a starting position, which the
+      // owner then moves. The slot is not "chosen" for them in any meaningful
+      // sense — an empty start/end would fail the duration derivation, so the
+      // shape stays valid while the placement stays theirs.
+      start: block.start,
+      end: block.end,
+      ...scheduleAgainDraft(block, todayKey),
+    };
+    const created = await run('Schedule again', () => repository.createEntry(input));
+    if (!created) return;
+    const next = created as TimeBlockEntry;
+    setAllBlocks((current) => [...current, next]);
+    if (next.date === todayKey) setBlocks((current) => [...current, next]);
+  };
+
   const needsAction = useMemo(() => collectNeedsAction(projects, today), [projects, today]);
   const needsActionCounts = useMemo(() => needsActionBreakdown(needsAction), [needsAction]);
   const closeCycle = useMemo(() => summarizeCloseCycle(projects, today), [projects, today]);
@@ -601,6 +646,75 @@ export function Dashboard() {
         <Card>
           <CardContent className="pt-5">
             <SectionHeading title="Needs action today" />
+
+            {/* CARRY-OVER, above the lists. An unfinished block used to die
+                with the day, so the next morning started from nothing and the
+                owner re-remembered what he was in the middle of — the most
+                expensive gap in the app for someone whose stated constraint is
+                that regaining focus is costly.
+
+                Offered, never auto-scheduled: putting blocks into today's grid
+                unasked is the kind of thing that makes a tool feel like it is
+                arguing with you. */}
+            {carryOver.length > 0 && (
+              <div className="mb-4">
+                <p className="surface-label">
+                  Carried from {carryOverLabel} · not scored
+                </p>
+                <ul className="mt-1 divide-y divide-border-subtle">
+                  {carryOver.map((row) => (
+                    <li
+                      key={row.block.id}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold text-foreground">
+                          {row.block.label}
+                        </span>
+                        <span className="block text-[11px] text-foreground-muted">
+                          {row.block.status === 'blocked' ? (
+                            <span className="text-destructive">
+                              Blocked — waiting on {row.block.blockedOn}
+                            </span>
+                          ) : (
+                            <>Carried{row.block.carryNote ? ` — ${row.block.carryNote}` : ''}</>
+                          )}
+                          {row.brokenMilestone && (
+                            <span className="text-destructive">
+                              {' · '}
+                              {row.projectTitle
+                                ? `${row.projectTitle} — milestone no longer exists`
+                                : 'milestone no longer exists'}
+                            </span>
+                          )}
+                          {!row.brokenMilestone && row.milestoneText && (
+                            <>
+                              {' · '}
+                              {row.milestoneText}
+                            </>
+                          )}
+                        </span>
+                      </span>
+                      {/* The honest answer to "how long has this actually been
+                          taking", which nothing in the app could answer before. */}
+                      <span className="shrink-0 text-[11px] tabular-nums text-foreground-muted">
+                        {row.chainDays > 1
+                          ? `${formatDuration(row.chainMinutes)} across ${row.chainDays} days`
+                          : formatDuration(row.minutes)}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={isPending}
+                        onClick={() => void scheduleAgain(row.block)}
+                      >
+                        Schedule again
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {urgentTasks.length === 0 ? (
               !isLoading && (

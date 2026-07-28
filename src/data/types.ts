@@ -40,14 +40,57 @@ export interface BrainDumpEntry extends BaseEntry {
 
 export type TimeBlockCategory = 'deep-work' | 'meeting' | 'break' | 'admin';
 
+/**
+ * What happened to a block when its time ran out.
+ *
+ * `carried` and `blocked` both mean REAL WORK HAPPENED and it is not finished.
+ * The only difference between them is whether someone else is needed, and that
+ * difference is the entire reason they are separate statuses: only `blocked`
+ * is another person's problem.
+ *
+ * Before these existed, `skipped` was the sole non-done option and silently
+ * absorbed three different outcomes — never started, ran out of time, and hit
+ * a wall. It now means exactly one thing: never started, and won't be.
+ */
+export type TimeBlockStatus = 'planned' | 'done' | 'skipped' | 'carried' | 'blocked';
+
 export interface TimeBlockEntry extends BaseEntry {
   type: 'timeblock';
   date: string;
   start: string;
   end: string;
   label: string;
+  /**
+   * EXACTLY ONE ATTRIBUTION, never two. A block points at a task or at a
+   * milestone, and once chosen it may not hold both — two routes would mean
+   * two ways to answer "where did this time go", which is the class of bug
+   * that had Monthly Close and the dashboard disagreeing about a closed
+   * period. Enforced in the mutation path by data/timeBlockGuards, not here
+   * and not in the UI.
+   */
   taskId?: string;
-  status: 'planned' | 'done' | 'skipped';
+  /**
+   * The project owning `milestoneId`. Stored alongside it because a milestone
+   * is a jsonb array element inside os_projects.milestones, not a row — you
+   * cannot find one without knowing its project.
+   */
+  projectId?: string;
+  /**
+   * TEXT WITH NO FOREIGN KEY, and nothing in the database can enforce that it
+   * still exists. When it does not, the block renders a NAMED broken link;
+   * never blank it, because a block that quietly loses its attribution reads
+   * as unattributed time, which is worse than an obvious error.
+   */
+  milestoneId?: string;
+  status: TimeBlockStatus;
+  /** Required when status is 'blocked'. A blocked block with no reason is
+   *  worthless tomorrow, which is exactly when it gets read. */
+  blockedOn?: string;
+  /** What remains, on a block carried under its own steam. Optional. */
+  carryNote?: string;
+  /** The date of the block this one continues. Walking it back gives the
+   *  accumulated time — the honest answer to how long this has really taken. */
+  carriedFrom?: string;
   category?: TimeBlockCategory; // duration is derived from start–end, never stored
 }
 

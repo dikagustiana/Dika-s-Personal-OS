@@ -5,6 +5,7 @@ import {
   guardEdgeTarget,
   type CellWriteOrigin,
 } from './finishLineGuards';
+import { guardTimeBlock } from './timeBlockGuards';
 import type { Repository } from './repository';
 import { okRows, type ReadResult } from './readResult';
 import {
@@ -100,6 +101,7 @@ export class MockRepository implements Repository {
       createdAt: now,
       updatedAt: now,
     } as Entry;
+    guardTimeBlock(created);
     this.entries.set(created.id, clone(created));
     return clone(created);
   }
@@ -114,6 +116,9 @@ export class MockRepository implements Repository {
       createdAt: current.createdAt,
       updatedAt: new Date().toISOString(),
     } as Entry;
+    // Guarded on the MERGED entry: a patch adding milestoneId to a block that
+    // already carries taskId is only visible against the result.
+    guardTimeBlock(updated);
     this.entries.set(id, clone(updated));
     return clone(updated);
   }
