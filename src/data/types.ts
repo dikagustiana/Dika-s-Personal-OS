@@ -578,6 +578,29 @@ export interface FinishLineAccount {
  * design — which is how functions below operating income (finance, other
  * income, tax) stay out of a matrix that has no metric for them.
  */
+/**
+ * One row of a paste commit. `id` present means update, absent means insert.
+ * `cellId` arrives resolved (function x business x the SHEET'S entity, through
+ * the mapping table, left-join semantics) — the repository stores it verbatim
+ * and never re-derives it, so the preview and the commit cannot disagree.
+ */
+export interface FinishLineAccountWrite {
+  id?: string;
+  cellId: string | null;
+  coaEntity?: string;
+  coaConsol?: string;
+  accountName: string;
+  function?: string;
+  nature?: string;
+  business?: string;
+  isDummy: boolean;
+  driverType?: string;
+  driverSource?: string;
+  dataIdeal?: string;
+  pic?: string;
+  sortOrder: number;
+}
+
 export interface FinishLineAccountMapRow {
   id: string;
   function: string;

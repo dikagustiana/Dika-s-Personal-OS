@@ -14,6 +14,7 @@ import type {
   DailyLog,
   FinishLineAccount,
   FinishLineAccountMapRow,
+  FinishLineAccountWrite,
   DateConfidence,
   Domain,
   Entry,
@@ -912,6 +913,70 @@ class SupabaseRepository implements Repository {
         return account;
       }),
     );
+  }
+
+  async applyFinishLineAccountPaste(input: {
+    upserts: FinishLineAccountWrite[];
+    deleteIds: string[];
+  }): Promise<void> {
+    const table = () => this.client.from('os_finish_line_accounts');
+    const touchedAt = new Date().toISOString();
+
+    // Deletes first (replace mode only), chunked: hundreds of ids in one
+    // querystring would blow the URL limit, and a half-applied delete must
+    // surface as the error it is rather than being retried blind.
+    for (let i = 0; i < input.deleteIds.length; i += 50) {
+      const chunk = input.deleteIds.slice(i, i + 50);
+      const { error } = await table().delete().in('id', chunk);
+      if (error) throw new Error(`account paste delete: ${error.message}`);
+    }
+
+    for (const row of input.upserts.filter((u) => u.id)) {
+      const { error } = await table()
+        .update({
+          cell_id: row.cellId,
+          coa_entity: row.coaEntity ?? null,
+          coa_consol: row.coaConsol ?? null,
+          account_name: row.accountName,
+          function: row.function ?? null,
+          nature: row.nature ?? null,
+          business: row.business ?? null,
+          is_dummy: row.isDummy,
+          driver_type: row.driverType ?? null,
+          driver_source: row.driverSource ?? null,
+          data_ideal: row.dataIdeal ?? null,
+          pic: row.pic ?? null,
+          sort_order: row.sortOrder,
+          // Touched rows only — untouched rows keep their stamp, so the
+          // header's "imported {date}" stays honest per row.
+          imported_at: touchedAt,
+        })
+        .eq('id', row.id!);
+      if (error) throw new Error(`account paste update: ${error.message}`);
+    }
+
+    const inserts = input.upserts.filter((u) => !u.id);
+    if (inserts.length > 0) {
+      const { error } = await table().insert(
+        inserts.map((row) => ({
+          cell_id: row.cellId,
+          coa_entity: row.coaEntity ?? null,
+          coa_consol: row.coaConsol ?? null,
+          account_name: row.accountName,
+          function: row.function ?? null,
+          nature: row.nature ?? null,
+          business: row.business ?? null,
+          is_dummy: row.isDummy,
+          driver_type: row.driverType ?? null,
+          driver_source: row.driverSource ?? null,
+          data_ideal: row.dataIdeal ?? null,
+          pic: row.pic ?? null,
+          sort_order: row.sortOrder,
+          imported_at: touchedAt,
+        })),
+      );
+      if (error) throw new Error(`account paste insert: ${error.message}`);
+    }
   }
 
   async listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>> {
