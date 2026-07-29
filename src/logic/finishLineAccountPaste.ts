@@ -65,9 +65,10 @@ function cleanField(raw: string | undefined): string | undefined {
 
 export interface PastedAccountRow {
   /**
-   * The sheet's Entity column. Used ONLY to resolve which cell the account
-   * belongs to — the account row itself does not store an entity (that gap is
-   * a known schema decision, not this feature's to change).
+   * The sheet's Entity column. Resolves which cell the account belongs to AND
+   * is stored on the row: discarding it after the lookup was the gap that left
+   * unmapped accounts unreachable by every entity view and made the remap
+   * function unable to match anything.
    */
   entity?: string;
   coaEntity?: string;
@@ -216,6 +217,8 @@ export interface PlannedUpsert {
   /** Present for an update, absent for an insert. */
   id?: string;
   cellId: string | null;
+  /** The sheet's Entity column, stored — not merely used and discarded. */
+  entityCode?: string;
   coaEntity?: string;
   coaConsol: string;
   accountName: string;
@@ -309,6 +312,7 @@ export function buildAccountPasteDiff(input: {
     if (!current) {
       added.push({
         cellId: newCellId,
+        entityCode: row.entity,
         coaEntity: row.coaEntity,
         coaConsol: row.coaConsol,
         accountName: row.accountName,
@@ -327,9 +331,10 @@ export function buildAccountPasteDiff(input: {
 
     const fieldChanged = PASTE_FIELDS.some((f) => (row[f] ?? undefined) !== (current[f] ?? undefined));
     const dummyChanged = row.isDummy !== undefined && row.isDummy !== current.isDummy;
+    const entityChanged = row.entity !== undefined && row.entity !== current.entityCode;
     const cellChanged = newCellId !== (current.cellId ?? null);
 
-    if (!fieldChanged && !dummyChanged && !cellChanged) {
+    if (!fieldChanged && !dummyChanged && !cellChanged && !entityChanged) {
       unchanged += 1;
       continue;
     }
@@ -347,6 +352,9 @@ export function buildAccountPasteDiff(input: {
     updated.push({
       id: current.id,
       cellId: newCellId,
+      // Falls back to what the row already has, so a paste whose Entity column
+      // was truncated does not blank an entity that is already correct.
+      entityCode: row.entity ?? current.entityCode,
       coaEntity: row.coaEntity,
       coaConsol: row.coaConsol,
       accountName: row.accountName,

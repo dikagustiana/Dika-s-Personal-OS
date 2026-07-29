@@ -50,7 +50,7 @@ import {
   type MatrixSection,
   type Resolution,
 } from '../../logic/finishLine';
-import { accountsByCell } from '../../logic/finishLineAccounts';
+import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAccounts';
 import { useAppStore } from '../../store/appStore';
 import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
@@ -751,6 +751,40 @@ export function FinishLine() {
           </Card>
         )}
       </section>
+
+      {/* ==================================================================
+          ACCOUNTS WITH NEITHER A METRIC NOR AN ENTITY.
+          These reach NO entity view — that is what having no entity means —
+          so the per-entity unmapped list cannot show them and only the group
+          level can. Their entity exists solely in the workbook; guessing it
+          from the chart-of-accounts number would embed a guess in data that
+          then looks authoritative, so it is asked for rather than invented.
+          Not an error, and not hidden.
+          ================================================================== */}
+      {level === 'group' && loaded && accounts.ok && accountsWithNoEntity(rowsOf(accounts)).length > 0 && (
+        <Card className="mt-5">
+          <CardContent className="pt-4">
+            <p className="text-sm font-semibold text-foreground">
+              <span className="tabular-nums">
+                {accountsWithNoEntity(rowsOf(accounts)).length}
+              </span>{' '}
+              accounts have neither a metric nor an entity
+            </p>
+            <p className="mt-1 text-xs leading-5 text-foreground-muted">
+              They sit under no cell and in no column, so no entity view can show them. Classify
+              them in the workbook — give each one an Entity, a Function and a Business — then
+              paste those rows to place them. Until then they are counted here and nowhere else.
+            </p>
+            <ul className="mt-2 space-y-0.5">
+              {accountsWithNoEntity(rowsOf(accounts)).map((account) => (
+                <li key={account.id} className="text-[11px] text-foreground-secondary">
+                  {account.accountName}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* The one write path into the account level: paste from the sheet,
           preview, commit. Group-only — the paste concerns the whole account

@@ -358,6 +358,7 @@ export class MockRepository implements Repository {
         importedAt: touchedAt,
       };
       if (row.cellId) next.cellId = row.cellId;
+      if (row.entityCode) next.entityCode = row.entityCode;
       if (row.coaEntity) next.coaEntity = row.coaEntity;
       if (row.coaConsol) next.coaConsol = row.coaConsol;
       if (row.function) next.function = row.function;

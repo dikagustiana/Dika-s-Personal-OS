@@ -161,7 +161,10 @@ export interface UnmappedGroup {
   function: string;
   business: string;
   count: number;
-  /** Entities the pair appears in, so the gap can be scoped. */
+  /**
+   * Entities the pair appears in, so the gap can be scoped. Read from
+   * `entityCode` — this reported COA numbers until that column existed.
+   */
   entities: string[];
 }
 
@@ -174,14 +177,14 @@ export function groupUnmapped(accounts: FinishLineAccount[]): UnmappedGroup[] {
     const existing = groups.get(key);
     if (existing) {
       existing.count += 1;
-      if (account.coaEntity) existing.entitySet.add(account.coaEntity);
+      if (account.entityCode) existing.entitySet.add(account.entityCode);
     } else {
       groups.set(key, {
         function: fn,
         business,
         count: 1,
         entities: [],
-        entitySet: new Set(account.coaEntity ? [account.coaEntity] : []),
+        entitySet: new Set(account.entityCode ? [account.entityCode] : []),
       });
     }
   }
@@ -196,9 +199,17 @@ export function groupUnmapped(accounts: FinishLineAccount[]): UnmappedGroup[] {
 /**
  * Accounts for one entity, mapped or not.
  *
- * Reads the entity from the account's own `coaEntity`, so nothing here assumes
- * how many entities exist — MAM and KGR would flow through unchanged the day
- * they are added to os_finish_line_entities.
+ * A MAPPED account takes its entity from its cell; an UNMAPPED one has no
+ * cell, so it takes it from its own `entityCode`.
+ *
+ * This used to read `coaEntity` for the unmapped case, and that could never
+ * match: `coaEntity` holds a chart-of-accounts number, never an entity code.
+ * Every unmapped account therefore reached zero entity pages and the
+ * "accounts with no metric" card could not render at all. The fixtures hid it
+ * by setting `coaEntity` to an entity code, which the real data never does.
+ *
+ * Nothing here assumes how many entities exist — a sixth added to
+ * os_finish_line_entities flows through unchanged.
  */
 export function accountsForEntity(
   accounts: FinishLineAccount[],
@@ -207,8 +218,22 @@ export function accountsForEntity(
 ): FinishLineAccount[] {
   const cellEntity = new Map(cells.map((cell) => [cell.id, cell.entityCode]));
   return accounts.filter((account) =>
-    account.cellId ? cellEntity.get(account.cellId) === entityCode : account.coaEntity === entityCode,
+    account.cellId ? cellEntity.get(account.cellId) === entityCode : account.entityCode === entityCode,
   );
+}
+
+/**
+ * Unmapped accounts that have no entity either — they belong to no metric AND
+ * to no column, so no entity view can show them and they would vanish
+ * entirely. Their entity exists only in the workbook, and guessing it from the
+ * COA number would embed a guess in data that then looks authoritative.
+ *
+ * Surfaced as a count so the owner can classify them at source. They are also
+ * invisible to the paste path's identity rule (no consolidation code), which
+ * means a replace-all paste would count them among its deletions.
+ */
+export function accountsWithNoEntity(accounts: FinishLineAccount[]): FinishLineAccount[] {
+  return accounts.filter((account) => !account.cellId && !account.entityCode);
 }
 
 /**
@@ -244,17 +269,17 @@ export function gapCounts(
  * same shape so the two cannot drift into different answers.
  */
 export function resolveCellId(
-  account: Pick<FinishLineAccount, 'function' | 'business' | 'coaEntity'>,
+  account: Pick<FinishLineAccount, 'function' | 'business' | 'entityCode'>,
   map: FinishLineAccountMapRow[],
   cells: FinishLineCell[],
 ): string | undefined {
-  if (!account.function || !account.business || !account.coaEntity) return undefined;
+  if (!account.function || !account.business || !account.entityCode) return undefined;
   const row = map.find(
     (entry) => entry.function === account.function && entry.business === account.business,
   );
   if (!row) return undefined;
   return cells.find(
-    (cell) => cell.itemId === row.itemId && cell.entityCode === account.coaEntity,
+    (cell) => cell.itemId === row.itemId && cell.entityCode === account.entityCode,
   )?.id;
 }
 
