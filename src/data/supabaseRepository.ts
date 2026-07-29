@@ -886,7 +886,7 @@ class SupabaseRepository implements Repository {
     const { data, error } = await this.client
       .from('os_finish_line_accounts')
       .select(
-        'id, cell_id, coa_entity, coa_consol, account_name, function, nature, business, is_dummy, driver_type, driver_source, data_ideal, pic, notes, sort_order, imported_at',
+        'id, cell_id, entity_code, coa_entity, coa_consol, account_name, function, nature, business, is_dummy, driver_type, driver_source, data_ideal, pic, notes, sort_order, imported_at',
       )
       .order('sort_order', { ascending: true });
     if (error) return readFailure('listFinishLineAccounts', error);
@@ -900,6 +900,7 @@ class SupabaseRepository implements Repository {
           importedAt: toIso(row.imported_at),
         };
         if (row.cell_id) account.cellId = row.cell_id;
+        if (row.entity_code) account.entityCode = row.entity_code;
         if (row.coa_entity) account.coaEntity = row.coa_entity;
         if (row.coa_consol) account.coaConsol = row.coa_consol;
         if (row.function) account.function = row.function;
@@ -935,6 +936,7 @@ class SupabaseRepository implements Repository {
       const { error } = await table()
         .update({
           cell_id: row.cellId,
+          entity_code: row.entityCode ?? null,
           coa_entity: row.coaEntity ?? null,
           coa_consol: row.coaConsol ?? null,
           account_name: row.accountName,
@@ -960,6 +962,7 @@ class SupabaseRepository implements Repository {
       const { error } = await table().insert(
         inserts.map((row) => ({
           cell_id: row.cellId,
+          entity_code: row.entityCode ?? null,
           coa_entity: row.coaEntity ?? null,
           coa_consol: row.coaConsol ?? null,
           account_name: row.accountName,
@@ -1266,6 +1269,7 @@ interface FinishLineAccountRow {
   id: string;
   /** Null ⇒ unmapped. Kept, never filtered. */
   cell_id: string | null;
+  entity_code: string | null;
   coa_entity: string | null;
   coa_consol: string | null;
   account_name: string;

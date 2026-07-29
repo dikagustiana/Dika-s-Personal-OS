@@ -546,6 +546,13 @@ export interface FinishLineAccount {
   id: string;
   /** Absent ⇒ unmapped. Never filter these out. */
   cellId?: string;
+  /**
+   * The consolidation entity. NOT coaEntity — that is a chart-of-accounts
+   * number and never an entity code, a confusion that made the remap function
+   * unable to match anything and left unmapped accounts unreachable by every
+   * entity view. Absent ⇒ no entity recorded; surfaced, never guessed.
+   */
+  entityCode?: string;
   coaEntity?: string;
   coaConsol?: string;
   accountName: string;
@@ -587,6 +594,8 @@ export interface FinishLineAccount {
 export interface FinishLineAccountWrite {
   id?: string;
   cellId: string | null;
+  /** From the sheet's Entity column — no longer discarded after cell lookup. */
+  entityCode?: string;
   coaEntity?: string;
   coaConsol?: string;
   accountName: string;

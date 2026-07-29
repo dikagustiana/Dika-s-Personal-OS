@@ -151,6 +151,7 @@ function account(over: Partial<FinishLineAccount> & { accountName: string }): Fi
 const EXISTING: FinishLineAccount[] = [
   account({
     accountName: 'Mover fees',
+    entityCode: 'ALPHA',
     coaEntity: '900.001',
     coaConsol: '9.9.99.0001',
     cellId: 'c-dist-alpha',
@@ -161,6 +162,7 @@ const EXISTING: FinishLineAccount[] = [
   }),
   account({
     accountName: 'Untouched account',
+    entityCode: 'ALPHA',
     coaEntity: '900.002',
     coaConsol: '9.9.99.0002',
     cellId: 'c-dist-alpha',
@@ -286,5 +288,44 @@ describe('replace-all refuses a small paste', () => {
   it('allows at the floor', () => {
     expect(replaceRefusalReason(100)).toBeUndefined();
     expect(replaceRefusalReason(560)).toBeUndefined();
+  });
+});
+
+describe('the paste stores the entity instead of discarding it', () => {
+  const base = (over: Partial<Record<string, string>> = {}) =>
+    sheetRow({
+      accountName: 'Mover fees',
+      entity: 'ALPHA',
+      coaEntity: '900.001',
+      coaConsol: '9.9.99.0001',
+      function: 'Moving Function',
+      nature: '',
+      business: 'Channel One',
+      driverType: 'Old driver',
+      driverSource: '',
+      dataIdeal: '',
+      pic: '',
+      status: '',
+      ...over,
+    });
+
+  it('sets entityCode on an insert, from the sheet Entity column', () => {
+    const diff = diffOf(base({ accountName: 'Brand new', coaConsol: '9.9.99.0077', entity: 'BETA' }));
+    expect(diff.added[0].entityCode).toBe('BETA');
+  });
+
+  it('an entity change alone is a real change, not "unchanged"', () => {
+    const diff = diffOf(base({ entity: 'BETA' }));
+    expect(diff.updated).toHaveLength(1);
+    expect(diff.updated[0].entityCode).toBe('BETA');
+  });
+
+  it('a paste whose Entity column was truncated keeps the entity already stored', () => {
+    const truncated = base().split('\t').slice(1).join('\t'); // shifts columns — not this case
+    expect(truncated.length).toBeGreaterThan(0);
+    // The real truncation case: Entity present but empty.
+    const diff = diffOf(base({ entity: '' }));
+    if (diff.updated.length > 0) expect(diff.updated[0].entityCode).toBe('ALPHA');
+    else expect(diff.unchanged).toBe(1);
   });
 });

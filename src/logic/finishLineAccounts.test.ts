@@ -7,6 +7,7 @@ import type {
 import {
   accountsByCell,
   accountsForEntity,
+  accountsWithNoEntity,
   coverageForCell,
   coverageOf,
   gapCounts,
@@ -137,13 +138,13 @@ describe('unmapped accounts are kept, never dropped', () => {
       accountName: 'Below the line',
       function: 'Unmapped Function',
       business: 'Channel One',
-      coaEntity: 'ALPHA',
+      entityCode: 'ALPHA',
     }),
     account({
       accountName: 'Below the line two',
       function: 'Unmapped Function',
       business: 'Channel One',
-      coaEntity: 'BETA',
+      entityCode: 'BETA',
     }),
   ];
 
@@ -182,13 +183,13 @@ describe('the mapping is data — a changed row moves the account', () => {
   const subject = {
     function: 'Widget Function',
     business: 'Channel One',
-    coaEntity: 'ALPHA',
+    entityCode: 'ALPHA',
   };
 
   it('resolves through the mapping table to the cell for its own entity', () => {
     expect(resolveCellId(subject, MAP, CELLS)).toBe('c-widget-alpha');
     // Same pair, different entity — the entity comes from the account itself.
-    expect(resolveCellId({ ...subject, coaEntity: 'BETA' }, MAP, CELLS)).toBe('c-widget-beta');
+    expect(resolveCellId({ ...subject, entityCode: 'BETA' }, MAP, CELLS)).toBe('c-widget-beta');
   });
 
   it('EDITING ONE MAPPING ROW moves the account to a different metric', () => {
@@ -203,7 +204,7 @@ describe('the mapping is data — a changed row moves the account', () => {
   it('returns undefined — not a guess — when the pair has no mapping row', () => {
     expect(
       resolveCellId(
-        { function: 'Unmapped Function', business: 'Channel One', coaEntity: 'ALPHA' },
+        { function: 'Unmapped Function', business: 'Channel One', entityCode: 'ALPHA' },
         MAP,
         CELLS,
       ),
@@ -214,7 +215,7 @@ describe('the mapping is data — a changed row moves the account', () => {
     // Gadget has a cell for ALPHA only; an account in BETA cannot be placed.
     expect(
       resolveCellId(
-        { function: 'Gadget Function', business: 'Channel Two', coaEntity: 'BETA' },
+        { function: 'Gadget Function', business: 'Channel Two', entityCode: 'BETA' },
         MAP,
         CELLS,
       ),
@@ -254,7 +255,7 @@ describe('nothing assumes a fixed number of entities', () => {
     const accounts = [
       account({ accountName: 'Alpha mapped', cellId: 'c-widget-alpha' }),
       account({ accountName: 'Beta mapped', cellId: 'c-widget-beta' }),
-      account({ accountName: 'Alpha unmapped', coaEntity: 'ALPHA', function: 'X', business: 'Y' }),
+      account({ accountName: 'Alpha unmapped', entityCode: 'ALPHA', function: 'X', business: 'Y' }),
     ];
     expect(accountsForEntity(accounts, 'ALPHA', CELLS).map((a) => a.accountName)).toEqual([
       'Alpha mapped',
@@ -269,7 +270,7 @@ describe('nothing assumes a fixed number of entities', () => {
     // A sixth or seventh entity added to os_finish_line_entities flows through
     // with no code change.
     const accounts = [
-      account({ accountName: 'New entity', coaEntity: 'GAMMA', function: 'X', business: 'Y' }),
+      account({ accountName: 'New entity', entityCode: 'GAMMA', function: 'X', business: 'Y' }),
     ];
     expect(accountsForEntity(accounts, 'GAMMA', CELLS)).toHaveLength(1);
   });
@@ -287,5 +288,35 @@ describe('imported_at is surfaced', () => {
 
   it('is undefined when there is nothing imported', () => {
     expect(latestImportedAt([])).toBeUndefined();
+  });
+});
+
+describe('an account with no entity at all', () => {
+  it('is found, so it can be surfaced rather than vanishing', () => {
+    const accounts = [
+      account({ accountName: 'Mapped', cellId: 'c-widget-alpha' }),
+      account({ accountName: 'Unmapped but placed', entityCode: 'ALPHA', function: 'X', business: 'Y' }),
+      account({ accountName: 'No metric, no entity' }),
+      account({ accountName: 'Also nowhere' }),
+    ];
+    expect(accountsWithNoEntity(accounts).map((a) => a.accountName)).toEqual([
+      'No metric, no entity',
+      'Also nowhere',
+    ]);
+  });
+
+  /**
+   * THE PREMISE THE OLD FIXTURES ENCODED, PINNED AS WRONG. Real data puts a
+   * chart-of-accounts number in coaEntity, never an entity code — so an
+   * account carrying only coaEntity must reach NO entity view. The old
+   * fixtures set coaEntity: 'ALPHA', which made a broken filter look correct.
+   */
+  it('is NOT reachable by an entity view via coaEntity, which is a COA number', () => {
+    const accounts = [
+      account({ accountName: 'Real shape', coaEntity: '900001234', function: 'X', business: 'Y' }),
+    ];
+    expect(accountsForEntity(accounts, 'ALPHA', CELLS)).toEqual([]);
+    expect(accountsForEntity(accounts, '900001234', CELLS)).toEqual([]);
+    expect(accountsWithNoEntity(accounts)).toHaveLength(1);
   });
 });
