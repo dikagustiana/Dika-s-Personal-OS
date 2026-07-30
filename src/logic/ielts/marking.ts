@@ -8,6 +8,29 @@
  * That is the entire mechanism preventing name drift, and drift breaks
  * counting. marking.test.ts asserts the generated text contains every mode of
  * the chosen skill byte-identically, so a paraphrase fails the suite.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * THIS PROMPT IS DELIBERATELY COPY-PASTE ONLY. THERE IS NO SEND PATH AND THE
+ * ABSENCE IS THE DECISION, NOT AN OVERSIGHT.
+ *
+ * The research pipeline has a send button per prompt card and a per-task model
+ * routing table (logic/research/modelRouting.ts). Neither reaches here, and no
+ * routing entry should be added for marking, because the whole error-pattern
+ * system rests on marking accuracy. The layer-2 taxonomy was derived from
+ * observations of this owner's ACTUAL essays, and the six classification classes
+ * in classify.ts — correction-resistant, induced, unresolved,
+ * within-session-cluster, too-early, isolated — count occurrences PER CATEGORY.
+ * A marker that categorises more loosely does not produce slightly worse data;
+ * it fills the log with wrong categories, and the classification becomes noise
+ * that looks like data. Wrong counts read exactly like right ones.
+ *
+ * The test is 52 days out as of 2026-07-30. This is not the moment to swap the
+ * marker for an untested one.
+ *
+ * If automated marking is wanted later, that is a decision with a quality bar
+ * attached — agreement measured against known-good markings on real essays,
+ * per category — and not a routing entry.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 import type { IeltsErrorSkill } from '../../data/types';
 import {

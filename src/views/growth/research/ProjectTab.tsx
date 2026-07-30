@@ -28,6 +28,7 @@ import { LOOPS, LOOP_KEYS, type LoopKey } from '../../../logic/research/loops';
 import { templateOf } from '../../../logic/research/templates';
 import { prBrief, prContra } from '../../../logic/research/prompts';
 import type { CouncilCapabilities } from '../../../data/researchCouncil';
+import type { ModelRoutingTable } from '../../../logic/research/modelRouting';
 import { CouncilPanel } from './CouncilPanel';
 import { cn } from '../../../lib/utils';
 
@@ -83,6 +84,8 @@ export interface ProjectTabProps {
   onAppendLog: (text: string) => Promise<void>;
   /** Absent until the capability probe returns; the council is optional. */
   councilCapabilities?: CouncilCapabilities;
+  /** Task -> model, passed to the council panel so the confirm step names it. */
+  routing?: ModelRoutingTable;
   isPending: boolean;
 }
 
@@ -119,6 +122,7 @@ export function ProjectTab({
   onDeleteClaim,
   onAppendLog,
   councilCapabilities,
+  routing,
   isPending,
 }: ProjectTabProps) {
   const template = templateOf(research.meta.template);
@@ -336,6 +340,7 @@ export function ProjectTab({
                     <CouncilPanel
                       mode="method"
                       capabilities={councilCapabilities}
+                      routing={routing}
                       projectId={research.project.id}
                       topic={research.meta.question}
                       getContent={() => methodCouncilInput(research)}
@@ -671,6 +676,7 @@ export function ProjectTab({
               <CouncilPanel
                 mode="contra"
                 capabilities={councilCapabilities}
+                routing={routing}
                 projectId={research.project.id}
                 topic={research.meta.question}
                 getContent={() => prContra(research)}

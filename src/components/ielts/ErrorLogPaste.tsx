@@ -56,6 +56,16 @@ interface EditableRow {
 
 const pairKey = (date: string, skill: IeltsErrorSkill) => `${date} ${skill}`;
 
+/**
+ * COPY ONLY. No send button belongs here.
+ *
+ * This is the seam where one would be added by analogy with the research
+ * pipeline's prompt cards (views/growth/research/PromptsTab.tsx), and the reason
+ * not to is recorded in full at the top of logic/ielts/marking.ts: the six
+ * classification classes count occurrences per category, so a marker that
+ * categorises more loosely turns the error log into noise that reads like data.
+ * Read that comment before adding one.
+ */
 function MarkingPrompt() {
   const [skill, setSkill] = useState<IeltsErrorSkill>('writing_task1');
   const [open, setOpen] = useState(false);

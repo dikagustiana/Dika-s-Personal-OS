@@ -1,5 +1,6 @@
 import { Check, Copy, Send } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { cn } from '../../../lib/utils';
 import { Button } from '../../../components/ui/Button';
 import { Card, CardContent } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
@@ -11,6 +12,15 @@ import {
   type ModelCapabilities,
   type PromptKind,
 } from '../../../data/researchModel';
+import {
+  activeRoutes,
+  isRouted,
+  routedModel,
+  routedModelOverride,
+  unrecognisedTasks,
+  type ModelRoute,
+  type ModelRoutingTable,
+} from '../../../logic/research/modelRouting';
 import {
   prAllBatch,
   prBatch,
@@ -29,6 +39,12 @@ export interface PromptsTabProps {
   projects: ResearchProject[];
   settings: ResearchSettings;
   capabilities: ModelCapabilities;
+  /** Task → model. Empty means every card runs on the function's default. */
+  routing: ModelRoutingTable;
+  /** The stored rows, for the summary and the unrecognised-task warning. */
+  routingRows: ModelRoute[];
+  /** The routing read failed — different from nothing being routed. */
+  routingFailed?: boolean;
   /** Pre-filled question when the portfolio's scope box handed one over. */
   initialScopeQuestion?: string;
 }
@@ -43,19 +59,29 @@ interface PromptCard {
 function CardBody({
   card,
   capabilities,
+  routing,
 }: {
   card: PromptCard;
   capabilities: ModelCapabilities;
+  routing: ModelRoutingTable;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  // Whether it SENT is kept alongside the text. A refusal rendered under
+  // "Model response" with the layer (c) caption reads as output the model
+  // produced, when nothing was produced at all.
+  const [result, setResult] = useState<{ sent: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
 
   const prompt = useMemo(() => card.build(), [card]);
+  // Note what is NOT passed to either of these: the routing table. Routing
+  // chooses the model; it has no say in whether a prompt may be sent, and these
+  // two cannot read a routing row even by accident.
   const blocked = sendBlockedReason(card.kind, capabilities);
   const sendable = canSend(card.kind, capabilities);
+  const model = routedModel(card.kind, routing, capabilities.model);
+  const routed = isRouted(card.kind, routing);
 
   const copy = async () => {
     try {
@@ -70,10 +96,23 @@ function CardBody({
 
   const send = async () => {
     setSending(true);
-    const outcome = await sendPrompt({ kind: card.kind, prompt, confirmed: true });
+    const outcome = await sendPrompt({
+      kind: card.kind,
+      prompt,
+      confirmed: true,
+      // Undefined for an unrouted card, so the function picks its own default at
+      // call time rather than being pinned to whatever the probe reported when
+      // this tab was opened.
+      model: routedModelOverride(card.kind, routing),
+    });
     setSending(false);
     setConfirming(false);
-    setResult(outcome.sent ? (outcome.completion ?? '') : (outcome.reason ?? 'Nothing was sent.'));
+    setResult({
+      sent: outcome.sent,
+      text: outcome.sent
+        ? (outcome.completion ?? '')
+        : (outcome.reason ?? 'Nothing was sent, and the function gave no reason.'),
+    });
   };
 
   return (
@@ -84,11 +123,29 @@ function CardBody({
             <h3 className="font-display text-sm font-semibold text-foreground">{card.title}</h3>
             <p className="mt-1 text-xs text-foreground-muted">{card.blurb}</p>
           </div>
-          <div className="flex shrink-0 gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             <Button size="sm" variant="secondary" onClick={() => void copy()}>
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
               {copied ? 'Copied' : 'Copy'}
             </Button>
+            {/* WHICH MODEL, BEFORE THE CLICK. A person about to spend a
+                completion should not have to remember what the routing table
+                says, and eleven of them is not the moment to find out. Shown
+                only where a send is actually offered: on a copy-paste card the
+                model is whichever one the prompt gets pasted into. */}
+            {sendable && (
+              <span
+                className="max-w-[12rem] truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted"
+                title={
+                  routed
+                    ? `${model} — routed for ${card.kind} in the routing table`
+                    : `${model} — the configured default; ${card.kind} has no routing row`
+                }
+              >
+                {model || 'the configured model'}
+                {routed && ' · routed'}
+              </span>
+            )}
             {sendable && (
               <Button size="sm" onClick={() => setConfirming(true)} disabled={sending}>
                 <Send className="size-4" />
@@ -106,9 +163,11 @@ function CardBody({
         {confirming && (
           <div className="mt-3 border border-escalate bg-escalate/10 p-3">
             <p className="text-xs text-foreground-secondary">
-              Send this prompt to {capabilities.model || 'the configured model'}? It is
-              {' '}{prompt.length.toLocaleString()} characters, shown in full below. Nothing the
-              model returns can verify an item, tick a gate or write a cycle.
+              Send this prompt to {model || 'the configured model'}
+              {routed ? ' (routed for this task)' : ' (the configured default)'}? It is
+              {' '}{prompt.length.toLocaleString()} characters, shown in full below. That is one
+              completion. Nothing the model returns can verify an item, tick a gate or write a
+              cycle.
             </p>
             <div className="mt-2 flex gap-2">
               <Button size="sm" onClick={() => void send()} disabled={sending}>
@@ -137,15 +196,102 @@ function CardBody({
 
         {result !== null && (
           <div className="mt-3">
-            <span className="surface-label">Model response</span>
-            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-card p-3 text-[11px] leading-5 text-foreground-secondary">
-              {result || '(empty)'}
+            <span className="surface-label">
+              {result.sent ? 'Model response' : 'Nothing was sent'}
+            </span>
+            <pre
+              className={cn(
+                'mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border p-3 text-[11px] leading-5 text-foreground-secondary',
+                result.sent ? 'border-border-subtle bg-card' : 'border-destructive bg-surface-2',
+              )}
+            >
+              {result.text || '(empty)'}
             </pre>
-            <p className="mt-1 text-xs text-foreground-muted">
-              Output is layer (c) until you open the sources yourself. Nothing here has been
-              written to the register.
-            </p>
+            {result.sent ? (
+              <p className="mt-1 text-xs text-foreground-muted">
+                Output is layer (c) until you open the sources yourself. Nothing here has been
+                written to the register.
+              </p>
+            ) : (
+              // The layer (c) caption is deliberately NOT shown here: there is no
+              // output to classify, and a caption about output invites reading the
+              // failure as one. Nothing was retried either — a retry spends again.
+              <p className="mt-1 text-xs text-foreground-muted">
+                No completion was returned and nothing was retried automatically. The prompt above
+                is unchanged and still copies.
+              </p>
+            )}
           </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * What is routed where, and where to change it.
+ *
+ * Read-only on purpose. The rows are edited in the Supabase table editor, which
+ * is what makes routing a no-deploy decision; an editor screen here would be a
+ * second place the same answer lives, and the one people forget to look at.
+ * This block exists so the owner does not have to open the database to remember
+ * what he set.
+ */
+function RoutingSummary({
+  routingRows,
+  routingFailed,
+  capabilities,
+}: {
+  routingRows: ModelRoute[];
+  routingFailed?: boolean;
+  capabilities: ModelCapabilities;
+}) {
+  const routes = activeRoutes(routingRows);
+  const unknown = unrecognisedTasks(routingRows);
+
+  return (
+    <Card>
+      <CardContent className="pt-5">
+        <span className="surface-label">Model routing</span>
+        {routingFailed ? (
+          // Not "nothing is routed": that is a working state and this is not.
+          <p className="mt-1 text-xs text-foreground-muted">
+            The routing table could not be read, so every task below falls back to the configured
+            default. Your routing rows still exist — this list failed to load.
+          </p>
+        ) : routes.length === 0 ? (
+          <p className="mt-1 text-xs text-foreground-muted">
+            Nothing is routed, so every task runs on the configured default
+            {capabilities.model ? ` (${capabilities.model})` : ''}. Route a task by putting a model
+            id in the <code>os_model_routing</code> row for it — no deploy, effective next reload.
+            A blank row means the default, never “do not send”.
+          </p>
+        ) : (
+          <>
+            <ul className="mt-1 space-y-0.5 text-xs text-foreground-secondary">
+              {routes.map((route) => (
+                <li key={route.task} className="flex flex-wrap gap-x-2">
+                  <span className="font-semibold">{route.task}</span>
+                  <span className="text-foreground-muted">→ {route.model}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 text-xs text-foreground-muted">
+              Everything else runs on the configured default
+              {capabilities.model ? ` (${capabilities.model})` : ''}. Routing chooses which model;
+              it cannot make a source-checking prompt sendable without web access.
+            </p>
+          </>
+        )}
+        {unknown.length > 0 && (
+          // A typo'd task name would otherwise be a setting that silently does
+          // nothing — the failure mode this table has no CHECK constraint to
+          // catch, reported instead of prevented so a new prompt kind stays
+          // routable without a migration.
+          <p className="mt-2 border-l-2 border-escalate px-3 py-1 text-xs text-foreground-secondary">
+            Routing rows for unrecognised tasks: {unknown.join(', ')}. Nothing reads them — check
+            the spelling against the task names above.
+          </p>
         )}
       </CardContent>
     </Card>
@@ -156,6 +302,9 @@ export function PromptsTab({
   projects,
   settings,
   capabilities,
+  routing,
+  routingRows,
+  routingFailed,
   initialScopeQuestion,
 }: PromptsTabProps) {
   const [selectedId, setSelectedId] = useState(projects[0]?.project.id ?? '');
@@ -251,6 +400,12 @@ export function PromptsTab({
         </CardContent>
       </Card>
 
+      <RoutingSummary
+        routingRows={routingRows}
+        routingFailed={routingFailed}
+        capabilities={capabilities}
+      />
+
       {/* prScope works with no project selected: it exists precisely for the
           moment before a pipeline exists. */}
       <Card>
@@ -282,6 +437,7 @@ export function PromptsTab({
             build: () => prScope(scopeQuestion.trim()),
           }}
           capabilities={capabilities}
+          routing={routing}
         />
       )}
 
@@ -310,7 +466,12 @@ export function PromptsTab({
 
       <div className="space-y-4">
         {cards.map((card) => (
-          <CardBody key={card.kind} card={card} capabilities={capabilities} />
+          <CardBody
+            key={card.kind}
+            card={card}
+            capabilities={capabilities}
+            routing={routing}
+          />
         ))}
       </div>
     </div>

@@ -14,6 +14,12 @@
  * running the review, because a fabricated all-clear retires a check that never
  * happened. The server refuses those prompts too — this is the second of two
  * gates, not the only one.
+ *
+ * NOTE WHAT canSend AND sendBlockedReason DO NOT TAKE: a routing table. Per-task
+ * model routing (logic/research/modelRouting.ts) decides WHICH model runs a
+ * prompt and has no way to decide WHETHER one may. These two functions cannot
+ * see a routing row even by mistake, which is why a row naming a browsing-capable
+ * model for prData still leaves prData copy-paste only.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
 import { readStoredKey } from '../components/PassphraseGate';
@@ -52,6 +58,39 @@ export interface ModelResult {
   completion?: string;
   /** Why nothing was sent, in the server's words. Shown verbatim. */
   reason?: string;
+}
+
+/**
+ * The two shapes a refusal arrives in, and why both have to be read.
+ *
+ * The function answers its own refusals — unconfigured, browsing-gated, not
+ * confirmed — with a prose `reason`. Its GUARD refuses earlier and differently:
+ * auth, rate limiting and malformed requests answer with `error` and no reason,
+ * because that is the shape checkAppKey and the 400 branches return.
+ *
+ * Reading only `reason` is how a real failure became "Nothing was sent." on the
+ * card: a session key expires after twelve hours, the next send is a 401, and
+ * the card said nothing about why. Both fields are read here so the panel is
+ * never blanker than the server was.
+ */
+interface RefusalBody {
+  reason?: string;
+  error?: string;
+  /** Seconds until a lockout lifts. Only present on 429. */
+  retryAfter?: number;
+}
+
+export function refusalReason(body: RefusalBody | null | undefined): string {
+  if (body?.reason) return body.reason;
+  if (body?.error) {
+    // The error is passed through rather than interpreted: 'Unauthorized' and
+    // 'No prompt supplied' have different causes, and guessing which one this is
+    // would put a wrong explanation in front of the owner.
+    return body.retryAfter
+      ? `${body.error}. Try again in ${body.retryAfter}s.`
+      : `${body.error}. Nothing was sent.`;
+  }
+  return 'The model function gave no reason. Nothing was sent.';
 }
 
 const FUNCTION = 'run-research-prompt';
@@ -107,6 +146,12 @@ export async function probeModel(): Promise<ModelCapabilities> {
  * Sends one prompt. `confirmed` is required by the server and is never defaulted
  * here — the confirm step exists so the owner sees what is going out, and a
  * default would quietly remove it.
+ *
+ * `model` is the routed model for this task, or undefined when the task has no
+ * routing row. Undefined is sent as ABSENT rather than as the probed default
+ * name: the server then picks its own RESEARCH_MODEL_DEFAULT at call time, so
+ * changing that variable takes effect without a page reload. Echoing the probed
+ * name back would pin whatever was current when the tab was opened.
  */
 export async function sendPrompt(input: {
   kind: PromptKind;
@@ -118,7 +163,7 @@ export async function sendPrompt(input: {
     return { sent: false, reason: 'Direct sending is not configured.' };
   }
   try {
-    const data = await edgeFunctionCall<ModelResult>(FUNCTION, {
+    const data = await edgeFunctionCall<ModelResult & RefusalBody>(FUNCTION, {
       method: 'POST',
       appKey: readStoredKey() ?? undefined,
       body: {
@@ -128,7 +173,9 @@ export async function sendPrompt(input: {
         ...(input.model ? { model: input.model } : {}),
       },
     });
-    return data ?? { sent: false, reason: 'No response from the model function.' };
+    if (!data) return { sent: false, reason: 'No response from the model function.' };
+    if (data.sent) return data;
+    return { sent: false, reason: refusalReason(data) };
   } catch {
     return { sent: false, reason: 'Could not reach the model function.' };
   }

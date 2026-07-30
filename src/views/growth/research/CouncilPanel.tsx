@@ -26,6 +26,13 @@ import {
 import type { CouncilSessionRow } from '../../../data/researchRepository';
 import { advisorsForMode, completionCount } from '../../../logic/research/council/personas';
 import type { CouncilMode } from '../../../logic/research/council/personas';
+import {
+  NO_ROUTING,
+  isRouted,
+  routedModel,
+  routedModelOverride,
+  type ModelRoutingTable,
+} from '../../../logic/research/modelRouting';
 import { useAppStore } from '../../../store/appStore';
 import { cn } from '../../../lib/utils';
 
@@ -34,6 +41,12 @@ export interface CouncilPanelProps {
   capabilities: CouncilCapabilities;
   /** Read lazily so the panel always sends the current state, not a stale copy. */
   getContent: () => string;
+  /**
+   * Task → model. A row for this mode moves every seat that has no model of its
+   * own; absent, the function's default runs the council. It cannot make a gated
+   * mode available — councilAvailable is not given this table.
+   */
+  routing?: ModelRoutingTable;
   topic?: string;
   projectId?: string;
   className?: string;
@@ -325,6 +338,7 @@ export function CouncilPanel({
   mode,
   capabilities,
   getContent,
+  routing = NO_ROUTING,
   topic,
   projectId,
   className,
@@ -342,10 +356,15 @@ export function CouncilPanel({
    */
   const [historyFailed, setHistoryFailed] = useState(false);
 
+  // Neither of these is given the routing table: routing picks the model, it
+  // does not decide availability. A contra council routed to a browsing-capable
+  // model is still absent while browsing is undeclared.
   const blocked = councilBlockedReason(mode, capabilities);
   const available = councilAvailable(mode, capabilities);
   const seats = advisorsForMode(mode);
   const completions = completionCount(mode);
+  const model = routedModel(mode, routing, capabilities.model);
+  const routed = isRouted(mode, routing);
   const running = progress !== null && !transcript;
 
   useEffect(() => {
@@ -391,6 +410,7 @@ export function CouncilPanel({
       topic,
       projectId,
       confirmed: true,
+      model: routedModelOverride(mode, routing),
       onProgress: setProgress,
     });
 
@@ -430,16 +450,33 @@ export function CouncilPanel({
 
   return (
     <div className={cn('space-y-3', className)}>
-      <Button variant="secondary" onClick={() => setConfirming(true)} disabled={running}>
-        <Users className="size-4" />
-        {running ? 'Council running…' : 'Run council'}
-      </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="secondary" onClick={() => setConfirming(true)} disabled={running}>
+          <Users className="size-4" />
+          {running ? 'Council running…' : 'Run council'}
+        </Button>
+        {/* Which model, before the click — the same rule as the prompt cards,
+            and it matters more here: this button is eleven completions. */}
+        <span
+          className="max-w-[12rem] truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted"
+          title={
+            routed
+              ? `${model} — routed for the ${mode} council in the routing table`
+              : `${model} — the configured default; the ${mode} council has no routing row`
+          }
+        >
+          {model || 'the configured model'}
+          {routed && ' · routed'}
+        </span>
+      </div>
 
       {confirming && (
         <div className="border border-escalate bg-escalate/10 p-3">
           <p className="text-xs leading-5 text-foreground-secondary">
             Convene the {MODE_LABEL[mode]} council on{' '}
-            {capabilities.model || 'the configured model'}? {seats.length} seats
+            {model || 'the configured model'}
+            {routed ? ' (routed for this council)' : ' (the configured default)'}?{' '}
+            {seats.length} seats
             {' → '}anonymised peer review{' → '}chairman ={' '}
             <strong>{completions} completions</strong>. The input carries the full text below and
             these are not small calls.
