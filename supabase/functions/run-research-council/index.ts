@@ -14,6 +14,10 @@
 //
 // NO CRON, NO SCHEDULER. Every run is user-initiated and explicitly confirmed.
 // loopDue is a trigger for the owner, not for a job.
+//
+// SEATS GO OUT IN WAVES, NOT ALL AT ONCE. The provider caps concurrent requests
+// per organization; firing five advisors together lost two of them to 429 on
+// every single run. See CONFIG.maxConcurrency.
 
 import { checkAppKey } from '../_shared/appKeyAuth.ts';
 
@@ -23,7 +27,63 @@ const CONFIG = {
   defaultModel: Deno.env.get('RESEARCH_MODEL_DEFAULT') ?? 'kimi-k2-0905-preview',
   browsing: (Deno.env.get('RESEARCH_MODEL_BROWSING') ?? '').toLowerCase() === 'true',
   maxTokens: Number(Deno.env.get('RESEARCH_MODEL_MAX_TOKENS') ?? '8000'),
+  /**
+   * How many provider calls may be in flight at once.
+   *
+   * MEASURED, NOT GUESSED. A five-seat council fired all five advisors in
+   * parallel and two came back
+   * `429 … request reached max organization concurrency: 3`. Every method
+   * council therefore lost the same two seats, silently as far as the spend was
+   * concerned — the run "succeeded" with three. One of the dropped seats was the
+   * Circularity Auditor, the one personas.ts calls the seat the author cannot
+   * supply for himself, so the council was losing precisely the perspective it
+   * exists to add.
+   *
+   * Three is this account's ceiling today. It is an environment variable and not
+   * a constant because it is a property of the ACCOUNT, not of the code: a tier
+   * change should be a secret edit, not a deploy.
+   */
+  maxConcurrency: Math.max(
+    1,
+    Number(Deno.env.get('RESEARCH_MODEL_MAX_CONCURRENCY') ?? '3') || 3,
+  ),
 };
+
+/** Retries for a 429 only. A rate-limited call is rejected before inference, so
+ * retrying it costs nothing; any other failure is returned as-is. */
+const MAX_RATE_LIMIT_RETRIES = 3;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Promise.allSettled with a ceiling on how many run at once.
+ *
+ * Same contract as allSettled — results in input order, one entry per task, no
+ * rejection — because the caller's partial-council handling depends on exactly
+ * that. Only the arrival rate changes.
+ */
+async function settledWithLimit<T>(
+  tasks: Array<() => Promise<T>>,
+  limit: number,
+): Promise<Array<PromiseSettledResult<T>>> {
+  const results = new Array<PromiseSettledResult<T>>(tasks.length);
+  let cursor = 0;
+  const worker = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= tasks.length) return;
+      try {
+        results[index] = { status: 'fulfilled', value: await tasks[index]() };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason: reason as Error };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.max(1, Math.min(limit, tasks.length)) }, worker),
+  );
+  return results;
+}
 
 /**
  * The contra council's Counter-Evidence Hunter is told to return real,
@@ -84,25 +144,44 @@ interface ChatMessage {
 }
 
 async function complete(model: string, messages: ChatMessage[]): Promise<string> {
-  const response = await fetch(`${CONFIG.baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${CONFIG.apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: CONFIG.maxTokens,
-      temperature: 0.4,
-      messages,
-    }),
-  });
-  if (!response.ok) {
-    // Never echo the provider body: it can contain the key.
-    throw new Error(`model call failed (${response.status})`);
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await fetch(`${CONFIG.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${CONFIG.apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: CONFIG.maxTokens,
+        temperature: 0.4,
+        messages,
+      }),
+    });
+
+    // A 429 is refused BEFORE inference, so it is not billed and retrying it
+    // does not double-spend. Belt and braces alongside maxConcurrency: the
+    // ceiling is per organization, so another tab — or the single-prompt
+    // endpoint — can be using part of it at the same moment.
+    if (response.status === 429 && attempt < MAX_RATE_LIMIT_RETRIES) {
+      // Honour the provider's own number when it sends one; it said "try again
+      // after 1 seconds" here. Bounded, so a hostile header cannot park the
+      // function until it times out.
+      const header = Number(response.headers.get('retry-after') ?? '');
+      const waitSeconds = Number.isFinite(header) && header > 0 ? Math.min(header, 10) : 1;
+      // The body is never read on this path; release it rather than leaking it.
+      await response.body?.cancel();
+      await sleep(waitSeconds * 1000 * (attempt + 1));
+      continue;
+    }
+
+    if (!response.ok) {
+      // Never echo the provider body: it can contain the key.
+      throw new Error(`model call failed (${response.status})`);
+    }
+    const payload = await response.json();
+    return payload?.choices?.[0]?.message?.content ?? '';
   }
-  const payload = await response.json();
-  return payload?.choices?.[0]?.message?.content ?? '';
 }
 
 Deno.serve(async (request) => {
@@ -183,12 +262,18 @@ Deno.serve(async (request) => {
   // wants counts. Staging also means a chairman failure cannot destroy the ten
   // completions already paid for: they are already back in the client's hands.
   try {
-    // ── Stage 1: advisors, in parallel ────────────────────────────────────
+    // ── Stage 1: advisors, in waves of maxConcurrency ─────────────────────
     //
-    // allSettled, NOT all. The website uses Promise.all here, so one failing
+    // SETTLED, NOT all. The website uses Promise.all here, so one failing
     // seat rejects the whole run and every completion already paid for is
     // discarded. A partial council is still worth reading, and the owner —
     // not this function — decides whether to proceed with four.
+    //
+    // Waves rather than all at once: the provider's per-organization
+    // concurrency ceiling turned "five seats" into "three seats and two 429s"
+    // on every run. Losing seats to a rate limit is not the same kind of
+    // partial council as losing one to a bad prompt, and it should not be
+    // reported as if it were.
     if (stage === 'advisors') {
       if (advisors.length === 0) return json({ error: 'advisors are required' }, 400);
       if (advisors.length > MAX_SEATS) {
@@ -198,8 +283,8 @@ Deno.serve(async (request) => {
         return json({ error: 'A system prompt exceeds the allowed size' }, 400);
       }
 
-      const settled = await Promise.allSettled(
-        advisors.map(async (persona) => {
+      const settled = await settledWithLimit(
+        advisors.map((persona) => async () => {
           const model = persona.model ?? CONFIG.defaultModel;
           const text = await complete(model, [
             { role: 'system', content: persona.systemPrompt },
@@ -207,6 +292,7 @@ Deno.serve(async (request) => {
           ]);
           return { advisorId: persona.id, advisorName: persona.name, model, text };
         }),
+        CONFIG.maxConcurrency,
       );
 
       const advisorResponses: unknown[] = [];
@@ -232,7 +318,7 @@ Deno.serve(async (request) => {
       return json({ ...capabilities(), ran: true, stage, advisorResponses, failedSeats });
     }
 
-    // ── Stage 2: peer review, in parallel over the anonymised set ─────────
+    // ── Stage 2: peer review, in waves, over the anonymised set ──────────
     if (stage === 'peers') {
       const peerPrompts = (body.peerPrompts ?? []) as Array<{
         reviewerId: string;
@@ -249,8 +335,8 @@ Deno.serve(async (request) => {
         return json({ error: 'A peer prompt exceeds the allowed size' }, 400);
       }
 
-      const settled = await Promise.allSettled(
-        peerPrompts.map(async (prompt) => {
+      const settled = await settledWithLimit(
+        peerPrompts.map((prompt) => async () => {
           const model = prompt.model ?? CONFIG.defaultModel;
           const raw = await complete(model, [
             { role: 'system', content: prompt.system },
@@ -258,6 +344,7 @@ Deno.serve(async (request) => {
           ]);
           return { reviewerId: prompt.reviewerId, reviewerName: prompt.reviewerName, raw };
         }),
+        CONFIG.maxConcurrency,
       );
 
       const peerReviews: unknown[] = [];
