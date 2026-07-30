@@ -17,7 +17,7 @@
  * hole the whole subsystem exists to close.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
-import { refusalReason } from './researchModel';
+import { refusalDetail, refusalReason } from './researchModel';
 import { readStoredKey } from '../components/PassphraseGate';
 import {
   CHAIRMAN_PERSONA,
@@ -257,7 +257,10 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
     // than stopping loudly and letting the owner decide whether to retry.
     return {
       ok: false,
-      reason: `Peer review stage failed: ${refusalReason(stage2)} The ${advisorResponses.length} advisor responses were not discarded by the provider, but the run stopped before the chairman.`,
+      // refusalDetail, NOT refusalReason: its "Nothing was sent." tail would
+      // assert the opposite of the sentence it sits in — five completions are
+      // already paid for by the time the peer stage fails.
+      reason: `Peer review stage failed: ${refusalDetail(stage2)} The ${advisorResponses.length} advisor responses were not discarded by the provider, but the run stopped before the chairman.`,
       failedSeats: progress.failedSeats,
     };
   }

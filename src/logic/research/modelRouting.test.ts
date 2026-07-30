@@ -4,6 +4,7 @@ import {
   ROUTABLE_TASKS,
   activeRoutes,
   isRouted,
+  resolveTaskModel,
   routedModel,
   routedModelOverride,
   routingTable,
@@ -190,5 +191,81 @@ describe('routing cannot override the browsing gate', () => {
     expect(canSend('prMethod', MODEL_UNCONFIGURED)).toBe(false);
     expect(canSend('prBrief', MODEL_UNCONFIGURED)).toBe(false);
     expect(councilAvailable('method', COUNCIL_UNCONFIGURED)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The OTHER half of the gate, and the one that was missing: the browsing
+// declaration describes the DEFAULT model, so a gated task must not be routed
+// off it even when browsing IS declared.
+// ---------------------------------------------------------------------------
+
+describe('resolveTaskModel keeps browsing-gated tasks on the declared model', () => {
+  const caps = { model: 'declared-browsing-model', requiresBrowsing: MODEL_UNCONFIGURED.requiresBrowsing };
+
+  it('ignores a routing row for a gated task, and says so rather than silently', () => {
+    // The harm this prevents: browsing declared for the default, prData routed
+    // to some other model with no web access, gate passes because it only ever
+    // checked the boolean — and the model fabricates the confirmation.
+    const table = routingTable([row('prData', 'model-with-no-web-access')]);
+    const resolved = resolveTaskModel('prData', table, caps);
+    expect(resolved.model).toBe('declared-browsing-model');
+    expect(resolved.override).toBeUndefined();
+    expect(resolved.routed).toBe(false);
+    // Not silent: the card and the summary can say the row exists and is not
+    // applied, because a setting that quietly does nothing is its own defect.
+    expect(resolved.pinned).toBe(true);
+  });
+
+  it('pins every gated task, not just the one that was thought of', () => {
+    const table = routingTable(
+      caps.requiresBrowsing.map((task) => row(task, 'model-with-no-web-access')),
+    );
+    for (const task of caps.requiresBrowsing) {
+      const resolved = resolveTaskModel(task, table, caps);
+      expect(resolved.override).toBeUndefined();
+      expect(resolved.model).toBe('declared-browsing-model');
+    }
+  });
+
+  it('routes ungated tasks exactly as before', () => {
+    const table = routingTable([row('prMethod', 'cheap-model')]);
+    const resolved = resolveTaskModel('prMethod', table, caps);
+    expect(resolved).toEqual({
+      model: 'cheap-model',
+      routed: true,
+      pinned: false,
+      override: 'cheap-model',
+    });
+  });
+
+  it('sends no model name for an ungated task with no row', () => {
+    const resolved = resolveTaskModel('prMethod', NO_ROUTING, caps);
+    expect(resolved.override).toBeUndefined();
+    expect(resolved.model).toBe('declared-browsing-model');
+    expect(resolved.routed).toBe(false);
+    expect(resolved.pinned).toBe(false);
+  });
+
+  it('reports the same model it would send, always', () => {
+    // The card shows `model`; the request carries `override`. When an override
+    // exists the two must name the same thing, or the confirm step lies.
+    const table = routingTable([
+      row('prMethod', 'a-model'),
+      row('prData', 'b-model'),
+      row('contra', 'c-model'),
+    ]);
+    for (const task of ROUTABLE_TASKS) {
+      const { model, override } = resolveTaskModel(task, table, caps);
+      if (override) expect(override).toBe(model);
+    }
+  });
+
+  it('pins the contra council too, since the council gate is the same shape', () => {
+    const councilCaps = { model: 'declared-browsing-model', requiresBrowsing: ['contra'] };
+    const table = routingTable([row('contra', 'model-with-no-web-access'), row('method', 'm')]);
+    expect(resolveTaskModel('contra', table, councilCaps).override).toBeUndefined();
+    expect(resolveTaskModel('contra', table, councilCaps).pinned).toBe(true);
+    expect(resolveTaskModel('method', table, councilCaps).override).toBe('m');
   });
 });

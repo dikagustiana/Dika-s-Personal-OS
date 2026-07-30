@@ -14,9 +14,7 @@ import {
 } from '../../../data/researchModel';
 import {
   activeRoutes,
-  isRouted,
-  routedModel,
-  routedModelOverride,
+  resolveTaskModel,
   unrecognisedTasks,
   type ModelRoute,
   type ModelRoutingTable,
@@ -80,8 +78,9 @@ function CardBody({
   // two cannot read a routing row even by accident.
   const blocked = sendBlockedReason(card.kind, capabilities);
   const sendable = canSend(card.kind, capabilities);
-  const model = routedModel(card.kind, routing, capabilities.model);
-  const routed = isRouted(card.kind, routing);
+  // ONE resolution for both the label and the wire, so the name shown before
+  // the click cannot differ from the name that runs.
+  const { model, routed, pinned, override } = resolveTaskModel(card.kind, routing, capabilities);
 
   const copy = async () => {
     try {
@@ -102,8 +101,9 @@ function CardBody({
       confirmed: true,
       // Undefined for an unrouted card, so the function picks its own default at
       // call time rather than being pinned to whatever the probe reported when
-      // this tab was opened.
-      model: routedModelOverride(card.kind, routing),
+      // this tab was opened. Undefined for a browsing-gated card too, whatever
+      // its routing row says — see resolveTaskModel.
+      model: override,
     });
     setSending(false);
     setConfirming(false);
@@ -123,7 +123,11 @@ function CardBody({
             <h3 className="font-display text-sm font-semibold text-foreground">{card.title}</h3>
             <p className="mt-1 text-xs text-foreground-muted">{card.blurb}</p>
           </div>
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+          {/* NOT shrink-0: at 380px the model chip is the widest thing on the
+              row, and a group that refuses to shrink pushed the card wider than
+              the viewport. The chip truncates instead — its full value is in the
+              title attribute and in the confirm step. */}
+          <div className="flex min-w-0 flex-wrap items-center justify-end gap-1.5">
             <Button size="sm" variant="secondary" onClick={() => void copy()}>
               {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
               {copied ? 'Copied' : 'Copy'}
@@ -135,17 +139,28 @@ function CardBody({
                 model is whichever one the prompt gets pasted into. */}
             {sendable && (
               <span
-                className="max-w-[12rem] truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted"
+                className="max-w-full truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted sm:max-w-[12rem]"
                 title={
-                  routed
-                    ? `${model} — routed for ${card.kind} in the routing table`
-                    : `${model} — the configured default; ${card.kind} has no routing row`
+                  pinned
+                    ? `${model} — the declared browsing model. ${card.kind} re-opens sources, and the browsing declaration is about this model, so its routing row is not applied.`
+                    : routed
+                      ? `${model} — routed for ${card.kind} in the routing table`
+                      : `${model} — the configured default; ${card.kind} has no routing row`
                 }
               >
                 {model || 'the configured model'}
                 {routed && ' · routed'}
+                {pinned && ' · not applied'}
               </span>
             )}
+            {/* `sendable` ALONE. Never `sendable || isRouted(...)`.
+                A routing row says WHICH model, never WHETHER a prompt may go
+                out; ORing it in here puts a send button on prData the moment
+                someone routes it, which is the one thing routing must not be
+                able to do. The server would still refuse the send, so the
+                symptom would be a button that always fails — the thing that
+                teaches you to ignore the panel. modelRouting.test.ts pins the
+                rule; this is the line it protects. */}
             {sendable && (
               <Button size="sm" onClick={() => setConfirming(true)} disabled={sending}>
                 <Send className="size-4" />
@@ -164,7 +179,11 @@ function CardBody({
           <div className="mt-3 border border-escalate bg-escalate/10 p-3">
             <p className="text-xs text-foreground-secondary">
               Send this prompt to {model || 'the configured model'}
-              {routed ? ' (routed for this task)' : ' (the configured default)'}? It is
+              {pinned
+                ? ' (the declared browsing model — this prompt re-opens sources, so its routing row is not applied)'
+                : routed
+                  ? ' (routed for this task)'
+                  : ' (the configured default)'}? It is
               {' '}{prompt.length.toLocaleString()} characters, shown in full below. That is one
               completion. Nothing the model returns can verify an item, tick a gate or write a
               cycle.
@@ -248,6 +267,10 @@ function RoutingSummary({
 }) {
   const routes = activeRoutes(routingRows);
   const unknown = unrecognisedTasks(routingRows);
+  // A row for a browsing-gated task is NOT in force: the browsing declaration
+  // describes the default model, so those tasks stay on it. Listing the row
+  // without saying that would make this panel claim something untrue.
+  const gated = routes.filter((route) => capabilities.requiresBrowsing.includes(route.task));
 
   return (
     <Card>
@@ -269,18 +292,32 @@ function RoutingSummary({
         ) : (
           <>
             <ul className="mt-1 space-y-0.5 text-xs text-foreground-secondary">
-              {routes.map((route) => (
-                <li key={route.task} className="flex flex-wrap gap-x-2">
-                  <span className="font-semibold">{route.task}</span>
-                  <span className="text-foreground-muted">→ {route.model}</span>
-                </li>
-              ))}
+              {routes.map((route) => {
+                const notApplied = capabilities.requiresBrowsing.includes(route.task);
+                return (
+                  <li key={route.task} className="flex flex-wrap gap-x-2">
+                    <span className="font-semibold">{route.task}</span>
+                    <span className="text-foreground-muted">→ {route.model}</span>
+                    {notApplied && (
+                      <span className="text-foreground-muted">(not applied)</span>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
             <p className="mt-2 text-xs text-foreground-muted">
               Everything else runs on the configured default
               {capabilities.model ? ` (${capabilities.model})` : ''}. Routing chooses which model;
               it cannot make a source-checking prompt sendable without web access.
             </p>
+            {gated.length > 0 && (
+              <p className="mt-2 border-l-2 border-escalate px-3 py-1 text-xs text-foreground-secondary">
+                Not applied: {gated.map((route) => route.task).join(', ')}. These prompts re-open
+                sources, and web access is declared for the configured default only — so they run
+                on it whatever their row says. Delete the rows or leave them; either way they have
+                no effect.
+              </p>
+            )}
           </>
         )}
         {unknown.length > 0 && (

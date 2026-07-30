@@ -80,7 +80,15 @@ interface RefusalBody {
   retryAfter?: number;
 }
 
-export function refusalReason(body: RefusalBody | null | undefined): string {
+/**
+ * The server's words for a refusal, and nothing added.
+ *
+ * Separate from refusalReason because the council splices a refusal into the
+ * middle of its own sentence, where a bolted-on "Nothing was sent." asserts
+ * something FALSE: by the time the peer stage fails, five completions have been
+ * paid for. A caller that can promise nothing was sent adds that itself.
+ */
+export function refusalDetail(body: RefusalBody | null | undefined): string {
   if (body?.reason) return body.reason;
   if (body?.error) {
     // The error is passed through rather than interpreted: 'Unauthorized' and
@@ -88,9 +96,17 @@ export function refusalReason(body: RefusalBody | null | undefined): string {
     // would put a wrong explanation in front of the owner.
     return body.retryAfter
       ? `${body.error}. Try again in ${body.retryAfter}s.`
-      : `${body.error}. Nothing was sent.`;
+      : `${body.error}.`;
   }
-  return 'The model function gave no reason. Nothing was sent.';
+  return 'The model function gave no reason.';
+}
+
+/** A refusal for a single prompt card, where nothing was in fact sent. */
+export function refusalReason(body: RefusalBody | null | undefined): string {
+  const detail = refusalDetail(body);
+  // The function's own prose reasons already explain themselves, and several
+  // already say what to do instead; only the bare guard errors need the tail.
+  return body?.reason ? detail : `${detail} Nothing was sent.`;
 }
 
 const FUNCTION = 'run-research-prompt';

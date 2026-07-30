@@ -28,9 +28,7 @@ import { advisorsForMode, completionCount } from '../../../logic/research/counci
 import type { CouncilMode } from '../../../logic/research/council/personas';
 import {
   NO_ROUTING,
-  isRouted,
-  routedModel,
-  routedModelOverride,
+  resolveTaskModel,
   type ModelRoutingTable,
 } from '../../../logic/research/modelRouting';
 import { useAppStore } from '../../../store/appStore';
@@ -47,6 +45,12 @@ export interface CouncilPanelProps {
    * mode available — councilAvailable is not given this table.
    */
   routing?: ModelRoutingTable;
+  /**
+   * The routing read failed. Passed all the way down here on purpose: this panel
+   * is where eleven completions get authorised, and "the configured default" is
+   * a claim the app cannot make when it could not read the table.
+   */
+  routingFailed?: boolean;
   topic?: string;
   projectId?: string;
   className?: string;
@@ -339,6 +343,7 @@ export function CouncilPanel({
   capabilities,
   getContent,
   routing = NO_ROUTING,
+  routingFailed,
   topic,
   projectId,
   className,
@@ -363,8 +368,7 @@ export function CouncilPanel({
   const available = councilAvailable(mode, capabilities);
   const seats = advisorsForMode(mode);
   const completions = completionCount(mode);
-  const model = routedModel(mode, routing, capabilities.model);
-  const routed = isRouted(mode, routing);
+  const { model, routed, pinned } = resolveTaskModel(mode, routing, capabilities);
   const running = progress !== null && !transcript;
 
   useEffect(() => {
@@ -410,7 +414,7 @@ export function CouncilPanel({
       topic,
       projectId,
       confirmed: true,
-      model: routedModelOverride(mode, routing),
+      model: resolveTaskModel(mode, routing, capabilities).override,
       onProgress: setProgress,
     });
 
@@ -450,7 +454,7 @@ export function CouncilPanel({
 
   return (
     <div className={cn('space-y-3', className)}>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Button variant="secondary" onClick={() => setConfirming(true)} disabled={running}>
           <Users className="size-4" />
           {running ? 'Council running…' : 'Run council'}
@@ -458,15 +462,20 @@ export function CouncilPanel({
         {/* Which model, before the click — the same rule as the prompt cards,
             and it matters more here: this button is eleven completions. */}
         <span
-          className="max-w-[12rem] truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted"
+          className="max-w-full truncate border border-border px-1.5 py-0.5 text-[10px] text-foreground-muted sm:max-w-[12rem]"
           title={
-            routed
-              ? `${model} — routed for the ${mode} council in the routing table`
-              : `${model} — the configured default; the ${mode} council has no routing row`
+            routingFailed
+              ? `${model} — the configured default. The routing table could not be read, so a routing row for the ${mode} council may exist and is not in force.`
+              : pinned
+                ? `${model} — the declared browsing model. This council is browsing-gated, so its routing row is not applied.`
+                : routed
+                  ? `${model} — routed for the ${mode} council in the routing table`
+                  : `${model} — the configured default; the ${mode} council has no routing row`
           }
         >
           {model || 'the configured model'}
           {routed && ' · routed'}
+          {routingFailed && ' · routing unread'}
         </span>
       </div>
 
@@ -475,7 +484,13 @@ export function CouncilPanel({
           <p className="text-xs leading-5 text-foreground-secondary">
             Convene the {MODE_LABEL[mode]} council on{' '}
             {model || 'the configured model'}
-            {routed ? ' (routed for this council)' : ' (the configured default)'}?{' '}
+            {routingFailed
+              ? ' (the configured default — the routing table could not be read, so a row for this council may exist and is not in force)'
+              : pinned
+                ? ' (the declared browsing model; this council is browsing-gated so its routing row is not applied)'
+                : routed
+                  ? ' (routed for this council)'
+                  : ' (the configured default)'}?{' '}
             {seats.length} seats
             {' → '}anonymised peer review{' → '}chairman ={' '}
             <strong>{completions} completions</strong>. The input carries the full text below and

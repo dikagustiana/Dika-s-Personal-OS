@@ -29,6 +29,11 @@
  *     an argument and cannot see one, and the Edge Function decides on the task
  *     before it reads any model name. Routing answers "which model", never
  *     "may this be sent at all".
+ *
+ *     That is only half the gate, and the other half is resolveTaskModel below:
+ *     the browsing declaration describes the DEFAULT model, so a browsing-gated
+ *     task must not be routed off it even when browsing IS declared. Read the
+ *     comment on TaskModel before changing anything about it.
  */
 
 /**
@@ -126,6 +131,75 @@ export function routedModelOverride(
 ): string | undefined {
   const model = table[task]?.trim();
   return model || undefined;
+}
+
+/**
+ * What the browsing declaration is actually about, and why routing has to stop
+ * at the gate rather than merely fail to open it.
+ *
+ * RESEARCH_MODEL_BROWSING is ONE boolean, and it describes ONE model: the
+ * function's RESEARCH_MODEL_DEFAULT. The server's gate is
+ * `REQUIRES_BROWSING.includes(kind) && !CONFIG.browsing` — it never asks which
+ * model the request named. So the false case is safe (browsing undeclared →
+ * every gated task stays copy-paste, whatever it is routed to) and the TRUE case
+ * was not: with browsing declared for the default, a routing row could send
+ * prData to a different model with no web access at all, and the gate would pass
+ * it. The prompt tells that model to re-open sources and check them as they
+ * stand today; it would fabricate the confirmation, and a fabricated all-clear
+ * retires a check that never happened. That is the exact harm the gate exists to
+ * prevent, reached through the front door.
+ *
+ * So a browsing-gated task is PINNED to the declared model. Its routing row is
+ * not applied — and not silently: `pinned` is returned so the card and the
+ * routing summary can say the row exists and why it is not in force, because a
+ * setting that quietly does nothing is the other failure this table avoids.
+ *
+ * The alternative, a per-row browsing declaration, is the right answer only once
+ * there are two models with confirmed web access to choose between. There is one
+ * key and one provider today, so this adds no configuration that can be got
+ * wrong.
+ */
+export interface TaskModel {
+  /** The model that will actually run this task — what the card must show. */
+  model: string;
+  /** A routing row chose it. */
+  routed: boolean;
+  /** A routing row exists but is not applied: the task is browsing-gated. */
+  pinned: boolean;
+  /** What to send as `model`, or undefined to let the function decide. */
+  override?: string;
+}
+
+/**
+ * Resolves display and wire in ONE place, so the name on the card and the name
+ * on the request cannot disagree. Callers must not compute either separately.
+ *
+ * `capabilities` is the probe result from either seam — both carry the default
+ * model name and the list of gated tasks, and this reads nothing else from them.
+ * It decides WHICH model, never WHETHER: sendability stays with canSend and
+ * councilAvailable, which are given no routing table at all.
+ */
+export function resolveTaskModel(
+  task: string,
+  table: ModelRoutingTable,
+  capabilities: { model: string; requiresBrowsing: readonly string[] },
+): TaskModel {
+  const gated = capabilities.requiresBrowsing.includes(task);
+  const rowModel = table[task]?.trim();
+  if (gated) {
+    return {
+      model: capabilities.model,
+      routed: false,
+      pinned: Boolean(rowModel),
+      override: undefined,
+    };
+  }
+  return {
+    model: rowModel || capabilities.model,
+    routed: Boolean(rowModel),
+    pinned: false,
+    override: rowModel || undefined,
+  };
 }
 
 /** Rows naming a task the code does not recognise — surfaced, never obeyed. */

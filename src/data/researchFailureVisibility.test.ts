@@ -20,7 +20,7 @@ vi.mock('./supabaseRepository', () => ({
 }));
 vi.mock('../components/PassphraseGate', () => ({ readStoredKey: () => 'test-key' }));
 
-const { refusalReason, sendPrompt } = await import('./researchModel');
+const { refusalDetail, refusalReason, sendPrompt } = await import('./researchModel');
 const { runCouncil } = await import('./researchCouncil');
 
 beforeEach(() => {
@@ -39,9 +39,17 @@ describe('refusalReason', () => {
   });
 
   it('says when to try again if the guard gave a lockout window', () => {
+    // The retry window AND the promise that nothing went out: on a single card
+    // both are true, and the second is what the owner needs before retrying.
     expect(refusalReason({ error: 'Locked out', retryAfter: 420 })).toBe(
+      'Locked out. Try again in 420s. Nothing was sent.',
+    );
+    // refusalDetail is the same sentence without the promise, for the council,
+    // where completions HAVE been paid for by the time a later stage fails.
+    expect(refusalDetail({ error: 'Locked out', retryAfter: 420 })).toBe(
       'Locked out. Try again in 420s.',
     );
+    expect(refusalDetail({ error: 'Unauthorized' })).not.toContain('Nothing was sent');
   });
 
   it('never returns an empty string, whatever came back', () => {

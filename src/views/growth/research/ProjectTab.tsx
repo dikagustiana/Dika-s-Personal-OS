@@ -86,6 +86,8 @@ export interface ProjectTabProps {
   councilCapabilities?: CouncilCapabilities;
   /** Task -> model, passed to the council panel so the confirm step names it. */
   routing?: ModelRoutingTable;
+  /** The routing read failed — the council panel must not claim a default it could not read. */
+  routingFailed?: boolean;
   isPending: boolean;
 }
 
@@ -123,6 +125,7 @@ export function ProjectTab({
   onAppendLog,
   councilCapabilities,
   routing,
+  routingFailed,
   isPending,
 }: ProjectTabProps) {
   const template = templateOf(research.meta.template);
@@ -341,6 +344,7 @@ export function ProjectTab({
                       mode="method"
                       capabilities={councilCapabilities}
                       routing={routing}
+                      routingFailed={routingFailed}
                       projectId={research.project.id}
                       topic={research.meta.question}
                       getContent={() => methodCouncilInput(research)}
@@ -677,6 +681,7 @@ export function ProjectTab({
                 mode="contra"
                 capabilities={councilCapabilities}
                 routing={routing}
+                routingFailed={routingFailed}
                 projectId={research.project.id}
                 topic={research.meta.question}
                 getContent={() => prContra(research)}
