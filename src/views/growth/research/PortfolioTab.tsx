@@ -11,6 +11,7 @@ import { TEMPLATES, TPL_KEYS, type TemplateKey } from '../../../logic/research/t
 import { GateMap } from './GateMap';
 import { CouncilPanel } from './CouncilPanel';
 import type { CouncilCapabilities } from '../../../data/researchCouncil';
+import type { ModelRoutingTable } from '../../../logic/research/modelRouting';
 import { cn } from '../../../lib/utils';
 
 export interface NewResearchInput {
@@ -27,6 +28,8 @@ export interface PortfolioTabProps {
   onScope: (question: string) => void;
   /** Absent until the capability probe returns; the council is optional. */
   councilCapabilities?: CouncilCapabilities;
+  /** Task -> model, passed to the council panel so the confirm step names it. */
+  routing?: ModelRoutingTable;
   isPending: boolean;
 }
 
@@ -46,6 +49,7 @@ export function PortfolioTab({
   onCreate,
   onScope,
   councilCapabilities,
+  routing,
   isPending,
 }: PortfolioTabProps) {
   const [adding, setAdding] = useState(false);
@@ -296,6 +300,7 @@ export function PortfolioTab({
                 <CouncilPanel
                   mode="scope"
                   capabilities={councilCapabilities}
+                  routing={routing}
                   getContent={() => scopeQuestion.trim()}
                   topic={scopeQuestion.trim()}
                 />

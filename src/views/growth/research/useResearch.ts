@@ -7,6 +7,12 @@ import type {
 } from '../../../data/types';
 import { RESEARCH_DEFAULTS } from '../../../data/types';
 import { PROJECT_IDS } from '../../../data/seed';
+import {
+  NO_ROUTING,
+  routingTable,
+  type ModelRoute,
+  type ModelRoutingTable,
+} from '../../../logic/research/modelRouting';
 import { gatesFor } from '../../../logic/research/templates';
 import { useAppStore } from '../../../store/appStore';
 
@@ -16,6 +22,17 @@ export interface ResearchData {
   settings: ResearchSettings;
   projects: ResearchProject[];
   library: FactLibraryEntry[];
+  /** Task → model, resolved. Empty is the normal state: everything on default. */
+  routing: ModelRoutingTable;
+  /** The rows as stored, for the summary and the unrecognised-task warning. */
+  routingRows: ModelRoute[];
+  /**
+   * True when the routing read FAILED, which is not the same as no routing.
+   * Both leave every task on the default, so without this flag a failed read
+   * would render as a working "nothing routed" state — the empty-on-failure
+   * defect this project keeps re-learning.
+   */
+  routingFailed: boolean;
 }
 
 const EMPTY: ResearchData = {
@@ -23,6 +40,9 @@ const EMPTY: ResearchData = {
   settings: RESEARCH_DEFAULTS,
   projects: [],
   library: [],
+  routing: NO_ROUTING,
+  routingRows: [],
+  routingFailed: false,
 };
 
 /**
@@ -76,6 +96,17 @@ export function useResearch() {
 
     const library = await repository.research.listLibrary();
 
+    // Routing is read separately and its failure is contained: a routing table
+    // that cannot be read must leave every card working on the default, not take
+    // the whole Research area down with it. The API is an accelerant.
+    let routingRows: ModelRoute[] = [];
+    let routingFailed = false;
+    try {
+      routingRows = await repository.research.listModelRouting();
+    } catch {
+      routingFailed = true;
+    }
+
     setData({
       parent,
       settings: {
@@ -86,6 +117,9 @@ export function useResearch() {
         (a, b) => (a.project.priority ?? 99) - (b.project.priority ?? 99),
       ),
       library,
+      routing: routingFailed ? NO_ROUTING : routingTable(routingRows),
+      routingRows,
+      routingFailed,
     });
     setLoaded(true);
   }, [repository]);

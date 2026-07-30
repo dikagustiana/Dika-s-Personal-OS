@@ -52,7 +52,17 @@ function todayKey(): string {
  */
 export function ResearchArea() {
   const repository = useAppStore((state) => state.repository);
-  const { parent, settings, projects, library, loaded, reload } = useResearch();
+  const {
+    parent,
+    settings,
+    projects,
+    library,
+    routing,
+    routingRows,
+    routingFailed,
+    loaded,
+    reload,
+  } = useResearch();
   const { run, isPending } = useMutation();
 
   const [tab, setTab] = useState<Tab>('portfolio');
@@ -341,6 +351,7 @@ export function ResearchArea() {
                 onCreate={createResearch}
                 onScope={goToScope}
                 councilCapabilities={council}
+                routing={routing}
                 isPending={isPending}
               />
             </>
@@ -374,6 +385,7 @@ export function ResearchArea() {
                 onDeleteClaim={deleteClaim}
                 onAppendLog={appendLog}
                 councilCapabilities={council}
+                routing={routing}
                 isPending={isPending}
               />
             </>
@@ -395,6 +407,9 @@ export function ResearchArea() {
               projects={projects}
               settings={settings}
               capabilities={capabilities}
+              routing={routing}
+              routingRows={routingRows}
+              routingFailed={routingFailed}
               initialScopeQuestion={scopeQuestion}
             />
           )}

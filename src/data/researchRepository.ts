@@ -26,6 +26,7 @@ import {
   guardNewItem,
   type WriteOrigin,
 } from './researchGuards';
+import { ROUTABLE_TASKS, type ModelRoute } from '../logic/research/modelRouting';
 import type {
   FactLibraryEntry,
   ResearchClaim,
@@ -81,6 +82,23 @@ export interface ResearchRepository {
     mode?: string;
   }): Promise<CouncilSessionRow[]>;
   appendCouncilSession(input: Omit<CouncilSessionRow, 'id' | 'createdAt'>): Promise<CouncilSessionRow>;
+
+  /**
+   * Which model runs which task. READ ONLY from the app, deliberately.
+   *
+   * The rows are authored in the Supabase table editor because the owner will
+   * change them as he learns which model handles what, and a redeploy per
+   * experiment is the friction that stops the experiment. There is no
+   * setModelRoute here for the same reason there is no editor screen: a routing
+   * change is rare, considered, and reversible in the table, and a write path
+   * would make it a UI feature to maintain.
+   *
+   * A failed read is NOT an empty table. The caller must distinguish them —
+   * empty-on-failure is this project's most repeated defect — because an empty
+   * routing table is a legitimate, working state (everything on the default)
+   * and would hide the failure completely.
+   */
+  listModelRouting(): Promise<ModelRoute[]>;
 }
 
 /** One stored council run. `projectId` is null for scope sessions. */
@@ -483,6 +501,18 @@ export function createSupabaseResearchRepository(
       return rows.map(rowToCouncil);
     },
 
+    async listModelRouting() {
+      const { data, error } = await client
+        .from('os_model_routing')
+        .select('task, model, note')
+        .order('task', { ascending: true });
+      // Thrown, not swallowed into []: a routing table that failed to load and
+      // one that is genuinely empty look identical downstream, and the empty
+      // case is normal. The caller says which happened.
+      if (error) throw new Error(`listModelRouting failed: ${error.message}`);
+      return (data as RoutingRow[]).map(rowToRoute);
+    },
+
     async appendCouncilSession(input) {
       const result = await client
         .from('os_research_council_sessions')
@@ -501,6 +531,18 @@ export function createSupabaseResearchRepository(
     },
   };
 }
+
+interface RoutingRow {
+  task: string;
+  model: string | null;
+  note: string | null;
+}
+
+const rowToRoute = (row: RoutingRow): ModelRoute => ({
+  task: row.task,
+  model: row.model ?? '',
+  note: row.note ?? '',
+});
 
 interface CouncilRow {
   id: string;
@@ -653,6 +695,17 @@ export class MockResearchRepository implements ResearchRepository {
       .filter((row) => !filter.mode || row.mode === filter.mode)
       .map((row) => ({ ...row }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  /**
+   * The same shape production is seeded with: every routable task present, no
+   * model named. Blank rows resolve to the default exactly as absent ones do,
+   * so a bare clone runs entirely on the function's default — and the routing
+   * summary in the Prompts tab renders its real "nothing routed" state rather
+   * than a mock-only one.
+   */
+  async listModelRouting(): Promise<ModelRoute[]> {
+    return ROUTABLE_TASKS.map((task) => ({ task, model: '', note: '' }));
   }
 
   async appendCouncilSession(input: Omit<CouncilSessionRow, 'id' | 'createdAt'>) {

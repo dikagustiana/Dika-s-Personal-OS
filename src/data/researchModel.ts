@@ -14,6 +14,12 @@
  * running the review, because a fabricated all-clear retires a check that never
  * happened. The server refuses those prompts too — this is the second of two
  * gates, not the only one.
+ *
+ * NOTE WHAT canSend AND sendBlockedReason DO NOT TAKE: a routing table. Per-task
+ * model routing (logic/research/modelRouting.ts) decides WHICH model runs a
+ * prompt and has no way to decide WHETHER one may. These two functions cannot
+ * see a routing row even by mistake, which is why a row naming a browsing-capable
+ * model for prData still leaves prData copy-paste only.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
 import { readStoredKey } from '../components/PassphraseGate';
@@ -107,6 +113,12 @@ export async function probeModel(): Promise<ModelCapabilities> {
  * Sends one prompt. `confirmed` is required by the server and is never defaulted
  * here — the confirm step exists so the owner sees what is going out, and a
  * default would quietly remove it.
+ *
+ * `model` is the routed model for this task, or undefined when the task has no
+ * routing row. Undefined is sent as ABSENT rather than as the probed default
+ * name: the server then picks its own RESEARCH_MODEL_DEFAULT at call time, so
+ * changing that variable takes effect without a page reload. Echoing the probed
+ * name back would pin whatever was current when the tab was opened.
  */
 export async function sendPrompt(input: {
   kind: PromptKind;

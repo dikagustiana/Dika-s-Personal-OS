@@ -39,6 +39,18 @@ import {
 
 const FUNCTION = 'run-research-council';
 
+/**
+ * Which model a seat runs on: its own override, else the mode's routed model,
+ * else undefined so the Edge Function applies RESEARCH_MODEL_DEFAULT.
+ *
+ * Undefined rather than a name resolved here, so the default is decided in one
+ * place at call time — the server. A client that helpfully substituted the
+ * probed default would pin the value read when the page loaded.
+ */
+function seatModel(persona: AdvisorPersona, routedForMode?: string): string | undefined {
+  return persona.model ?? routedForMode;
+}
+
 export interface CouncilCapabilities {
   configured: boolean;
   browsing: boolean;
@@ -133,6 +145,17 @@ export interface RunCouncilInput {
   projectId?: string;
   /** Never defaulted — the confirm step exists so the owner sees the spend. */
   confirmed: boolean;
+  /**
+   * The routed model for this council mode, or undefined to let the function
+   * use its RESEARCH_MODEL_DEFAULT.
+   *
+   * PRECEDENCE, and it only reads one way: a persona's own `model` wins over
+   * this, and this wins over the function's default. A seat with an explicit
+   * model in personas.ts has been given a model for a reason particular to that
+   * seat, and a mode-wide route must not silently overrule it. No seat sets one
+   * today, so in practice a routed mode moves the whole council.
+   */
+  model?: string;
   onProgress?: (progress: CouncilProgress) => void;
 }
 
@@ -179,7 +202,7 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
         id: persona.id,
         name: persona.name,
         systemPrompt: persona.systemPrompt,
-        model: persona.model,
+        model: seatModel(persona, input.model),
       })),
     });
   } catch {
@@ -216,7 +239,7 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
           reviewerName: persona.name,
           system: system.content,
           user: user.content,
-          model: persona.model,
+          model: seatModel(persona, input.model),
         };
       }),
     });
@@ -268,7 +291,7 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
       chairman: {
         system: chairSystem.content,
         user: chairUser.content,
-        model: CHAIRMAN_PERSONA.model,
+        model: CHAIRMAN_PERSONA.model ?? input.model,
       },
     });
     if (stage3?.ran) {
