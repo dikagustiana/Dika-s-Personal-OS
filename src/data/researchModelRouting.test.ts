@@ -125,16 +125,25 @@ describe('a routed council mode reaches every seat', () => {
     }
   });
 
-  it('still refuses to run without confirmation, routed or not', async () => {
-    // Routing has nothing to do with consent. The server enforces this too.
+  it('forwards an unconfirmed run verbatim instead of defaulting it to true', async () => {
+    // The refusal itself is the server's (409), and cannot be asserted from
+    // here. What CAN go wrong on this side is a helpful default: a client that
+    // sent confirmed:true because the user had clicked something earlier would
+    // remove the confirm step without removing any code that mentions it. Every
+    // stage must carry the flag exactly as given.
     await runCouncil({
       mode: 'method',
       content: 'the design',
       confirmed: false,
       model: 'routed-model',
     });
-    const advisorStage = calls.find((body) => body.stage === 'advisors');
-    expect(advisorStage?.confirmed).toBe(false);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const body of calls) expect(body.confirmed).toBe(false);
+    // And the true case is not merely the same assertion inverted: it proves the
+    // flag is threaded rather than hardcoded to whatever this test expects.
+    calls.length = 0;
+    await runCouncil({ mode: 'method', content: 'the design', confirmed: true });
+    for (const body of calls) expect(body.confirmed).toBe(true);
   });
 });
 
@@ -173,18 +182,30 @@ describe('a routed prompt card sends its model', () => {
 
 describe('the routing table is read-only from the app', () => {
   it('offers no write path — a routing change is a table edit, not a feature', () => {
-    const instance = new MockResearchRepository() as unknown as Record<string, unknown>;
-    expect(typeof instance.listModelRouting).toBe('function');
-    // Absent, not unimplemented, for the same reason cycles have no update:
-    // adding one later re-opens what the shape exists to close.
-    expect(instance.setModelRoute).toBeUndefined();
-    expect(instance.upsertModelRouting).toBeUndefined();
-    expect(instance.deleteModelRoute).toBeUndefined();
+    const instance = new MockResearchRepository();
+    const surface = [
+      ...Object.getOwnPropertyNames(Object.getPrototypeOf(instance)),
+      ...Object.keys(instance),
+    ];
+    // Every routing-related member, whatever it is called. Naming three guessed
+    // methods and asserting they are undefined would pass against a fourth.
+    const routingMembers = surface.filter((name) => /rout/i.test(name));
+    expect(routingMembers).toEqual(['listModelRouting']);
   });
 
-  it('reads the seeded vocabulary as routing nothing', async () => {
+  it('reads a row set that covers every prompt kind the send path can ask for', async () => {
+    // Written out rather than derived from ROUTABLE_TASKS: comparing the mock's
+    // rows against the list the mock is BUILT from proves nothing. This list is
+    // the PromptKind union plus the three council modes, so dropping a task from
+    // the vocabulary fails here instead of silently leaving a card unroutable.
+    const expected = [
+      'prBrief', 'prBatch', 'prAllBatch', 'prData', 'prCite', 'prMethod',
+      'prLit', 'prContra', 'prHand', 'prDigest', 'prScope',
+      'method', 'scope', 'contra',
+    ];
     const rows = await new MockResearchRepository().listModelRouting();
-    expect(rows.map((row) => row.task)).toEqual([...ROUTABLE_TASKS]);
+    expect([...rows.map((row) => row.task)].sort()).toEqual([...expected].sort());
+    expect([...ROUTABLE_TASKS].sort()).toEqual([...expected].sort());
     // Every seeded row is blank, so a bare clone runs entirely on the default.
     expect(routingTable(rows)).toEqual({});
   });

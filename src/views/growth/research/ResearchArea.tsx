@@ -352,6 +352,7 @@ export function ResearchArea() {
                 onScope={goToScope}
                 councilCapabilities={council}
                 routing={routing}
+                routingFailed={routingFailed}
                 isPending={isPending}
               />
             </>
@@ -386,6 +387,7 @@ export function ResearchArea() {
                 onAppendLog={appendLog}
                 councilCapabilities={council}
                 routing={routing}
+                routingFailed={routingFailed}
                 isPending={isPending}
               />
             </>

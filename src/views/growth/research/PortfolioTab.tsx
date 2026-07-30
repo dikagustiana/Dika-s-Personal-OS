@@ -30,6 +30,8 @@ export interface PortfolioTabProps {
   councilCapabilities?: CouncilCapabilities;
   /** Task -> model, passed to the council panel so the confirm step names it. */
   routing?: ModelRoutingTable;
+  /** The routing read failed — the council panel must not claim a default it could not read. */
+  routingFailed?: boolean;
   isPending: boolean;
 }
 
@@ -50,6 +52,7 @@ export function PortfolioTab({
   onScope,
   councilCapabilities,
   routing,
+  routingFailed,
   isPending,
 }: PortfolioTabProps) {
   const [adding, setAdding] = useState(false);
@@ -301,6 +304,7 @@ export function PortfolioTab({
                   mode="scope"
                   capabilities={councilCapabilities}
                   routing={routing}
+                  routingFailed={routingFailed}
                   getContent={() => scopeQuestion.trim()}
                   topic={scopeQuestion.trim()}
                 />
