@@ -17,6 +17,7 @@
  * hole the whole subsystem exists to close.
  */
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
+import { refusalReason } from './researchModel';
 import { readStoredKey } from '../components/PassphraseGate';
 import {
   CHAIRMAN_PERSONA,
@@ -211,7 +212,10 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
   if (!stage1?.ran) {
     return {
       ok: false,
-      reason: String(stage1?.reason ?? 'The council did not run.'),
+      // Both shapes: the function explains its own refusals with `reason`, its
+      // guard refuses earlier with `error` (auth, rate limit, malformed). Reading
+      // only `reason` turned an expired session into "The council did not run."
+      reason: refusalReason(stage1),
       failedSeats: (stage1?.failedSeats as FailedSeat[]) ?? [],
     };
   }
@@ -253,7 +257,7 @@ export async function runCouncil(input: RunCouncilInput): Promise<RunCouncilResu
     // than stopping loudly and letting the owner decide whether to retry.
     return {
       ok: false,
-      reason: `Peer review stage failed: ${String(stage2?.reason ?? 'no response')}. The ${advisorResponses.length} advisor responses were not discarded by the provider, but the run stopped before the chairman.`,
+      reason: `Peer review stage failed: ${refusalReason(stage2)} The ${advisorResponses.length} advisor responses were not discarded by the provider, but the run stopped before the chairman.`,
       failedSeats: progress.failedSeats,
     };
   }

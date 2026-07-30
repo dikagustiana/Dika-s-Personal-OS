@@ -60,6 +60,39 @@ export interface ModelResult {
   reason?: string;
 }
 
+/**
+ * The two shapes a refusal arrives in, and why both have to be read.
+ *
+ * The function answers its own refusals — unconfigured, browsing-gated, not
+ * confirmed — with a prose `reason`. Its GUARD refuses earlier and differently:
+ * auth, rate limiting and malformed requests answer with `error` and no reason,
+ * because that is the shape checkAppKey and the 400 branches return.
+ *
+ * Reading only `reason` is how a real failure became "Nothing was sent." on the
+ * card: a session key expires after twelve hours, the next send is a 401, and
+ * the card said nothing about why. Both fields are read here so the panel is
+ * never blanker than the server was.
+ */
+interface RefusalBody {
+  reason?: string;
+  error?: string;
+  /** Seconds until a lockout lifts. Only present on 429. */
+  retryAfter?: number;
+}
+
+export function refusalReason(body: RefusalBody | null | undefined): string {
+  if (body?.reason) return body.reason;
+  if (body?.error) {
+    // The error is passed through rather than interpreted: 'Unauthorized' and
+    // 'No prompt supplied' have different causes, and guessing which one this is
+    // would put a wrong explanation in front of the owner.
+    return body.retryAfter
+      ? `${body.error}. Try again in ${body.retryAfter}s.`
+      : `${body.error}. Nothing was sent.`;
+  }
+  return 'The model function gave no reason. Nothing was sent.';
+}
+
 const FUNCTION = 'run-research-prompt';
 
 /**
@@ -130,7 +163,7 @@ export async function sendPrompt(input: {
     return { sent: false, reason: 'Direct sending is not configured.' };
   }
   try {
-    const data = await edgeFunctionCall<ModelResult>(FUNCTION, {
+    const data = await edgeFunctionCall<ModelResult & RefusalBody>(FUNCTION, {
       method: 'POST',
       appKey: readStoredKey() ?? undefined,
       body: {
@@ -140,7 +173,9 @@ export async function sendPrompt(input: {
         ...(input.model ? { model: input.model } : {}),
       },
     });
-    return data ?? { sent: false, reason: 'No response from the model function.' };
+    if (!data) return { sent: false, reason: 'No response from the model function.' };
+    if (data.sent) return data;
+    return { sent: false, reason: refusalReason(data) };
   } catch {
     return { sent: false, reason: 'Could not reach the model function.' };
   }

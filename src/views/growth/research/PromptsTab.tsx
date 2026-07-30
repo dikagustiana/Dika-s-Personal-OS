@@ -1,5 +1,6 @@
 import { Check, Copy, Send } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { cn } from '../../../lib/utils';
 import { Button } from '../../../components/ui/Button';
 import { Card, CardContent } from '../../../components/ui/Card';
 import { Input } from '../../../components/ui/Input';
@@ -67,7 +68,10 @@ function CardBody({
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
+  // Whether it SENT is kept alongside the text. A refusal rendered under
+  // "Model response" with the layer (c) caption reads as output the model
+  // produced, when nothing was produced at all.
+  const [result, setResult] = useState<{ sent: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
 
   const prompt = useMemo(() => card.build(), [card]);
@@ -103,7 +107,12 @@ function CardBody({
     });
     setSending(false);
     setConfirming(false);
-    setResult(outcome.sent ? (outcome.completion ?? '') : (outcome.reason ?? 'Nothing was sent.'));
+    setResult({
+      sent: outcome.sent,
+      text: outcome.sent
+        ? (outcome.completion ?? '')
+        : (outcome.reason ?? 'Nothing was sent, and the function gave no reason.'),
+    });
   };
 
   return (
@@ -187,14 +196,31 @@ function CardBody({
 
         {result !== null && (
           <div className="mt-3">
-            <span className="surface-label">Model response</span>
-            <pre className="mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border border-border-subtle bg-card p-3 text-[11px] leading-5 text-foreground-secondary">
-              {result || '(empty)'}
+            <span className="surface-label">
+              {result.sent ? 'Model response' : 'Nothing was sent'}
+            </span>
+            <pre
+              className={cn(
+                'mt-1 max-h-80 overflow-auto whitespace-pre-wrap break-words border p-3 text-[11px] leading-5 text-foreground-secondary',
+                result.sent ? 'border-border-subtle bg-card' : 'border-destructive bg-surface-2',
+              )}
+            >
+              {result.text || '(empty)'}
             </pre>
-            <p className="mt-1 text-xs text-foreground-muted">
-              Output is layer (c) until you open the sources yourself. Nothing here has been
-              written to the register.
-            </p>
+            {result.sent ? (
+              <p className="mt-1 text-xs text-foreground-muted">
+                Output is layer (c) until you open the sources yourself. Nothing here has been
+                written to the register.
+              </p>
+            ) : (
+              // The layer (c) caption is deliberately NOT shown here: there is no
+              // output to classify, and a caption about output invites reading the
+              // failure as one. Nothing was retried either — a retry spends again.
+              <p className="mt-1 text-xs text-foreground-muted">
+                No completion was returned and nothing was retried automatically. The prompt above
+                is unchanged and still copies.
+              </p>
+            )}
           </div>
         )}
       </CardContent>
