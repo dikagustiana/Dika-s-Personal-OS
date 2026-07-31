@@ -37,6 +37,10 @@ import type {
   LinkedProject,
   Project,
   ProjectDocument,
+  ShareLink,
+  ShareScope,
+  SharedView,
+  ShareView,
   WeeklyPlan,
   WebsiteCategory,
 } from './types';
@@ -1231,6 +1235,57 @@ class SupabaseRepository implements Repository {
     }
   }
 
+  // --- share links ---------------------------------------------------------
+  //
+  // All four go through SECURITY DEFINER functions rather than the table:
+  // private.os_share_links is not exposed by PostgREST, and the functions gate
+  // on os_key_valid() alone. The read-only key satisfies SELECT on every
+  // public table and is refused by every one of these, in the database.
+  //
+  // The digest is taken inside os_share_link_create, so nothing on this side
+  // can store a raw token even by mistake — the same arrangement as the
+  // recovery tokens.
+
+  async listShareLinks(): Promise<ReadResult<ShareLink>> {
+    const { data, error } = await this.client.rpc('os_share_links_list');
+    if (error) return readFailure('listShareLinks', error);
+    return okRows((data as ShareLinkPayload[]).map(rowToShareLink));
+  }
+
+  async createShareLink(input: {
+    token: string;
+    view: ShareView;
+    scope: ShareScope;
+    label?: string;
+    ttlDays: number;
+  }): Promise<ShareLink> {
+    const { data, error } = await this.client.rpc('os_share_link_create', {
+      p_token: input.token,
+      p_view: input.view,
+      p_scope: input.scope,
+      p_label: input.label ?? null,
+      // Days, not a date. The expiry is computed by the server clock, so a
+      // caller cannot mint a decade-long link by sending a decade-long date.
+      p_ttl_days: input.ttlDays,
+    });
+    if (error) throw new Error(`createShareLink failed: ${error.message}`);
+    return rowToShareLink(data as ShareLinkPayload);
+  }
+
+  async revokeShareLink(id: string): Promise<ShareLink> {
+    const { data, error } = await this.client.rpc('os_share_link_revoke', { p_id: id });
+    if (error) throw new Error(`revokeShareLink failed: ${error.message}`);
+    return rowToShareLink(data as ShareLinkPayload);
+  }
+
+  async extendShareLink(id: string, ttlDays: number): Promise<ShareLink> {
+    const { data, error } = await this.client.rpc('os_share_link_extend', {
+      p_id: id,
+      p_ttl_days: ttlDays,
+    });
+    if (error) throw new Error(`extendShareLink failed: ${error.message}`);
+    return rowToShareLink(data as ShareLinkPayload);
+  }
 }
 
 // --- finish line row shapes -------------------------------------------------
@@ -1336,4 +1391,99 @@ function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
   };
   if (row.note) cell.note = row.note;
   return cell;
+}
+
+// --- share links ------------------------------------------------------------
+
+/**
+ * What the os_share_link_* functions return. jsonb rather than a row set, and
+ * already camelCased on the database side, so there is no second mapping layer
+ * to keep in step — see the note in 20260731000036_share_links.sql.
+ *
+ * There is no token_hash field, by construction rather than by omission here:
+ * the functions never select it. A digest cannot be turned back into a link,
+ * so shipping one to the browser would put a credential-shaped string in a
+ * page that has no use for it.
+ */
+interface ShareLinkPayload {
+  id: string;
+  view: ShareView;
+  scope: ShareScope | null;
+  label: string | null;
+  expiresAt: string;
+  revokedAt: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+}
+
+function rowToShareLink(row: ShareLinkPayload): ShareLink {
+  const link: ShareLink = {
+    id: row.id,
+    view: row.view,
+    scope: row.scope ?? {},
+    expiresAt: row.expiresAt,
+    createdAt: row.createdAt,
+  };
+  if (row.label) link.label = row.label;
+  if (row.revokedAt) link.revokedAt = row.revokedAt;
+  if (row.lastSeenAt) link.lastSeenAt = row.lastSeenAt;
+  return link;
+}
+
+export type SharedViewResult =
+  | { ok: true; view: SharedView }
+  | { ok: false; reason: string };
+
+/**
+ * Redeems a share token.
+ *
+ * Deliberately NOT a Repository method and deliberately not using a Supabase
+ * client: the page that calls this holds a token and nothing else — no app
+ * key, no session, no repository — and giving it a client would give it a
+ * surface that could be pointed at a table. It posts a token and receives one
+ * view's data, and that is the whole of its capability.
+ *
+ * The anon key still travels, as it does for every function call: it is in the
+ * public bundle and is not authorization. The token is the credential, and it
+ * is checked — with its expiry and its revocation — on the server, on every
+ * request.
+ *
+ * Nothing about the scope is sent. There is no argument here through which a
+ * caller could ask for a different entity, which is what makes the boundary
+ * hold: the filter comes from the token's own record, server-side.
+ */
+export async function fetchSharedView(token: string): Promise<SharedViewResult> {
+  if (!supabaseUrl || !supabaseAnonKey) return { ok: false, reason: 'unavailable' };
+  let response: Response;
+  try {
+    response = await fetch(`${supabaseUrl}/functions/v1/share-view`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({ token }),
+    });
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
+  let body: { ok?: boolean; reason?: string } & Partial<SharedView>;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
+  if (!body?.ok || !body.data || !body.view) {
+    return { ok: false, reason: body?.reason ?? 'unavailable' };
+  }
+  return {
+    ok: true,
+    view: {
+      view: body.view,
+      scope: body.scope ?? {},
+      expiresAt: body.expiresAt ?? '',
+      data: body.data,
+    },
+  };
 }

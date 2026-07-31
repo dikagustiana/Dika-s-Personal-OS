@@ -669,3 +669,64 @@ export interface OrphanMilestone {
   /** The milestone's own status string, as the view exposes it. */
   status: string;
 }
+
+/**
+ * ===========================================================================
+ * SHARE LINKS — READ-ONLY ACCESS TO ONE VIEW, WITH ONE FILTER, UNTIL A DATE.
+ * ===========================================================================
+ * The two names here are the only ones a token may carry, and the database
+ * constrains its column to the same pair. A view name is a security boundary
+ * rather than a label: it decides what the reading path reads, so adding one
+ * is deliberately a migration and a code change together, never a string.
+ */
+export type ShareView = 'finish-line-group' | 'finish-line-entity';
+
+/**
+ * The filter the token carries. Normalised by os_share_link_create — what is
+ * stored is what that function rebuilt from values it validated, never the
+ * object a caller handed over.
+ */
+export interface ShareScope {
+  entity?: string;
+}
+
+/**
+ * A link as the OWNER sees it. There is no token here and there cannot be:
+ * the database stores a digest, the plaintext is shown once at creation and
+ * is not retrievable afterwards. A lost link is revoked and reissued.
+ */
+export interface ShareLink {
+  id: string;
+  view: ShareView;
+  scope: ShareScope;
+  /** The owner's own note about who he gave it to. Never shown to a recipient. */
+  label?: string;
+  expiresAt: string;
+  revokedAt?: string;
+  createdAt: string;
+  /** So "is anyone actually using this" is answerable before renewing it. */
+  lastSeenAt?: string;
+}
+
+/**
+ * What a RECIPIENT receives. Narrower than the owner's rows by construction —
+ * the Edge Function projects each row on the way out, so a field that is not
+ * here was never sent rather than merely not rendered.
+ *
+ * No projects, no milestones, no edges, no dependency rows: a share shows the
+ * state of the pack, not the road behind it.
+ */
+export interface SharedFinishLine {
+  entities: FinishLineEntity[];
+  items: FinishLineItem[];
+  cells: FinishLineCell[];
+  accounts: FinishLineAccount[];
+}
+
+export interface SharedView {
+  view: ShareView;
+  /** Echoed from the token record, so the page states its own real scope. */
+  scope: ShareScope;
+  expiresAt: string;
+  data: SharedFinishLine;
+}
