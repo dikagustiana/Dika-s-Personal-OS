@@ -34,6 +34,9 @@ import type {
   IeltsResult,
   IeltsSession,
   Project,
+  ShareLink,
+  ShareScope,
+  ShareView,
   WeeklyPlan,
 } from './types';
 
@@ -518,6 +521,60 @@ export class MockRepository implements Repository {
     for (const cellId of cellIds) {
       this.finishLineEdges.push({ id: createId(), cellId, projectId, milestoneId });
     }
+  }
+
+  // --- share links ---------------------------------------------------------
+  //
+  // In memory, and holding no token: the mock stores the same digest-shaped
+  // absence the database does, so nothing here can hand a link back after the
+  // one moment it was shown. Synthetic path only — the real gate on these is
+  // the owner key, checked in SQL, which has no meaning without a database.
+
+  private shareLinks: ShareLink[] = [];
+
+  async listShareLinks(): Promise<ReadResult<ShareLink>> {
+    return okRows(
+      [...this.shareLinks].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+    );
+  }
+
+  async createShareLink(input: {
+    token: string;
+    view: ShareView;
+    scope: ShareScope;
+    label?: string;
+    ttlDays: number;
+  }): Promise<ShareLink> {
+    // The token is accepted and dropped, exactly as the database drops it
+    // after digesting: a mock that kept one would make "the token is not
+    // stored" true only in production.
+    if (input.token.length < 24) throw new Error('A share token must be longer than that');
+    const days = Math.min(Math.max(Math.round(input.ttlDays) || 1, 1), 90);
+    const link: ShareLink = {
+      id: createId(),
+      view: input.view,
+      scope: input.view === 'finish-line-entity' ? { entity: input.scope.entity } : {},
+      expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    if (input.label?.trim()) link.label = input.label.trim();
+    this.shareLinks.push(link);
+    return link;
+  }
+
+  async revokeShareLink(id: string): Promise<ShareLink> {
+    const link = this.shareLinks.find((candidate) => candidate.id === id);
+    if (!link) throw new Error('No such share link');
+    link.revokedAt = link.revokedAt ?? new Date().toISOString();
+    return link;
+  }
+
+  async extendShareLink(id: string, ttlDays: number): Promise<ShareLink> {
+    const link = this.shareLinks.find((candidate) => candidate.id === id);
+    if (!link || link.revokedAt) throw new Error('No such share link, or it has been revoked');
+    const days = Math.min(Math.max(Math.round(ttlDays) || 1, 1), 90);
+    link.expiresAt = new Date(Date.now() + days * 86_400_000).toISOString();
+    return link;
   }
 
   /**

@@ -28,6 +28,7 @@ import type {
   Milestone,
   OrphanMilestone,
   Project,
+  ShareLink,
 } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import { cn } from '../../lib/utils';
@@ -54,6 +55,7 @@ import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAcco
 import { useAppStore } from '../../store/appStore';
 import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
+import { ShareLinkCard } from './ShareLinkCard';
 import { FinishLineEntityView } from './FinishLineEntity';
 import {
   Checking,
@@ -163,6 +165,11 @@ export function FinishLine() {
   // The mapping, loaded for the paste path: a commit without it would resolve
   // every pasted row to unmapped and quietly strip cells, so no map, no commit.
   const [accountMap, setAccountMap] = useState<ReadResult<FinishLineAccountMapRow>>(unread);
+  // Share links. A failure here must not blank anything either: the pack is
+  // readable whether or not the list of who can see it came back, and the card
+  // says COULD NOT CHECK rather than showing an empty list that would read as
+  // "nothing is shared".
+  const [shareLinks, setShareLinks] = useState<ReadResult<ShareLink>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -189,6 +196,7 @@ export function FinishLine() {
       loadedOrphans,
       loadedAccounts,
       loadedAccountMap,
+      loadedShareLinks,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -207,6 +215,7 @@ export function FinishLine() {
       repository.listOrphanMilestones(),
       repository.listFinishLineAccounts(),
       repository.listFinishLineAccountMap(),
+      repository.listShareLinks(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -218,6 +227,7 @@ export function FinishLine() {
     setOrphans(loadedOrphans);
     setAccounts(loadedAccounts);
     setAccountMap(loadedAccountMap);
+    setShareLinks(loadedShareLinks);
     setLoaded(true);
   }, [repository]);
 
@@ -238,6 +248,7 @@ export function FinishLine() {
       setOrphans(failure);
       setAccounts(failure);
       setAccountMap(failure);
+      setShareLinks(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -835,6 +846,40 @@ export function FinishLine() {
             <Checking label="Milestones that close nothing" />
           </div>
         ))}
+
+      {/* SHARING, SCOPED TO THE LEVEL BEING VIEWED. Rendered at both levels
+          because the scope IS the level: on group it offers the whole Finish
+          line, on an entity it offers that column and nothing else. No scope
+          picker — see the note in ShareLinkCard. */}
+      <ShareLinkCard
+        level={level}
+        entity={activeEntity}
+        links={shareLinks}
+        loaded={loaded}
+        isPending={isPending}
+        onCreate={async (input) => {
+          const created = await run('Create share link', () =>
+            repository.createShareLink(input),
+          );
+          if (created === undefined) return false;
+          setShareLinks(await repository.listShareLinks());
+          return true;
+        }}
+        onRevoke={async (id) => {
+          const done = await run('Revoke share link', () => repository.revokeShareLink(id));
+          if (done === undefined) return false;
+          setShareLinks(await repository.listShareLinks());
+          return true;
+        }}
+        onExtend={async (id, ttlDays) => {
+          const done = await run('Extend share link', () =>
+            repository.extendShareLink(id, ttlDays),
+          );
+          if (done === undefined) return false;
+          setShareLinks(await repository.listShareLinks());
+          return true;
+        }}
+      />
     </div>
   );
 }
