@@ -133,8 +133,15 @@ export function Week() {
     window.setTimeout(() => setSaved(false), 1800);
   };
 
+  /**
+   * No ceiling. A week's outcome count is set by the work, not by a number
+   * chosen in advance: month-end close alone is one outcome per entity, and
+   * SAMB has eleven. The old cap of five made a legitimate week unplannable.
+   *
+   * The floor of three is a different rule and is left in place — it lives in
+   * `emptyGoals`, `removeGoal` and `canSave`, none of which this touches.
+   */
   const addGoal = () => {
-    if (plan.goals.length >= 5) return;
     setPlan((current) => ({
       ...current,
       goals: [
@@ -257,8 +264,14 @@ export function Week() {
 
             <div className="mt-6 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="surface-label">Outcomes · 3–5</span>
-                <span className="text-xs tabular-nums text-foreground-muted">{plan.goals.length}/5</span>
+                <span className="surface-label">Outcomes · at least 3</span>
+                {/* A plain count, not `n/5`. A ratio reads as "full" and there
+                    is nothing left to be full of. It counts rows rather than
+                    remaining work because that is what sits underneath it —
+                    the card header above already carries the done/total. */}
+                <span className="text-xs tabular-nums text-foreground-muted">
+                  {plan.goals.length} {plan.goals.length === 1 ? 'outcome' : 'outcomes'}
+                </span>
               </div>
               {plan.goals.map((goal, index) => (
                 <div key={goal.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 border border-border-subtle bg-surface-2 p-2">
@@ -304,11 +317,7 @@ export function Week() {
             </div>
 
             <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-between">
-              <Button
-                variant="secondary"
-                onClick={addGoal}
-                disabled={plan.goals.length >= 5}
-              >
+              <Button variant="secondary" onClick={addGoal}>
                 <Plus className="size-4" />
                 Add outcome
               </Button>

@@ -651,7 +651,11 @@ export function Today() {
               <ol className="space-y-3">
                 {plan?.goals.map((goal, index) => (
                   <li key={goal.id} className="flex gap-3 text-sm leading-5">
-                    <span className="text-xs text-foreground-muted">0{index + 1}</span>
+                    {/* Padded, not prefixed: with the outcome cap gone a week
+                        can run past nine, and a literal "0" made that "010". */}
+                    <span className="text-xs text-foreground-muted">
+                      {String(index + 1).padStart(2, '0')}
+                    </span>
                     <span className={goal.done ? 'text-foreground-muted line-through' : 'text-foreground-secondary'}>{goal.text}</span>
                   </li>
                 ))}
