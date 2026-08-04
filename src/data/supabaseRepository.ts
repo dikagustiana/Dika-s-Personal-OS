@@ -4,6 +4,7 @@ import type { ResearchRepository } from './researchRepository';
 import {
   guardCellNote,
   guardCellState,
+  guardCellTransition,
   guardEdgeTarget,
   type CellWriteOrigin,
 } from './finishLineGuards';
@@ -17,8 +18,10 @@ import type {
   FinishLineAccountWrite,
   DateConfidence,
   Domain,
+  Engagement,
   Entry,
   EntryType,
+  CellActorKind,
   CellState,
   DanglingLink,
   FinishLineAgg,
@@ -196,6 +199,85 @@ export function createSupabaseRepository(appKey: string): Repository {
   return new SupabaseRepository(client);
 }
 
+// --- collaborator path ------------------------------------------------------
+//
+// A SECOND CLIENT, NOT A SECOND REPOSITORY CLASS. A collaborator authenticates
+// with a Supabase magic-link session instead of the x-app-key header; every
+// read and write then flows through the same SupabaseRepository, and what they
+// can reach is decided entirely by RLS and the cell trigger — the member
+// policies scope reads to their entities, writes to input → figure on their
+// own cells, and everything else returns empty or rejects. The owner client
+// above is untouched: persistSession stays false there and the header stays.
+
+let collaboratorClient: SupabaseClient | null = null;
+
+/**
+ * Lazy singleton: the gate needs it on mount to ask "is a collaborator
+ * session already here?", and creating two GoTrue clients against the same
+ * storage key would have them fight over the token refresh.
+ */
+export function getCollaboratorClient(): SupabaseClient {
+  if (!collaboratorClient) {
+    const { url, anonKey } = requireConfig();
+    collaboratorClient = createClient(url, anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        // Distinct storage key: never collides with anything the owner path
+        // stores, and makes "collaborator session" greppable in devtools.
+        storageKey: 'personal-os-collab-auth',
+      },
+    });
+  }
+  return collaboratorClient;
+}
+
+/**
+ * Sends the magic link. `shouldCreateUser: false` is load-bearing: there is
+ * deliberately no invite flow, so an address that was not first created in
+ * the Supabase dashboard gets nothing — a mistyped or uninvited email must
+ * not mint an account that then holds a real JWT.
+ */
+export async function signInCollaborator(email: string): Promise<{ error?: string }> {
+  const { error } = await getCollaboratorClient().auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+  });
+  return error ? { error: error.message } : {};
+}
+
+/** The current collaborator session's user id and email, if one exists. */
+export async function getCollaboratorUser(): Promise<{ id: string; email?: string } | null> {
+  const { data } = await getCollaboratorClient().auth.getSession();
+  const user = data.session?.user;
+  return user ? { id: user.id, email: user.email ?? undefined } : null;
+}
+
+export async function signOutCollaborator(): Promise<void> {
+  await getCollaboratorClient().auth.signOut();
+}
+
+/**
+ * The entity codes this session's user holds membership for — the same
+ * question os_member_entities() answers inside every policy, asked once by
+ * the client so the UI can scope itself. RLS lets a user read only their own
+ * membership rows, so this needs no parameter and can return nothing stale.
+ * UI-scoping only: the SQL policies do not care what this returned.
+ */
+export async function listMyMemberships(): Promise<string[]> {
+  const { data, error } = await getCollaboratorClient()
+    .from('os_entity_members')
+    .select('entity_code')
+    .order('entity_code');
+  if (error) throw new Error(`listMyMemberships failed: ${error.message}`);
+  return (data as { entity_code: string }[]).map((row) => row.entity_code);
+}
+
+/** The same repository class, driven by the session-bearing client. */
+export function createCollaboratorRepository(): Repository {
+  return new SupabaseRepository(getCollaboratorClient());
+}
+
 // --- row shapes -------------------------------------------------------------
 
 interface EntryRow {
@@ -227,6 +309,11 @@ interface WeeklyPlanRow {
 interface ProjectRow {
   id: string;
   domain: Domain;
+  // NOT NULL in the database since migration 20260804000038; possibly-absent
+  // here only so a read against an un-migrated database still parses. The
+  // reader falls back to 'internal' — failing CLOSED: an unclassified project
+  // is treated as not collaborator-visible, never the reverse.
+  engagement?: Engagement | null;
   title: string;
   type: Project['type'];
   status: Project['status'];
@@ -361,6 +448,7 @@ function rowToProject(row: ProjectRow): Project {
   const project: Project = {
     id: row.id,
     domain: row.domain,
+    engagement: row.engagement ?? 'internal',
     title: row.title,
     type: row.type,
     status: row.status,
@@ -436,6 +524,9 @@ function rowToIeltsResult(row: IeltsResultRow): IeltsResult {
 function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   const row: Partial<ProjectRow> = {};
   if ('domain' in patch && patch.domain !== undefined) row.domain = patch.domain;
+  if ('engagement' in patch && patch.engagement !== undefined) {
+    row.engagement = patch.engagement;
+  }
   if ('title' in patch && patch.title !== undefined) row.title = patch.title;
   if ('type' in patch && patch.type !== undefined) row.type = patch.type;
   if ('status' in patch && patch.status !== undefined) row.status = patch.status;
@@ -646,6 +737,7 @@ class SupabaseRepository implements Repository {
       .from('os_projects')
       .insert({
         domain: input.domain,
+        engagement: input.engagement,
         title: input.title,
         type: input.type,
         status: input.status,
@@ -857,7 +949,7 @@ class SupabaseRepository implements Repository {
   async listFinishLineCells(): Promise<ReadResult<FinishLineCell>> {
     const { data, error } = await this.client
       .from('os_finish_line_cells')
-      .select('id, item_id, entity_code, state, note');
+      .select(FINISH_LINE_CELL_COLUMNS);
     if (error) return readFailure('listFinishLineCells', error);
     return okRows((data as FinishLineCellRow[]).map(rowToFinishLineCell));
   }
@@ -1061,14 +1153,29 @@ class SupabaseRepository implements Repository {
     state: CellState,
     origin: CellWriteOrigin,
   ): Promise<FinishLineCell> {
-    // The guard runs BEFORE the request, in the mutation path. A UI-only check
-    // would be bypassed by the first caller that forgot.
+    // Both guards run BEFORE the request, in the mutation path — a UI-only
+    // check would be bypassed by the first caller that forgot. The transition
+    // guard needs the current state, so read it first; the read costs one
+    // round trip and buys the failure arriving as a named guard error instead
+    // of a PostgREST 400. The race between read and write is closed by the
+    // database trigger, which re-checks the same table — the client is the
+    // fast failure, never the boundary.
+    const { data: current, error: readError } = await this.client
+      .from('os_finish_line_cells')
+      .select('state')
+      .eq('id', cellId)
+      .maybeSingle();
+    if (readError) throw new Error(`setFinishLineCellState failed: ${readError.message}`);
+    if (!current) throw new Error(`Cell not found: ${cellId}`);
     const checked = guardCellState(state, origin);
+    guardCellTransition((current as { state: CellState }).state, checked, origin);
+    // updated_at / changed_at / actor are all trigger-written now; a client
+    // that sent them would only have its values overwritten.
     const { data, error } = await this.client
       .from('os_finish_line_cells')
-      .update({ state: checked, updated_at: new Date().toISOString() })
+      .update({ state: checked })
       .eq('id', cellId)
-      .select('id, item_id, entity_code, state, note')
+      .select(FINISH_LINE_CELL_COLUMNS)
       .maybeSingle();
     if (error) throw new Error(`setFinishLineCellState failed: ${error.message}`);
     if (!data) throw new Error(`Cell not found: ${cellId}`);
@@ -1081,9 +1188,9 @@ class SupabaseRepository implements Repository {
   ): Promise<FinishLineCell> {
     const { data, error } = await this.client
       .from('os_finish_line_cells')
-      .update({ note: guardCellNote(note) ?? null, updated_at: new Date().toISOString() })
+      .update({ note: guardCellNote(note) ?? null })
       .eq('id', cellId)
-      .select('id, item_id, entity_code, state, note')
+      .select(FINISH_LINE_CELL_COLUMNS)
       .maybeSingle();
     if (error) throw new Error(`setFinishLineCellNote failed: ${error.message}`);
     if (!data) throw new Error(`Cell not found: ${cellId}`);
@@ -1311,7 +1418,16 @@ interface FinishLineCellRow {
   entity_code: string;
   state: CellState;
   note: string | null;
+  // Attribution, added by migration 20260804000039 and written only by the
+  // database trigger. Possibly-absent so a read against a database that has
+  // not run the migration still parses.
+  actor_kind?: CellActorKind | null;
+  actor?: string | null;
+  changed_at?: string | null;
 }
+
+const FINISH_LINE_CELL_COLUMNS =
+  'id, item_id, entity_code, state, note, actor_kind, actor, changed_at';
 
 interface FinishLineEdgeRow {
   id: string;
@@ -1390,6 +1506,9 @@ function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
     state: row.state,
   };
   if (row.note) cell.note = row.note;
+  if (row.actor_kind) cell.actorKind = row.actor_kind;
+  if (row.actor) cell.actor = row.actor;
+  if (row.changed_at) cell.changedAt = toIso(row.changed_at);
   return cell;
 }
 

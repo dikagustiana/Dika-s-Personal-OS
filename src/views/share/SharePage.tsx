@@ -226,6 +226,14 @@ function SharedFinishLine({ view }: { view: SharedView }) {
                         // to render: there is no half-loaded state here, so the
                         // accounts are known by the time this can be opened.
                         accountsKnown
+                        // A share recipient holds a token, not a credential:
+                        // canWrite false mounts no editor at all. The handlers
+                        // are unreachable and exist only to satisfy the shape.
+                        viewerKind="owner"
+                        canWrite={false}
+                        isPending={false}
+                        onSetState={() => undefined}
+                        onSetNote={() => undefined}
                         onClose={() => setOpenCellId(null)}
                       />
                     )}

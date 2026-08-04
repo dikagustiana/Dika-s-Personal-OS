@@ -42,6 +42,7 @@ export const seedProjects: Project[] = [
   {
     id: WORK_PROJECT_ID,
     domain: 'work',
+    engagement: 'samb',
     title: 'SAMB — Finance Ops',
     type: 'other',
     status: 'active',
@@ -59,6 +60,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.scholarship,
     domain: 'growth',
+    engagement: 'internal',
     title: 'Chevening',
     type: 'scholarship',
     status: 'active',
@@ -86,6 +88,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.lpdp,
     domain: 'growth',
+    engagement: 'internal',
     title: 'LPDP',
     type: 'scholarship',
     status: 'active',
@@ -113,6 +116,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.uni,
     domain: 'growth',
+    engagement: 'internal',
     title: 'Uni Applications',
     type: 'study',
     status: 'active',
@@ -142,6 +146,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.ielts,
     domain: 'growth',
+    engagement: 'internal',
     title: 'IELTS',
     type: 'study',
     status: 'active',
@@ -159,6 +164,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.research,
     domain: 'growth',
+    engagement: 'internal',
     title: 'Research',
     type: 'research',
     status: 'active',
@@ -173,6 +179,7 @@ export const seedProjects: Project[] = [
   {
     id: PROJECT_IDS.website,
     domain: 'growth',
+    engagement: 'internal',
     title: 'Website (writing)',
     type: 'build',
     status: 'active',

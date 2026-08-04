@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { isSupabaseConfigured } from '../data/supabaseRepository';
+import { isSupabaseConfigured, signOutCollaborator } from '../data/supabaseRepository';
 import { lockApp } from '../components/PassphraseGate';
 import { cn } from '../lib/utils';
 import {
@@ -185,8 +185,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const setWorkspace = useAppStore((state) => state.setWorkspace);
   const setWorkView = useAppStore((state) => state.setWorkView);
   const setGrowthView = useAppStore((state) => state.setGrowthView);
-  const nav = workspace === 'work' ? workNav : growthNav;
+  const viewer = useAppStore((state) => state.viewer);
+  const isContributor = viewer.kind === 'contributor';
+  // A contributor's world is the matrix and the SAMB project list. COSMETIC
+  // ONLY: RLS is what makes GROWTH and the rest unreachable — this nav merely
+  // stops offering doors that open onto provably empty rooms. No workspace
+  // switch either; there is no second workspace for them.
+  const nav = isContributor
+    ? workNav.filter((item) => item.id === 'finish-line' || item.id === 'projects')
+    : workspace === 'work'
+      ? workNav
+      : growthNav;
   const activeView = workspace === 'work' ? workView : growthView;
+
+  const signOut = async () => {
+    await signOutCollaborator();
+    window.location.reload();
+  };
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -223,7 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="surface-label mt-0.5">Daily command</p>
           </div>
         </div>
-        <WorkspaceSwitch workspace={workspace} onChange={setWorkspace} />
+        {!isContributor && <WorkspaceSwitch workspace={workspace} onChange={setWorkspace} />}
         <nav className="mt-7 space-y-1" aria-label={`${workspace} navigation`}>
           {nav.map((item) => {
             const Icon = item.icon;
@@ -249,20 +264,41 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="mt-auto border-t border-border-subtle pt-5 text-xs leading-5 text-foreground-muted">
-          <p className="flex items-center gap-2 text-foreground-secondary">
-            <LayoutDashboard className="size-3.5" />
-            {isSupabaseConfigured ? 'Live (Supabase)' : 'Local prototype'}
-          </p>
-          <p className="mt-1">
-            {isSupabaseConfigured
-              ? 'Private by design. Synced to cloud.'
-              : 'Private by design. Mock data only.'}
-          </p>
-          {isSupabaseConfigured && (
-            <Button variant="secondary" className="mt-3 w-full" onClick={lockApp}>
-              <Lock className="size-4" />
-              Lock
-            </Button>
+          {isContributor ? (
+            <>
+              <p className="flex items-center gap-2 text-foreground-secondary">
+                <LayoutDashboard className="size-3.5" />
+                Kolaborator
+              </p>
+              <p className="mt-1 break-words">
+                {viewer.email ?? viewer.userId}
+                <span className="block">
+                  Entitas: {viewer.entityCodes.join(', ')}
+                </span>
+              </p>
+              <Button variant="secondary" className="mt-3 w-full" onClick={() => void signOut()}>
+                <Lock className="size-4" />
+                Keluar
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="flex items-center gap-2 text-foreground-secondary">
+                <LayoutDashboard className="size-3.5" />
+                {isSupabaseConfigured ? 'Live (Supabase)' : 'Local prototype'}
+              </p>
+              <p className="mt-1">
+                {isSupabaseConfigured
+                  ? 'Private by design. Synced to cloud.'
+                  : 'Private by design. Mock data only.'}
+              </p>
+              {isSupabaseConfigured && (
+                <Button variant="secondary" className="mt-3 w-full" onClick={lockApp}>
+                  <Lock className="size-4" />
+                  Lock
+                </Button>
+              )}
+            </>
           )}
           <BuildStamp />
         </div>
@@ -329,14 +365,16 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <X className="size-5" />
               </Button>
             </div>
-            <WorkspaceSwitch
-              workspace={workspace}
-              onChange={(next) => {
-                setWorkspace(next);
-              }}
-            />
+            {!isContributor && (
+              <WorkspaceSwitch
+                workspace={workspace}
+                onChange={(next) => {
+                  setWorkspace(next);
+                }}
+              />
+            )}
             <nav className="mt-6 space-y-1.5">
-              {(workspace === 'work' ? workNav : growthNav).map((item) => {
+              {nav.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button

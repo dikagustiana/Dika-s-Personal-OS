@@ -389,6 +389,8 @@ export function FinishLineEntityView({
                                   ? [
                                       STATE_SENTENCE[slot.cell.state],
                                       resolution && RESOLUTION_LABEL[resolution],
+                                      slot.cell.actorKind === 'contributor' &&
+                                        'Diisi kontributor — belum disentuh pemilik',
                                     ]
                                       .filter(Boolean)
                                       .join('\n')
@@ -401,6 +403,13 @@ export function FinishLineEntityView({
                                 slot?.cell?.note && 'underline decoration-dotted underline-offset-4',
                               )}
                             >
+                              {/* Same submission dot as the group matrix —
+                                  one meaning, both levels. */}
+                              {slot?.cell?.actorKind === 'contributor' && (
+                                <span className="mr-0.5 text-primary" aria-hidden="true">
+                                  •
+                                </span>
+                              )}
                               {slot?.cell ? STATE_GLYPH[state as CellState] : '?'}
                             </button>
                           </td>

@@ -23,6 +23,7 @@ function closeProject(overrides: Partial<Project> & { title: string }): Project 
   return {
     id: overrides.title,
     domain: 'work',
+    engagement: 'samb',
     type: 'other',
     status: 'active',
     milestones: [],
@@ -491,6 +492,7 @@ describe('ensureMonthlyClose', () => {
     status: Project['status'] = 'active',
   ): Omit<Project, 'id'> => ({
     domain: 'work',
+    engagement: 'samb',
     title: `Closing Juni — ${series}`,
     type: 'other',
     status,
@@ -558,6 +560,7 @@ describe('ensureMonthlyClose', () => {
     const repository = await seedRepository(
       ['BMG', 'OKI', 'KGR', 'NMG', 'KBF'].map((series) => ({
         domain: 'work' as const,
+        engagement: 'samb' as const,
         title: `Closing Juli — ${series}`,
         type: 'other' as const,
         status: 'active' as const,

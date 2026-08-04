@@ -1,9 +1,14 @@
-import { Lock } from 'lucide-react';
+import { Lock, Users } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  createCollaboratorRepository,
   createSupabaseRepository,
+  getCollaboratorUser,
   isSupabaseConfigured,
+  listMyMemberships,
   requestPassphraseRecovery,
+  signInCollaborator,
+  signOutCollaborator,
   verifyAppKey,
 } from '../data/supabaseRepository';
 import { useAppStore } from '../store/appStore';
@@ -91,6 +96,9 @@ type GateState = 'checking' | 'locked' | 'unlocked';
  */
 export function PassphraseGate({ children }: { children: ReactNode }) {
   const setRepository = useAppStore((state) => state.setRepository);
+  const setViewer = useAppStore((state) => state.setViewer);
+  const setWorkspace = useAppStore((state) => state.setWorkspace);
+  const setWorkView = useAppStore((state) => state.setWorkView);
   const [state, setState] = useState<GateState>(
     isSupabaseConfigured ? 'checking' : 'unlocked',
   );
@@ -105,25 +113,67 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
   const [failures, setFailures] = useState(0);
   const [recovery, setRecovery] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+  // The collaborator side of the gate: a small email form under the
+  // passphrase one. 'sent' shows the check-your-email copy; nothing here
+  // grants anything — the JWT and the membership rows do, server-side.
+  const [collabMode, setCollabMode] = useState(false);
+  const [collabEmail, setCollabEmail] = useState('');
+  const [collabState, setCollabState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [collabNotice, setCollabNotice] = useState<string | null>(null);
+
+  /**
+   * Enters the app as the given collaborator session. Membership decides:
+   * a session with no os_entity_members rows is signed out and told so —
+   * an authenticated stranger holds a JWT that reads nothing, and letting
+   * them into an all-empty shell would look broken rather than closed.
+   */
+  const enterAsCollaborator = async (user: { id: string; email?: string }) => {
+    const entityCodes = await listMyMemberships();
+    if (entityCodes.length === 0) {
+      await signOutCollaborator();
+      setCollabNotice('Akun ini belum punya akses. Hubungi pemilik untuk didaftarkan.');
+      setState('locked');
+      return;
+    }
+    setRepository(createCollaboratorRepository());
+    setViewer({ kind: 'contributor', userId: user.id, email: user.email, entityCodes });
+    // Collaborators live in WORK, on the matrix. GROWTH has no nav for them
+    // (and no data behind it either way — RLS, not the nav, is the boundary).
+    setWorkspace('work');
+    setWorkView('finish-line');
+    setState('unlocked');
+  };
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     let cancelled = false;
     const stored = readStoredKey();
-    if (!stored) {
-      setState('locked');
-      return;
-    }
-    verifyAppKey(stored)
-      .then((result) => {
-        if (cancelled) return;
+    const enter = async () => {
+      // Owner first: on a machine where both credentials somehow exist, the
+      // passphrase wins — it is the wider capability and the owner's own.
+      if (stored) {
+        const result = await verifyAppKey(stored);
+        if (cancelled) return true;
         if (result.valid) {
           setRepository(createSupabaseRepository(stored));
           setState('unlocked');
-        } else {
-          clearStoredKey();
-          setState('locked');
+          return true;
         }
+        clearStoredKey();
+      }
+      // Then a collaborator session — including the one the magic-link
+      // redirect just planted in the URL, which the client parses on init.
+      const user = await getCollaboratorUser();
+      if (cancelled) return true;
+      if (user) {
+        await enterAsCollaborator(user);
+        return true;
+      }
+      return false;
+    };
+    enter()
+      .then((entered) => {
+        if (!cancelled && !entered) setState('locked');
       })
       .catch(() => {
         if (cancelled) return;
@@ -133,6 +183,7 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setRepository]);
 
   const unlock = async (event: FormEvent) => {
@@ -181,6 +232,27 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     }
   };
 
+  const sendCollabLink = async (event: FormEvent) => {
+    event.preventDefault();
+    const email = collabEmail.trim();
+    if (!email || collabState === 'sending') return;
+    setCollabState('sending');
+    setCollabNotice(null);
+    try {
+      const { error: sendError } = await signInCollaborator(email);
+      // shouldCreateUser is false, so an unknown address errors — but which
+      // addresses exist is not this screen's to reveal. Same copy either way.
+      void sendError;
+      setCollabState('sent');
+      setCollabNotice(
+        'Jika alamat ini terdaftar, tautan masuk sudah dikirim. Buka dari email untuk masuk.',
+      );
+    } catch {
+      setCollabState('idle');
+      setCollabNotice(OFFLINE_COPY);
+    }
+  };
+
   if (state === 'unlocked') return <>{children}</>;
 
   if (state === 'checking') {
@@ -193,9 +265,10 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="grid min-h-dvh place-items-center bg-background px-4 text-foreground">
+      <div className="w-full max-w-sm">
       <form
         onSubmit={unlock}
-        className="w-full max-w-sm rounded-lg border border-border bg-card p-6"
+        className="w-full rounded-lg border border-border bg-card p-6"
       >
         <div className="mb-5 flex items-center gap-3">
           <div className="grid size-10 place-items-center rounded-md border border-border bg-surface-2">
@@ -267,6 +340,50 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
           {recoveryNotice}
         </div>
       </form>
+
+      {/* The collaborator door. Folded by default: the owner unlocks daily
+          and must not scan past a form that is not for him. Nothing here is
+          a boundary — the JWT and the membership rows are, in SQL. */}
+      {!collabMode ? (
+        <button
+          type="button"
+          onClick={() => setCollabMode(true)}
+          className="mx-auto mt-3 flex items-center gap-2 text-sm text-foreground-muted hover:text-foreground-secondary"
+        >
+          <Users className="size-4" />
+          Masuk sebagai kolaborator
+        </button>
+      ) : (
+        <form
+          onSubmit={sendCollabLink}
+          className="mt-3 w-full rounded-lg border border-border bg-card p-6"
+        >
+          <p className="surface-label mb-3">Kolaborator — tautan masuk via email</p>
+          <Input
+            type="email"
+            value={collabEmail}
+            onChange={(event) => setCollabEmail(event.target.value)}
+            placeholder="email@kantor"
+            aria-label="Email kolaborator"
+          />
+          <Button
+            type="submit"
+            variant="secondary"
+            className="mt-3 w-full"
+            disabled={collabState === 'sending' || !collabEmail.trim()}
+          >
+            {collabState === 'sending' ? 'Mengirim…' : 'Kirim tautan masuk'}
+          </Button>
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-3 text-sm text-foreground-secondary empty:hidden"
+          >
+            {collabNotice}
+          </div>
+        </form>
+      )}
+      </div>
     </div>
   );
 }

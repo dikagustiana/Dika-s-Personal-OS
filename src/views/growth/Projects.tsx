@@ -150,8 +150,14 @@ export function Projects() {
   const createProject = async () => {
     const title = draft.title.trim();
     if (!title) return;
+    // GROWTH is always the owner's own world; WORK requires an explicit
+    // client choice — the button below stays disabled until one is made, so
+    // reaching here with '' is impossible for WORK.
+    const engagement = domain === 'growth' ? 'internal' : draft.engagement;
+    if (!engagement) return;
     const input: Omit<Project, 'id'> = {
       domain,
+      engagement,
       title,
       type: 'other',
       status: draft.status,
@@ -296,9 +302,17 @@ export function Projects() {
               onChange={setDraft}
               idPrefix="New project"
               projects={projects}
+              showEngagement={domain === 'work'}
             />
             <div className="mt-5">
-              <Button onClick={() => void createProject()} disabled={isPending || !draft.title.trim()}>
+              <Button
+                onClick={() => void createProject()}
+                disabled={
+                  isPending ||
+                  !draft.title.trim() ||
+                  (domain === 'work' && !draft.engagement)
+                }
+              >
                 <Plus className="size-4" />
                 Create project
               </Button>

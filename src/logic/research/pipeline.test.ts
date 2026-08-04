@@ -30,6 +30,7 @@ function base(over: Partial<ResearchProject> = {}): ResearchProject {
     project: {
       id: 'p',
       domain: 'growth',
+    engagement: 'internal',
       title: 'Study',
       type: 'research',
       status: 'active',

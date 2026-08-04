@@ -306,6 +306,7 @@ export function ProjectCard({
               idPrefix={project.title}
               projects={projects}
               self={project}
+              showEngagement={project.domain === 'work'}
             />
             <div className="mt-5">
               <p className="surface-label mb-2">Milestones</p>
