@@ -229,6 +229,9 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
   const label = periodLabel(period);
   const entityProjects = CLOSE_ENTITIES.map<Omit<Project, 'id'>>((entity) => ({
     domain: 'work',
+    // Every close series is a SAMB-group entity; the collaborator read policy
+    // keys on this, so a template that forgot it would hide new closes.
+    engagement: 'samb',
     title: `${label}${SERIES_SEPARATOR}${entity}`,
     type: 'other',
     status: 'active',
@@ -247,6 +250,7 @@ export function buildMonthlyCloseInputs(period: string): Array<Omit<Project, 'id
 
   const consolidation: Omit<Project, 'id'> = {
     domain: 'work',
+    engagement: 'samb',
     title: `${label}${SERIES_SEPARATOR}Consolidation`,
     type: 'other',
     status: 'active',
@@ -338,6 +342,8 @@ export function rollForwardProject(
   const from = source.period ?? to;
   const rolled: Omit<Project, 'id'> = {
     domain: source.domain,
+    // Rolls forward with the series: a close cycle never changes client.
+    engagement: source.engagement,
     title: `${periodLabel(to)}${SERIES_SEPARATOR}${series}`,
     type: source.type,
     status: 'active',

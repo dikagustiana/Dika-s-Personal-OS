@@ -49,6 +49,7 @@ function project(milestones: Milestone[], id = 'p1'): Project {
   return {
     id,
     domain: 'work',
+    engagement: 'samb',
     title: 'Project',
     type: 'other',
     status: 'active',

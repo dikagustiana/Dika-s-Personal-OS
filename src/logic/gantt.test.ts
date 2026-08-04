@@ -6,6 +6,7 @@ function project(overrides: Partial<Project>): Project {
   return {
     id: 'p',
     domain: 'growth',
+    engagement: 'internal',
     title: 'Initiative',
     type: 'study',
     status: 'active',

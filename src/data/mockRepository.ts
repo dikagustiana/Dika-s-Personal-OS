@@ -2,6 +2,7 @@ import { MockResearchRepository } from './researchRepository';
 import {
   guardCellNote,
   guardCellState,
+  guardCellTransition,
   guardEdgeTarget,
   type CellWriteOrigin,
 } from './finishLineGuards';
@@ -22,6 +23,7 @@ import type {
   FinishLineAccountWrite,
   Domain,
   Entry,
+  CellActorKind,
   CellState,
   DanglingLink,
   FinishLineCell,
@@ -57,9 +59,83 @@ function planKey(week: string, domain: Domain): string {
   return `${domain}:${week}`;
 }
 
+/**
+ * WHO THE MOCK IS PRETENDING TO BE — the same fact production derives from the
+ * credential (x-app-key header = owner, JWT + membership = contributor).
+ * Default owner, so every existing test and the no-credentials dev experience
+ * are untouched. Set to a contributor and the mock reproduces what RLS and the
+ * cell trigger do live: entity-scoped reads, input → figure only, actor
+ * stamping, history rows. INVARIANT 6: the mock is what the tests reason
+ * about, so a guard added to the Supabase path lands here too or the suite
+ * asserts against fiction.
+ */
+export type MockViewer =
+  | { kind: 'owner' }
+  | { kind: 'contributor'; userId: string; entityCodes: string[] };
+
+/** One history row, shaped like os_finish_line_cell_history. */
+export interface MockCellHistoryEntry {
+  cellId: string;
+  fromState: CellState;
+  toState: CellState;
+  noteChanged: boolean;
+  actorKind: CellActorKind;
+  actor?: string;
+  changedAt: string;
+}
+
 export class MockRepository implements Repository {
   /** Research lives behind its own seam; a bare clone still gets a working one. */
   readonly research = new MockResearchRepository();
+
+  private viewer: MockViewer = { kind: 'owner' };
+
+  /** Mock-only (not on Repository): production sets this via the credential. */
+  setViewer(viewer: MockViewer): void {
+    this.viewer = viewer;
+  }
+
+  private memberEntities(): string[] {
+    return this.viewer.kind === 'contributor' ? this.viewer.entityCodes : [];
+  }
+
+  private isContributor(): boolean {
+    return this.viewer.kind === 'contributor';
+  }
+
+  /** Mirrors the member SELECT policy on cells: own entities only. */
+  private cellVisible(cell: FinishLineCell): boolean {
+    return !this.isContributor() || this.memberEntities().includes(cell.entityCode);
+  }
+
+  /** Mirrors the member SELECT policy on projects: WORK ∧ SAMB only. */
+  private projectVisible(project: Project): boolean {
+    return (
+      !this.isContributor() ||
+      (project.domain === 'work' && project.engagement === 'samb')
+    );
+  }
+
+  /**
+   * Mirrors a table with NO member policy: production answers a contributor
+   * INSERT with an RLS violation and an UPDATE with zero matched rows. The
+   * mock throws the same class of failure for both, because a silent no-op
+   * would let a test pass against behaviour production does not have.
+   */
+  private assertOwnerWrite(operation: string): void {
+    if (this.isContributor()) {
+      throw new Error(`${operation} failed: row-level security (owner only)`);
+    }
+  }
+
+  // Append-only, trigger-written in production; the trigger-mirror below is
+  // the only writer here. Exposed read-only for tests — production scopes
+  // SELECT to the owner and the UI reads attribution from the cell row.
+  private readonly finishLineCellHistory: MockCellHistoryEntry[] = [];
+
+  readCellHistory(): MockCellHistoryEntry[] {
+    return clone(this.finishLineCellHistory);
+  }
 
   private readonly entries = new Map(seedEntries.map((entry) => [entry.id, clone(entry)]));
   private readonly dailyLogs = new Map(
@@ -80,6 +156,10 @@ export class MockRepository implements Repository {
     date?: string;
     domain?: Domain;
   }): Promise<Entry[]> {
+    // No member policy on os_entries: a contributor reads nothing, exactly as
+    // production returns an empty set. Same pattern on every table below that
+    // §6 gave no member policy.
+    if (this.isContributor()) return [];
     const entries = [...this.entries.values()].filter((entry) => {
       if (filter?.domain && entry.domain !== filter.domain) return false;
       if (filter?.type && entry.type !== filter.type) return false;
@@ -93,6 +173,7 @@ export class MockRepository implements Repository {
   }
 
   async getEntry(id: string): Promise<Entry | null> {
+    if (this.isContributor()) return null;
     const entry = this.entries.get(id);
     return entry ? clone(entry) : null;
   }
@@ -100,6 +181,7 @@ export class MockRepository implements Repository {
   async createEntry(
     input: Omit<Entry, 'id' | 'createdAt' | 'updatedAt'>,
   ): Promise<Entry> {
+    this.assertOwnerWrite('createEntry');
     const now = new Date().toISOString();
     const created = {
       ...input,
@@ -114,7 +196,7 @@ export class MockRepository implements Repository {
 
   async updateEntry(id: string, patch: Partial<Entry>): Promise<Entry> {
     const current = this.entries.get(id);
-    if (!current) throw new Error(`Entry not found: ${id}`);
+    if (!current || this.isContributor()) throw new Error(`Entry not found: ${id}`);
     const updated = {
       ...current,
       ...patch,
@@ -130,15 +212,18 @@ export class MockRepository implements Repository {
   }
 
   async deleteEntry(id: string): Promise<void> {
+    if (this.isContributor()) return; // zero rows matched, no error — as live
     this.entries.delete(id);
   }
 
   async getDailyLog(date: string, domain: Domain): Promise<DailyLog | null> {
+    if (this.isContributor()) return null;
     const log = this.dailyLogs.get(logKey(date, domain));
     return log ? clone(log) : null;
   }
 
   async upsertDailyLog(log: DailyLog): Promise<DailyLog> {
+    this.assertOwnerWrite('upsertDailyLog');
     this.dailyLogs.set(logKey(log.date, log.domain), clone(log));
     return clone(log);
   }
@@ -148,6 +233,7 @@ export class MockRepository implements Repository {
     to: string;
     domain: Domain;
   }): Promise<DailyLog[]> {
+    if (this.isContributor()) return [];
     const logs = [...this.dailyLogs.values()]
       .filter(
         (log) =>
@@ -160,11 +246,13 @@ export class MockRepository implements Repository {
   }
 
   async getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null> {
+    if (this.isContributor()) return null;
     const plan = this.weeklyPlans.get(planKey(week, domain));
     return plan ? clone(plan) : null;
   }
 
   async upsertWeeklyPlan(plan: WeeklyPlan): Promise<WeeklyPlan> {
+    this.assertOwnerWrite('upsertWeeklyPlan');
     this.weeklyPlans.set(planKey(plan.week, plan.domain), clone(plan));
     return clone(plan);
   }
@@ -172,6 +260,7 @@ export class MockRepository implements Repository {
   async listProjects(domain?: Domain): Promise<Project[]> {
     return clone(
       [...this.projects.values()]
+        .filter((project) => this.projectVisible(project))
         .filter((project) => !domain || project.domain === domain)
         .sort((a, b) => a.order - b.order),
     );
@@ -179,10 +268,12 @@ export class MockRepository implements Repository {
 
   async getProject(id: string): Promise<Project | null> {
     const project = this.projects.get(id);
-    return project ? clone(project) : null;
+    if (!project || !this.projectVisible(project)) return null;
+    return clone(project);
   }
 
   async createProject(input: Omit<Project, 'id'>): Promise<Project> {
+    this.assertOwnerWrite('createProject');
     const project: Project = { ...input, id: createId() };
     this.projects.set(project.id, clone(project));
     return clone(project);
@@ -190,24 +281,32 @@ export class MockRepository implements Repository {
 
   async updateProject(id: string, patch: Partial<Project>): Promise<Project> {
     const current = this.projects.get(id);
-    if (!current) throw new Error(`Project not found: ${id}`);
+    // A contributor has no UPDATE policy on projects: production matches zero
+    // rows and the repository reports not-found. Visible-but-unwritable
+    // collapses to the same outcome, which is exactly what the API shows.
+    if (!current || this.isContributor()) throw new Error(`Project not found: ${id}`);
     const updated: Project = { ...current, ...patch, id: current.id };
     this.projects.set(id, clone(updated));
     return clone(updated);
   }
 
   async deleteProject(id: string): Promise<void> {
+    // Production: no member DELETE policy, zero rows matched, no error. The
+    // silent no-op IS the parity.
+    if (this.isContributor()) return;
     this.projects.delete(id);
     this.cascadeProjectDeletion(id);
   }
 
   async listIeltsResults(): Promise<IeltsResult[]> {
+    if (this.isContributor()) return [];
     return clone(
       [...this.ieltsResults.values()].sort((a, b) => a.date.localeCompare(b.date)),
     );
   }
 
   async createIeltsResult(input: Omit<IeltsResult, 'id'>): Promise<IeltsResult> {
+    this.assertOwnerWrite('createIeltsResult');
     const result: IeltsResult = { ...input, id: createId() };
     this.ieltsResults.set(result.id, clone(result));
     return clone(result);
@@ -215,13 +314,14 @@ export class MockRepository implements Repository {
 
   async updateIeltsResult(id: string, patch: Partial<IeltsResult>): Promise<IeltsResult> {
     const current = this.ieltsResults.get(id);
-    if (!current) throw new Error(`IELTS result not found: ${id}`);
+    if (!current || this.isContributor()) throw new Error(`IELTS result not found: ${id}`);
     const updated: IeltsResult = { ...current, ...patch, id: current.id };
     this.ieltsResults.set(id, clone(updated));
     return clone(updated);
   }
 
   async deleteIeltsResult(id: string): Promise<void> {
+    if (this.isContributor()) return;
     this.ieltsResults.delete(id);
   }
 
@@ -234,6 +334,7 @@ export class MockRepository implements Repository {
   private readonly ieltsErrors = new Map<string, IeltsError>();
 
   async listIeltsErrors(): Promise<IeltsError[]> {
+    if (this.isContributor()) return [];
     return clone(
       [...this.ieltsErrors.values()].sort(
         (a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt),
@@ -244,6 +345,7 @@ export class MockRepository implements Repository {
   async createIeltsErrors(
     input: ReadonlyArray<Omit<IeltsError, 'id' | 'createdAt'>>,
   ): Promise<IeltsError[]> {
+    this.assertOwnerWrite('createIeltsErrors');
     const created = input.map((row) => ({
       ...row,
       id: createId(),
@@ -254,6 +356,7 @@ export class MockRepository implements Repository {
   }
 
   async deleteIeltsError(id: string): Promise<void> {
+    if (this.isContributor()) return;
     this.ieltsErrors.delete(id);
   }
 
@@ -265,6 +368,7 @@ export class MockRepository implements Repository {
   private readonly ieltsSessions = new Map<string, IeltsSession>();
 
   async listIeltsSessions(): Promise<IeltsSession[]> {
+    if (this.isContributor()) return [];
     return clone(
       [...this.ieltsSessions.values()].sort(
         (a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt),
@@ -275,6 +379,7 @@ export class MockRepository implements Repository {
   async createIeltsSessions(
     input: ReadonlyArray<Omit<IeltsSession, 'id' | 'createdAt'>>,
   ): Promise<IeltsSession[]> {
+    this.assertOwnerWrite('createIeltsSessions');
     const created = input.map((row) => ({
       ...row,
       id: createId(),
@@ -303,23 +408,50 @@ export class MockRepository implements Repository {
   private finishLineEdges: FinishLineEdge[] = [];
 
   async listFinishLineItems(): Promise<ReadResult<FinishLineItem>> {
+    // Structure tables read whole for any member of anything, empty for a
+    // contributor with no memberships — the §6 predicate, verbatim.
+    if (this.isContributor() && this.memberEntities().length === 0) return okRows([]);
     return okRows(clone([...this.finishLineItems].sort((a, b) => a.order - b.order)));
   }
 
   async listFinishLineEntities(): Promise<ReadResult<FinishLineEntity>> {
+    if (this.isContributor() && this.memberEntities().length === 0) return okRows([]);
     return okRows(clone([...this.finishLineEntities].sort((a, b) => a.order - b.order)));
   }
 
   async listFinishLineCells(): Promise<ReadResult<FinishLineCell>> {
-    return okRows(clone([...this.finishLineCells.values()]));
+    return okRows(
+      clone([...this.finishLineCells.values()].filter((cell) => this.cellVisible(cell))),
+    );
   }
 
   async listFinishLineDeps(): Promise<ReadResult<FinishLineDep>> {
-    return okRows(clone(this.finishLineDeps));
+    // Deps carry no entity; visibility joins through the cell, as the policy
+    // does. Both ends land in the same entity column by construction, so
+    // checking cell_id matches the SQL exactly.
+    return okRows(
+      clone(
+        this.finishLineDeps.filter((dep) => {
+          const cell = this.finishLineCells.get(dep.cellId);
+          return cell !== undefined && this.cellVisible(cell);
+        }),
+      ),
+    );
   }
 
   async listFinishLineEdges(): Promise<ReadResult<FinishLineEdge>> {
-    return okRows(clone(this.finishLineEdges));
+    // Item-grain edges (no cellId) have no entity and stay owner-only — the
+    // policy's exists() finds no cell for them.
+    return okRows(
+      clone(
+        this.finishLineEdges.filter((edge) => {
+          if (!this.isContributor()) return true;
+          if (!edge.cellId) return false;
+          const cell = this.finishLineCells.get(edge.cellId);
+          return cell !== undefined && this.cellVisible(cell);
+        }),
+      ),
+    );
   }
 
   /**
@@ -340,6 +472,10 @@ export class MockRepository implements Repository {
   private readonly finishLineAccountMap: FinishLineAccountMapRow[] = [];
 
   async listFinishLineAccounts(): Promise<ReadResult<FinishLineAccount>> {
+    // NO member policy, deliberately: the chart of accounts is the most
+    // sensitive layer in the matrix. A contributor gets a clean empty ok —
+    // not a failure — and the UI renders an empty state, not a spinner.
+    if (this.isContributor()) return okRows([]);
     return okRows(clone(this.finishLineAccounts));
   }
 
@@ -347,6 +483,7 @@ export class MockRepository implements Repository {
     upserts: FinishLineAccountWrite[];
     deleteIds: string[];
   }): Promise<void> {
+    this.assertOwnerWrite('applyFinishLineAccountPaste');
     const touchedAt = new Date().toISOString();
     for (const id of input.deleteIds) {
       const at = this.finishLineAccounts.findIndex((a) => a.id === id);
@@ -378,6 +515,7 @@ export class MockRepository implements Repository {
   }
 
   async listFinishLineAccountMap(): Promise<ReadResult<FinishLineAccountMapRow>> {
+    if (this.isContributor() && this.memberEntities().length === 0) return okRows([]);
     return okRows(clone(this.finishLineAccountMap));
   }
 
@@ -387,12 +525,22 @@ export class MockRepository implements Repository {
    * is surfaced rather than solved — and never auto-deleted.
    */
   async listDanglingLinks(): Promise<ReadResult<DanglingLink>> {
+    // The production view is security_invoker: a contributor's rows come out
+    // filtered through the edge and project policies. Reuse the scoped lists
+    // rather than the raw maps so this derives from what the viewer can see.
+    const visibleEdges = (await this.listFinishLineEdges());
+    const edges = visibleEdges.ok ? visibleEdges.rows : [];
+    const visibleProjects = new Map(
+      [...this.projects.values()]
+        .filter((project) => this.projectVisible(project))
+        .map((project) => [project.id, project]),
+    );
     const live = new Set<string>();
-    for (const project of this.projects.values()) {
+    for (const project of visibleProjects.values()) {
       for (const milestone of project.milestones) live.add(`${project.id}:${milestone.id}`);
     }
     return okRows(
-      this.finishLineEdges
+      edges
         .filter(
           (edge) =>
             edge.milestoneId !== undefined && !live.has(`${edge.projectId}:${edge.milestoneId}`),
@@ -423,6 +571,7 @@ export class MockRepository implements Repository {
     );
     const orphans: OrphanMilestone[] = [];
     for (const project of this.projects.values()) {
+      if (!this.projectVisible(project)) continue;
       if (project.domain !== 'work' || project.recurring === 'monthly') continue;
       for (const milestone of project.milestones) {
         if (linked.has(`${project.id}:${milestone.id}`)) continue;
@@ -438,17 +587,61 @@ export class MockRepository implements Repository {
     return okRows(orphans);
   }
 
+  /**
+   * THE TRIGGER-MIRROR. Production enforces the contributor rules twice: the
+   * client guards fail fast on the caller's declared origin, and the database
+   * trigger re-decides from the CREDENTIAL — it does not trust the client's
+   * claim. The mock does both too: guards first with `origin` (so a rollup is
+   * rejected identically), then the viewer plays the trigger. A contributor
+   * viewer claiming origin 'human' is therefore still held to input → figure,
+   * exactly as a spoofed REST call is live.
+   */
+  private applyCellWrite(
+    current: FinishLineCell,
+    next: FinishLineCell,
+  ): FinishLineCell {
+    if (this.viewer.kind === 'contributor') {
+      if (next.state !== current.state && !(current.state === 'input' && next.state === 'figure')) {
+        // The SQL trigger's message, so a test asserting on it holds both ways.
+        throw new Error(
+          `finish line cells: a contributor may only move a cell forward from input to figure (attempted ${current.state} -> ${next.state})`,
+        );
+      }
+      next.actorKind = 'contributor';
+      next.actor = this.viewer.userId;
+    } else {
+      next.actorKind = 'owner';
+      delete next.actor;
+    }
+    next.changedAt = new Date().toISOString();
+    if (next.state !== current.state || (next.note ?? undefined) !== (current.note ?? undefined)) {
+      const entry: MockCellHistoryEntry = {
+        cellId: next.id,
+        fromState: current.state,
+        toState: next.state,
+        noteChanged: (next.note ?? undefined) !== (current.note ?? undefined),
+        actorKind: next.actorKind,
+        changedAt: next.changedAt,
+      };
+      if (next.actor) entry.actor = next.actor;
+      this.finishLineCellHistory.push(entry);
+    }
+    this.finishLineCells.set(next.id, clone(next));
+    return clone(next);
+  }
+
   async setFinishLineCellState(
     cellId: string,
     state: CellState,
     origin: CellWriteOrigin,
   ): Promise<FinishLineCell> {
-    const checked = guardCellState(state, origin);
     const current = this.finishLineCells.get(cellId);
-    if (!current) throw new Error(`Cell not found: ${cellId}`);
-    const updated: FinishLineCell = { ...current, state: checked };
-    this.finishLineCells.set(cellId, clone(updated));
-    return clone(updated);
+    // A cross-entity cell is INVISIBLE to a contributor, so the id does not
+    // resolve — the same "Cell not found" production's RLS produces.
+    if (!current || !this.cellVisible(current)) throw new Error(`Cell not found: ${cellId}`);
+    const checked = guardCellState(state, origin);
+    guardCellTransition(current.state, checked, origin);
+    return this.applyCellWrite(current, { ...current, state: checked });
   }
 
   async setFinishLineCellNote(
@@ -456,19 +649,20 @@ export class MockRepository implements Repository {
     note: string | undefined,
   ): Promise<FinishLineCell> {
     const current = this.finishLineCells.get(cellId);
-    if (!current) throw new Error(`Cell not found: ${cellId}`);
+    if (!current || !this.cellVisible(current)) throw new Error(`Cell not found: ${cellId}`);
     const cleaned = guardCellNote(note);
     const updated: FinishLineCell = { ...current };
     if (cleaned) updated.note = cleaned;
     else delete updated.note;
-    this.finishLineCells.set(cellId, clone(updated));
-    return clone(updated);
+    return this.applyCellWrite(current, updated);
   }
 
   async setCellEdges(
     cellId: string,
     edges: { projectId: string; milestoneId?: string }[],
   ): Promise<void> {
+    // Edges stay owner-only in this task — contributors write cells only.
+    this.assertOwnerWrite('setCellEdges');
     const target = this.finishLineCells.get(cellId);
     if (!target) throw new Error(`Cell not found: ${cellId}`);
     // Same two rules as production: only an `input` cell can carry an edge,
@@ -499,6 +693,7 @@ export class MockRepository implements Repository {
     milestoneId: string,
     cellIds: string[],
   ): Promise<void> {
+    this.assertOwnerWrite('setMilestoneEdges');
     // Same two rules as production, which this path used to skip entirely.
     for (const cellId of cellIds) {
       const target = this.finishLineCells.get(cellId);
@@ -533,6 +728,7 @@ export class MockRepository implements Repository {
   private shareLinks: ShareLink[] = [];
 
   async listShareLinks(): Promise<ReadResult<ShareLink>> {
+    if (this.isContributor()) return okRows([]);
     return okRows(
       [...this.shareLinks].sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
     );

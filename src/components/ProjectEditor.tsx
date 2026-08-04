@@ -2,6 +2,7 @@ import { ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import type {
   DateConfidence,
+  Engagement,
   LinkedProject,
   Milestone,
   MilestoneStatus,
@@ -18,6 +19,12 @@ export const DATE_CONFIDENCES: Array<{ value: DateConfidence; label: string }> =
   { value: 'unknown', label: 'Unknown' },
 ];
 
+export const ENGAGEMENTS: Array<{ value: Engagement; label: string }> = [
+  { value: 'samb', label: 'SAMB (kolaborator bisa baca)' },
+  { value: 'gunungjati', label: 'Gunung Jati' },
+  { value: 'internal', label: 'Internal (hanya pemilik)' },
+];
+
 /** The editable subset of a project. Everything else is set by seed or code. */
 export interface ProjectDraft {
   title: string;
@@ -29,6 +36,13 @@ export interface ProjectDraft {
   /** '' means top-level. */
   parentId: string;
   linkedProjects: LinkedProject[];
+  /**
+   * '' means NOT CHOSEN YET, and a WORK project cannot be created until it
+   * is. Deliberately no preselected value: a default here would be the UI
+   * recreating exactly the omission the database's no-default NOT NULL
+   * column exists to make impossible.
+   */
+  engagement: Engagement | '';
 }
 
 export function emptyProjectDraft(): ProjectDraft {
@@ -43,6 +57,7 @@ export function emptyProjectDraft(): ProjectDraft {
     entityTag: '',
     parentId: '',
     linkedProjects: [],
+    engagement: '',
   };
 }
 
@@ -56,6 +71,7 @@ export function projectToDraft(project: Project): ProjectDraft {
     entityTag: project.entityTag ?? '',
     parentId: project.parentId ?? '',
     linkedProjects: project.linkedProjects ?? [],
+    engagement: project.engagement,
   };
 }
 
@@ -69,6 +85,8 @@ export function draftToPatch(draft: ProjectDraft): Partial<Project> {
     entityTag: draft.entityTag.trim() || undefined,
     parentId: draft.parentId || undefined,
     linkedProjects: draft.linkedProjects,
+    // '' (never chosen — only possible mid-create) is not a value to write.
+    ...(draft.engagement ? { engagement: draft.engagement } : {}),
   };
 }
 
@@ -86,6 +104,7 @@ export function ProjectFields({
   idPrefix,
   projects,
   self,
+  showEngagement,
 }: {
   draft: ProjectDraft;
   onChange: (next: ProjectDraft) => void;
@@ -94,6 +113,12 @@ export function ProjectFields({
   projects?: Project[];
   /** The project being edited; omitted when creating a new one. */
   self?: Project;
+  /**
+   * WORK only: which client the project belongs to. Shown with NO
+   * preselection on create — the caller blocks the save until a value is
+   * chosen, mirroring the database's no-default NOT NULL column.
+   */
+  showEngagement?: boolean;
 }) {
   const patch = (partial: Partial<ProjectDraft>) => onChange({ ...draft, ...partial });
 
@@ -163,6 +188,28 @@ export function ProjectFields({
           </select>
         </label>
       </div>
+      {showEngagement && (
+        <label className="block">
+          <span className="surface-label">Engagement</span>
+          <select
+            className="native-select mt-2"
+            value={draft.engagement}
+            onChange={(event) =>
+              patch({ engagement: event.target.value as Engagement | '' })
+            }
+            aria-label={`${idPrefix} engagement`}
+          >
+            {/* Empty option only while nothing is chosen: once set, there is
+                no way back to "unchosen" — the column is NOT NULL. */}
+            {draft.engagement === '' && <option value="">Pilih klien…</option>}
+            {ENGAGEMENTS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="surface-label">Entity tag</span>

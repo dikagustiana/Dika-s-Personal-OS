@@ -194,6 +194,18 @@ export interface Milestone {
   // render time, the same way the daily score and the IELTS band are.
 }
 
+/**
+ * WHICH CLIENT A PROJECT BELONGS TO — the collaborator-visibility boundary.
+ *
+ * `samb` is the SAMB group engagement and is what a contributor JWT may read;
+ * `gunungjati` is a different client and must never be visible to SAMB
+ * collaborators; `internal` is the owner's own work plus everything GROWTH.
+ * REQUIRED, WITH NO DEFAULT, in the database and here: a project that forgot
+ * to say which client it belongs to is exactly how the wrong client's work
+ * becomes visible, so the omission fails at compile time and at INSERT.
+ */
+export type Engagement = 'samb' | 'gunungjati' | 'internal';
+
 // The DDS site sections a Website piece belongs to (Website projects only).
 export type WebsiteCategory =
   | 'finance'
@@ -207,6 +219,8 @@ export type WebsiteCategory =
 export interface Project {
   id: string;
   domain: Domain;
+  /** Client scope — see Engagement. Required so no project skips the choice. */
+  engagement: Engagement;
   title: string;
   type: 'scholarship' | 'study' | 'research' | 'build' | 'other';
   /**
@@ -505,6 +519,14 @@ export interface FinishLineEntity {
   order: number;
 }
 
+/**
+ * Who last touched a cell. `owner` is the passphrase path; `contributor` is a
+ * collaborator JWT. Written by the database trigger, never by a client — a
+ * contributor-written `figure` means "submitted, not yet looked at by the
+ * owner", and any owner write resets the cell to `owner`.
+ */
+export type CellActorKind = 'owner' | 'contributor';
+
 export interface FinishLineCell {
   id: string;
   itemId: string;
@@ -512,11 +534,19 @@ export interface FinishLineCell {
   /**
    * CHANGEABLE ONLY BY A DIRECT HUMAN EDIT. No inference, no rollup, no
    * linked-milestone completion may write it — enforced in the mutation path
-   * by finishLineGuards, not merely in the UI.
+   * by finishLineGuards, not merely in the UI. Since collaborators exist, a
+   * human edit is either the owner (any transition) or a contributor
+   * (input → figure only) — see guardCellTransition and the SQL trigger.
    */
   state: CellState;
   /** One line on what is missing FOR THIS ENTITY. */
   note?: string;
+  /** Trigger-written attribution. Absent only on rows the app never wrote. */
+  actorKind?: CellActorKind;
+  /** auth.users id when a contributor last touched the cell; absent for owner. */
+  actor?: string;
+  /** When the last touch happened. Trigger-written, not client-suppliable. */
+  changedAt?: string;
 }
 
 /** A locked cell's inputs, within the same entity column. */

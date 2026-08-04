@@ -32,6 +32,7 @@ function project(milestones: Milestone[]): Project {
   return {
     id: 'p1',
     domain: 'work',
+    engagement: 'samb',
     title: 'A project',
     type: 'other',
     status: 'active',

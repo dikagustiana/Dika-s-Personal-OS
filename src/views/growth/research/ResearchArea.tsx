@@ -98,6 +98,7 @@ export function ResearchArea() {
     const created = await run('Create research project', () =>
       repository.createProject({
         domain: 'growth',
+        engagement: 'internal',
         title: input.title,
         type: 'research',
         status: 'active',

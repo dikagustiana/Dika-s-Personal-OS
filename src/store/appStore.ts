@@ -72,14 +72,28 @@ export interface FinishLineFocus {
   cellIds?: string[];
 }
 
+/**
+ * Who is using the app this session. `owner` is the passphrase path — the
+ * default, and the only value the owner flow ever sets. `contributor` is a
+ * magic-link session scoped to its entity codes; the gate sets it after
+ * loading the membership rows. UI-SCOPING ONLY: every value here is
+ * re-derived server-side by RLS and the cell trigger, so a tampered store
+ * changes what renders, never what the database permits.
+ */
+export type Viewer =
+  | { kind: 'owner' }
+  | { kind: 'contributor'; userId: string; email?: string; entityCodes: string[] };
+
 interface AppState {
   repository: Repository;
+  viewer: Viewer;
   workspace: Workspace;
   workView: WorkView;
   growthView: GrowthView;
   projectFocus: ProjectFocus | null;
   finishLineFocus: FinishLineFocus | null;
   setRepository: (repository: Repository) => void;
+  setViewer: (viewer: Viewer) => void;
   setWorkspace: (workspace: Workspace) => void;
   setWorkView: (view: WorkView) => void;
   setGrowthView: (view: GrowthView) => void;
@@ -89,12 +103,14 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   repository: mockRepository,
+  viewer: { kind: 'owner' },
   workspace: 'work',
   workView: 'dashboard',
   growthView: 'dashboard',
   projectFocus: null,
   finishLineFocus: null,
   setRepository: (repository) => set({ repository }),
+  setViewer: (viewer) => set({ viewer }),
   setWorkspace: (workspace) => set({ workspace }),
   setWorkView: (workView) => set({ workView }),
   setGrowthView: (growthView) => set({ growthView }),

@@ -14,6 +14,7 @@ function research(title: string, items: Array<Partial<ResearchItem>>): ResearchP
     project: {
       id: title,
       domain: 'growth',
+    engagement: 'internal',
       title,
       type: 'research',
       status: 'active',

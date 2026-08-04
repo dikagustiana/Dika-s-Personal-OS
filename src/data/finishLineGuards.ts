@@ -25,8 +25,18 @@ import type { CellState } from './types';
  * ===========================================================================
  */
 
-/** Who is asking for the write. */
-export type CellWriteOrigin = 'human' | 'rollup' | 'model';
+/**
+ * Who is asking for the write. `human` is the OWNER at the keyboard — the
+ * meaning it has always had, so no existing call site changes. `contributor`
+ * is a collaborator at the keyboard: still a direct human edit (the rule this
+ * file exists for), but held to the transition rules in guardCellTransition
+ * and, decisively, in the database trigger. `rollup` and `model` remain
+ * unwritable origins forever.
+ */
+export type CellWriteOrigin = 'human' | 'contributor' | 'rollup' | 'model';
+
+/** The two origins that are a person at a keyboard. */
+const HUMAN_ORIGINS: ReadonlySet<CellWriteOrigin> = new Set(['human', 'contributor']);
 
 export class FinishLineGuardError extends Error {
   constructor(message: string) {
@@ -51,7 +61,7 @@ const STATES: ReadonlySet<string> = new Set<CellState>([
  * one that had nothing to write.
  */
 export function guardCellState(state: CellState, origin: CellWriteOrigin): CellState {
-  if (origin !== 'human') {
+  if (!HUMAN_ORIGINS.has(origin)) {
     throw new FinishLineGuardError(
       `A cell state may only be set by a direct human edit; got origin '${origin}'. ` +
         'A rollup that disagrees with a cell raises a contradiction for a person to ' +
@@ -66,6 +76,55 @@ export function guardCellState(state: CellState, origin: CellWriteOrigin): CellS
     );
   }
   return state;
+}
+
+/**
+ * ===========================================================================
+ * THE TRANSITION RULE — the submitter/approver split, stated once.
+ * ===========================================================================
+ * The five states are not a pipeline, so there is no stored "accepted" state
+ * and none is added here. What the split protects is the difference between
+ * DELIVERY and ASSERTION: `input → figure` says "the number now exists in the
+ * pack", which is precisely what a contributor knows and precisely nothing
+ * more — `figure` claims no checked method, trust stays derived from edges.
+ * Everything else a state can say (`zero` is asserted nil, `undefined` is
+ * arithmetic, `locked` is derivation, and any BACKWARD move un-says a
+ * submission) is the owner's.
+ *
+ *   owner (`human`)   any state → any state, unchanged forever
+ *   contributor       input → figure, or a same-state write (note-only edits
+ *                     ride an UPDATE whose state does not change)
+ *   rollup / model    nothing, as always
+ *
+ * This is the FAST CLIENT-SIDE FAILURE. The boundary that counts is the
+ * database trigger (migration 20260804000039), which enforces the same table
+ * against a contributor calling PostgREST directly — see invariant 4: the
+ * client is not the boundary. Keep the two in lockstep or the UI will promise
+ * what SQL then refuses.
+ */
+export function guardCellTransition(
+  from: CellState,
+  to: CellState,
+  origin: CellWriteOrigin,
+): CellState {
+  // Same origin rule and same unknown-state rule as guardCellState, so a
+  // caller that only reaches this guard is no weaker.
+  guardCellState(to, origin);
+  if (!STATES.has(from)) {
+    throw new FinishLineGuardError(
+      `Unknown current cell state '${from}' — refusing to reason about a transition from it.`,
+    );
+  }
+  if (origin === 'contributor' && from !== to && !(from === 'input' && to === 'figure')) {
+    throw new FinishLineGuardError(
+      `A contributor may only move a cell forward from 'input' to 'figure' ` +
+        `(attempted '${from}' → '${to}'). Moving into zero/undefined/locked asserts ` +
+        'something about the pack only the owner stands behind, and any backward ' +
+        'move un-says a submission — both are the owner. The note is the channel ' +
+        'for "this should be nil" or "this now trades".',
+    );
+  }
+  return to;
 }
 
 /**
