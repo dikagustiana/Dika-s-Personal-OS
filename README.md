@@ -37,6 +37,29 @@ set key_hash = extensions.crypt('your-passphrase', extensions.gen_salt('bf'));
 
 Run the same statement any time you want to rotate the passphrase.
 
+### Adding a collaborator
+
+Collaborators are colleagues who write Finish Line cells for their own
+entities (`input → figure` plus the note) and read SAMB WORK projects —
+nothing else; see REVIEW.md for the full boundary. Like the passphrase, their
+identities live **outside version control**: no migration seeds them and no
+invite UI exists. Two manual steps, in this order:
+
+1. Create the user in the Supabase dashboard (Authentication → Users → Add
+   user, with their email). Email magic-link sign-in must be enabled once
+   under Authentication → Providers → Email.
+2. Grant membership with one SQL statement per entity (SQL editor):
+
+```sql
+insert into public.os_entity_members (user_id, entity_code)
+values ('<auth user uuid>', 'ASI');  -- one of SAMB · ASI · ARBI · KNI · KDU
+```
+
+They then enter through "Masuk sebagai kolaborator" on the unlock screen; the
+magic link signs them in and membership decides what they see. Revoke by
+deleting the membership row (their session then reads nothing), or delete the
+user in the dashboard.
+
 ## Verify
 
 ```bash

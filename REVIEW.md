@@ -138,6 +138,101 @@ limiting, no audit log. If any of these become unacceptable, the next step up
 is real Supabase email+password auth with a single pre-created user — the
 gate component and RLS policies are the only things that would change.
 
+## Collaborator access (added 2026-08-04)
+
+The app stops being strictly single-user: a small number of colleagues hold
+Supabase magic-link accounts, entity-scoped membership, and exactly two
+capabilities — **write Finish Line cells for their entities (`input → figure`
+and the note), and read SAMB WORK projects**. Everything else about the
+security posture above is unchanged: the passphrase path was not edited,
+weakened, or migrated, and every pre-existing policy is byte-identical to the
+baseline recorded in `docs/preflight-collab.md`.
+
+### New objects
+
+| Object | What it is |
+| --- | --- |
+| `os_entity_members` | (user_id → auth.users, entity_code → os_finish_line_entities, role `contributor`). Never seeded — rows are real colleagues, inserted manually (README). |
+| `os_member_entities()` | `SECURITY DEFINER STABLE` → text[] of the caller's entity codes; `{}` for anon/owner. Called in policies as `(select …)` so it is one InitPlan per query, never per-row (measured: InitPlan 3, ~0.5 ms, plans in `docs/preflight-collab.md`). |
+| `os_projects.engagement` | `samb \| gunungjati \| internal`, NOT NULL, **no default** — a future Gunung Jati project is invisible to SAMB collaborators unless someone explicitly says otherwise. TypeScript requires the field at every construction site. |
+| `os_finish_line_cells.actor_kind / actor / changed_at` | Trigger-written attribution. Any owner write resets `actor_kind` to `owner`, so a contributor-written `figure` is distinguishable until the owner touches it. |
+| `os_finish_line_cell_history` | Append-only audit: cell, from/to state, note-changed flag, actor, timestamp. Written only by the trigger; SELECT owner-only; **no UPDATE or DELETE policy exists for anyone, including the owner**. |
+| `os_finish_line_cells_write_guard()` | BEFORE UPDATE trigger. Owner header → any transition. Contributor JWT → membership on the row's entity, column allowlist (a jsonb diff of the whole row, so new columns are covered by default), and `input → figure` only. Neither credential → reject. EXECUTE revoked from client roles — a trigger is not an API. |
+
+### Policy set per touched table (after the change)
+
+Every table keeps its four `require app key to select/insert/update/delete`
+policies untouched; the additions are all permissive, `to authenticated`,
+`member `-prefixed, OR'd by Postgres:
+
+| Table | Added |
+| --- | --- |
+| os_finish_line_cells | member SELECT (own entities) + member UPDATE (own entities; trigger enforces the transition) |
+| os_finish_line_items / _entities / _account_map | member SELECT (any membership — structure needed to render a column) |
+| os_finish_line_deps / _item_projects | member SELECT via `exists` join to an own-entity cell; item-grain edges (`cell_id null`) stay invisible |
+| os_projects | member SELECT `domain='work' and engagement='samb'` — **read only**, no write policy of any kind |
+| os_entity_members | owner CRUD (passphrase; SELECT deliberately does **not** accept the share read key) + member SELECT of own rows |
+| os_finish_line_cell_history | owner SELECT only |
+| **os_finish_line_accounts** | **nothing** — 560 rows of real chart of accounts stay owner-only; a member read returns a clean empty set and the UI renders an empty state |
+| **every GROWTH table, os_entries, daily logs, weekly plans** | **nothing** — isolation is the absence of a policy, not a predicate |
+
+### The submitter/approver rule, and why there is no acceptance state
+
+`CellState` is not a pipeline — it describes what is true of the Excel pack —
+so no `submitted`/`accepted` state was added. The split rides the states that
+exist: `input → figure` is *delivery* ("the number now exists, and nothing
+more"), which is exactly what a contributor knows; `zero`, `undefined`,
+`locked`, and every backward move are *assertions about the pack* that only
+the owner stands behind. Acceptance stays what it always was — derived on
+read from the edges behind a figure — and the interim signal is attribution:
+a contributor-written cell renders a submission dot until the owner's next
+touch resets `actor_kind`. Enforced twice: `guardCellTransition` client-side
+for the fast failure, the trigger in SQL for the real one. Verified live by
+`supabase/tests/collab_rls.sql` (16 cases, run inside `begin…rollback`
+against production, all passing) — including direct-API attempts that bypass
+the UI entirely.
+
+### Residual risk — what a contributor JWT can reach, stated as a boundary
+
+A collaborator holds a real JWT and can call PostgREST directly; the UI is
+cosmetic. The complete reachable surface of that JWT is:
+
+- **Read**: Finish Line structure (items, entities, account map), cells /
+  deps / cell-grain edges for *their* entities only, WORK projects where
+  `engagement='samb'` (21 rows today, including milestone text, PICs and
+  documents links inside those rows), and their own membership rows.
+- **Write**: `state` (`input → figure` only) and `note` on cells in their
+  entities. Every such write is stamped and appended to history by the
+  trigger; client-supplied actor values are overwritten.
+- **Nothing else.** No GROWTH row by any path (no policy exists to
+  misconfigure), no accounts, no entries/logs/plans, no history reads, no
+  INSERT or DELETE anywhere, no share-link functions (they check the owner
+  key internally). A contributor with zero membership rows reads nothing at
+  all.
+
+Accepted residuals: a contributor can see the *names* of all five entities
+and the full pack structure (not per-entity states outside their own); they
+can see all SAMB project milestones including other entities' PIC names;
+`figure` written by a contributor is a claim the owner must still verify —
+by design, that verification is the owner's edge/milestone work, and the
+submission dot exists so unverified claims cannot masquerade as reviewed.
+Magic-link email is the authentication factor: a compromised mailbox is a
+compromised contributor account, bounded by the surface above.
+
+### The share read key, confirmed as a boundary
+
+Every SELECT policy's owner arm reads `os_key_valid() OR os_read_key_valid()`
+— GROWTH included — so the read-only key is a full-read credential. Confirmed
+live (2026-08-04): `private.os_read_key.key_hash` is still `'unset'`, meaning
+**no read-only key has ever been issued and nothing can satisfy that arm
+today**; no Edge Function references `os_read_key` (share recipients hold a
+share *token*, validated against `private.os_share_links` by the `share-view`
+function, which reads with the server-held service-role key — see its header:
+no x-app-key is involved anywhere). Boundary statement: the read key must
+never be issued to a share recipient or collaborator — if it is ever set, it
+grants read of everything, GROWTH included, and the correct channel for
+scoped sharing remains share links.
+
 ## Deployment (verified 2026-07-24)
 
 - **Live URL:** https://dika-personal-os.vercel.app (Vercel project
