@@ -154,3 +154,90 @@ Live ledger ends at `20260731021633 share_links` (33 applied migrations). Repo
 files and ledger use different numbering schemes on purpose — migrations in this
 task are applied via the Supabase migration tool (never `db push` / `db reset`)
 and the repo files record the same SQL.
+
+---
+
+# Post-change verification (§9) — appended after the migrations landed
+
+Applied this task (ledger names): `collab_membership`, `project_engagement`,
+`cell_attribution`, `member_policies`, `write_guard_grants`. Repo files
+`20260804000037..41` plus down-migrations under `supabase/migrations/down/`.
+
+## A. §9 assertion run — ALL 16 CASES PASSED
+
+`supabase/tests/collab_rls.sql` executed against production twice (once when
+written, once after `write_guard_grants`), everything inside
+`begin; … rollback;`. Both runs reached the final select, which only happens
+when every assertion holds. Synthetic ASI-only member observed: 49 ASI cells
+and nothing else; 21 work+samb projects and nothing else; zero rows from every
+GROWTH table, entries, logs, plans, accounts, and history; `input → figure`
+succeeded with contributor stamp + history row; `input → zero/undefined/locked`,
+`figure → input`, cross-entity, column changes, INSERT/DELETE, and every write
+to accounts/projects/history rejected; anon saw zero rows everywhere. Zero
+fixture residue confirmed after the runs (`auth.users` 0, memberships 0,
+history 0, all 245 cells `actor_kind='owner'`).
+
+## B. GROWTH policy diff — EMPTY
+
+Re-pulled the full policy inventory and compared every GROWTH table (plus
+entries/daily logs/weekly plans) against §2's baseline: all 14 tables carry
+**exactly 4 policies, byte-identical predicates**, nothing added, nothing
+changed. The new policies live only on: os_finish_line_cells (2),
+os_finish_line_items, os_finish_line_entities, os_finish_line_account_map,
+os_finish_line_deps, os_finish_line_item_projects, os_projects (1 each),
+os_entity_members (5, new table), os_finish_line_cell_history (1, new table).
+Total 88 → 102.
+
+## C. explain analyze — os_member_entities() is an InitPlan, once per query
+
+Member SELECT on `os_finish_line_cells` (the table whose per-row bcrypt once
+produced a live 500):
+
+```
+Seq Scan on os_finish_line_cells  (actual time=2.415..2.625 rows=49 loops=1)
+  Filter: ((InitPlan 1).col1 OR (InitPlan 2).col1 OR (entity_code = ANY ((InitPlan 3).col1)))
+  Rows Removed by Filter: 196
+  InitPlan 1 → os_key_valid        (actual time=1.430..1.431 rows=1 loops=1)
+  InitPlan 2 → os_read_key_valid   (actual time=0.417..0.418 rows=1 loops=1)
+  InitPlan 3 → os_member_entities  (actual time=0.508..0.509 rows=1 loops=1)
+Execution Time: 2.655 ms
+```
+
+Member SELECT on `os_projects`:
+
+```
+Seq Scan on os_projects  (actual time=1.745..1.790 rows=21 loops=1)
+  Filter: ((InitPlan 1).col1 OR (InitPlan 2).col1 OR ((domain = 'work') AND (engagement = 'samb') AND ((InitPlan 3).col1 <> '{}')))
+  Rows Removed by Filter: 19
+  InitPlan 3 → os_member_entities  (actual time=0.557..0.557 rows=1 loops=1)
+Execution Time: 1.834 ms
+```
+
+All three functions evaluate exactly once per statement (`loops=1`); the
+per-row work is a constant-array test. No per-row function calls anywhere.
+
+## D. Advisors after the change — new-vs-preexisting
+
+Security:
+- NEW, resolved: `os_finish_line_cells_write_guard()` executable by
+  anon/authenticated (Supabase default grants on new functions). Fixed by
+  migration `write_guard_grants` — a trigger function is not an API and
+  trigger firing does not check caller EXECUTE. Re-verified: the §9 suite
+  still passes end-to-end after the revoke.
+- NEW, accepted: `os_member_entities()` executable by authenticated — required:
+  policy predicates evaluate as the querying role, which must hold EXECUTE.
+  Same class as the seven pre-existing warnings on os_key_valid /
+  os_read_key_valid / os_verify_key / share-link functions, which are the
+  architecture. anon holds no grant on it.
+- Pre-existing, unchanged: the 14 baseline WARNs (§6 above).
+
+Performance:
+- NEW, accepted by design: `multiple_permissive_policies` WARN on the 8 tables
+  that now carry a member policy beside the owner policy for the same
+  role/action. This is the task's mandated architecture — additive OR'd
+  policies, never editing the existing ones — and the measured cost is three
+  InitPlans totalling ~2 ms per query (plans above), not per-row work.
+- NEW, expected: `unused_index` INFO on `os_entity_members_entity_idx` and
+  `os_finish_line_cells_actor_idx` — brand-new indexes with zero members yet.
+- Pre-existing, unchanged: unindexed FKs, backup-table no-PK, other unused
+  indexes (§6 above). Reported, not fixed, per task instruction.
