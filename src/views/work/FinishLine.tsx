@@ -123,6 +123,7 @@ const LEGEND: { glyph: string; className?: string; label: string }[] = [
   { glyph: '', className: 'bg-surface-3', label: 'tidak terdefinisi, pembagi nol' },
   { glyph: '·', label: 'terkunci, mengikuti inputnya' },
   { glyph: '⚑', label: 'saldo kredit di akun beban' },
+  { glyph: '•', className: 'text-primary', label: 'diisi kolaborator, belum disentuh pemilik' },
 ];
 
 export function FinishLine() {
@@ -131,7 +132,18 @@ export function FinishLine() {
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
   const finishLineFocus = useAppStore((state) => state.finishLineFocus);
   const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
+  const viewer = useAppStore((state) => state.viewer);
   const { run, isPending } = useMutation();
+
+  // COSMETIC GATING ONLY. Every restriction below is enforced in SQL (member
+  // policies + the cell trigger); the viewer merely decides which controls
+  // are worth rendering. Owner-only surfaces — edges, the account paste,
+  // share links, the orphan/dangling audits — simply do not mount for a
+  // contributor, whose world is their cells and the note beside them.
+  const isOwnerViewer = viewer.kind === 'owner';
+  const contributorEntities = viewer.kind === 'contributor' ? viewer.entityCodes : null;
+  const canWriteCell = (cell: FinishLineCell): boolean =>
+    isOwnerViewer || (contributorEntities?.includes(cell.entityCode) ?? false);
 
   /**
    * Reads are held as RESULTS, not arrays: a card that counts problems has to
@@ -271,6 +283,27 @@ export function FinishLine() {
   const summary = useMemo(() => summarizeMatrix(matrix), [matrix]);
   const itemsById = useMemo(() => new Map(itemRows.map((i) => [i.id, i])), [itemRows]);
   const openCell = openCellId ? context.cellsById.get(openCellId) : undefined;
+
+  /**
+   * The cell's two authored fields, written through the guarded repository
+   * path. Origin says who is at the keyboard; the trigger re-decides from the
+   * credential either way, so a wrong origin can only make the failure
+   * earlier, never wider. Reload after: state, resolution, attribution and
+   * history all changed together and are all derived on read.
+   */
+  const saveCellState = async (cellId: string, next: CellState) => {
+    const done = await run('Update cell state', () =>
+      repository.setFinishLineCellState(cellId, next, isOwnerViewer ? 'human' : 'contributor'),
+    );
+    if (done !== undefined) await load();
+  };
+
+  const saveCellNote = async (cellId: string, note: string | undefined) => {
+    const done = await run('Update cell note', () =>
+      repository.setFinishLineCellNote(cellId, note),
+    );
+    if (done !== undefined) await load();
+  };
 
   /**
    * The accounts behind each cell, and whether we actually know.
@@ -621,6 +654,11 @@ export function FinishLine() {
                               accounts={accountsByCellId.get(cell.id) ?? []}
                               accountsKnown={accountsKnown}
                               accountsFailure={loaded && !accounts.ok ? accounts : undefined}
+                              viewerKind={viewer.kind}
+                              canWrite={canWriteCell(cell)}
+                              isPending={isPending}
+                              onSetState={(next) => void saveCellState(cell.id, next)}
+                              onSetNote={(note) => void saveCellNote(cell.id, note)}
                               onClose={() => setOpenCellId(null)}
                             />
                           )}
@@ -651,7 +689,7 @@ export function FinishLine() {
         )
       )}
 
-      {openCell && (
+      {openCell && isOwnerViewer && (
         <CellPanel
           cell={openCell}
           item={itemsById.get(openCell.itemId)}
@@ -705,6 +743,7 @@ export function FinishLine() {
           DELETE of every real link the user never knew was there. The failure
           is silent, destructive, and indistinguishable from ordinary use. So
           the control is not offered at all until every read behind it landed. */}
+      {!isOwnerViewer ? null : (
       <section className="mt-6">
         {!loaded ? (
           <Checking label="Link work to the pack" />
@@ -762,6 +801,7 @@ export function FinishLine() {
           </Card>
         )}
       </section>
+      )}
 
       {/* ==================================================================
           ACCOUNTS WITH NEITHER A METRIC NOR AN ENTITY.
@@ -772,7 +812,7 @@ export function FinishLine() {
           then looks authoritative, so it is asked for rather than invented.
           Not an error, and not hidden.
           ================================================================== */}
-      {level === 'group' && loaded && accounts.ok && accountsWithNoEntity(rowsOf(accounts)).length > 0 && (
+      {isOwnerViewer && level === 'group' && loaded && accounts.ok && accountsWithNoEntity(rowsOf(accounts)).length > 0 && (
         <Card className="mt-5">
           <CardContent className="pt-4">
             <p className="text-sm font-semibold text-foreground">
@@ -800,7 +840,7 @@ export function FinishLine() {
       {/* The one write path into the account level: paste from the sheet,
           preview, commit. Group-only — the paste concerns the whole account
           population, and the entity views read what it writes. */}
-      {level === 'group' && loaded && (
+      {isOwnerViewer && level === 'group' && loaded && (
         <AccountPasteCard
           accounts={rowsOf(accounts)}
           accountsKnown={accounts.ok}
@@ -828,7 +868,7 @@ export function FinishLine() {
       {/* Group-only: the entity level carries its own Closes-nothing list,
           scoped by entity_tag, so repeating the global card there would be a
           second, unscoped answer to the same question. */}
-      {level === 'group' &&
+      {isOwnerViewer && level === 'group' &&
         (loaded ? (
           <>
             <OrphanCard
@@ -851,6 +891,7 @@ export function FinishLine() {
           because the scope IS the level: on group it offers the whole Finish
           line, on an entity it offers that column and nothing else. No scope
           picker — see the note in ShareLinkCard. */}
+      {isOwnerViewer && (
       <ShareLinkCard
         level={level}
         entity={activeEntity}
@@ -880,6 +921,7 @@ export function FinishLine() {
           return true;
         }}
       />
+      )}
     </div>
   );
 }
@@ -1105,7 +1147,12 @@ function Row({
                  panel is open. Same map the panel reads — see STATE_SENTENCE. */
               title={
                 slot.cell
-                  ? [STATE_SENTENCE[slot.cell.state], resolution && RESOLUTION_LABEL[resolution]]
+                  ? [
+                      STATE_SENTENCE[slot.cell.state],
+                      resolution && RESOLUTION_LABEL[resolution],
+                      slot.cell.actorKind === 'contributor' &&
+                        'Diisi kontributor — belum disentuh pemilik',
+                    ]
                       .filter(Boolean)
                       .join('\n')
                   : undefined
@@ -1124,6 +1171,16 @@ function Row({
             >
               {/* No record at all is a DATA GAP, not a state — it must not read
                   as empty-by-design. */}
+              {/* THE SUBMISSION DOT: a contributor wrote this cell and the
+                  owner has not touched it since. Its own hue (primary), so it
+                  survives every wash the resolutions apply — distinct, not
+                  decorative. Cleared automatically: any owner write resets
+                  actor_kind. */}
+              {slot.cell?.actorKind === 'contributor' && (
+                <span className="mr-0.5 text-primary" aria-hidden="true">
+                  •
+                </span>
+              )}
               {slot.cell ? STATE_GLYPH[state as CellState] : '?'}
             </button>
           </td>

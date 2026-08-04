@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TriangleAlert, X } from 'lucide-react';
+import { TriangleAlert, UserRound, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import type { ReadFailure } from '../../data/readResult';
 import type { CellState, FinishLineAccount, FinishLineCell, FinishLineItem } from '../../data/types';
@@ -29,14 +29,31 @@ import { STATE_TONE } from './finishLineUi';
  * driver, owner and target state are all unambiguous — so the panel is opened
  * BY a cell and headed with both the metric and the entity, every time.
  *
- * EVERYTHING HERE IS READ-ONLY. `data_ideal`, `driver_type`, `driver_source`,
- * `pic`, `business` and `is_dummy` are maintained in the consolidation
- * workbook. There is no input, select, textarea or pencil anywhere in this
- * file: a second place to change them would be a second source of truth.
+ * THE WORKBOOK FIELDS ARE READ-ONLY. `data_ideal`, `driver_type`,
+ * `driver_source`, `pic`, `business` and `is_dummy` are maintained in the
+ * consolidation workbook, and no control here touches them: a second place to
+ * change them would be a second source of truth.
+ *
+ * THE CELL'S OWN STATE AND NOTE ARE THE APP'S, AND THIS PANEL IS WHERE THEY
+ * ARE EDITED — the first state-edit affordance the app has had; until now the
+ * owner set states through direct database access. Who can do what is decided
+ * by the SQL trigger and re-stated here only so the unavailable options are
+ * VISIBLY unavailable rather than present-and-failing:
+ *   owner        any state, any direction, plus the note
+ *   contributor  input → figure on their own entities, plus the note
+ * A contributor-written figure is marked as such until the owner touches the
+ * cell — that mark is the verification signal that replaces the sixth state
+ * the schema deliberately refuses.
  */
 
 /** How many accounts show before the list collapses. */
 const VISIBLE_ACCOUNTS = 6;
+
+const ALL_STATES: CellState[] = ['input', 'figure', 'zero', 'undefined', 'locked'];
+
+/** Sentence fragments for why a state button is disabled, per audience. */
+const CONTRIBUTOR_STATE_HINT =
+  'Kontributor hanya bisa memajukan input → figure. Nil, undefined, locked, dan mundur adalah keputusan pemilik — pakai catatan untuk mengusulkannya.';
 
 export function CellDetailPanel({
   cell,
@@ -45,6 +62,11 @@ export function CellDetailPanel({
   accounts,
   accountsKnown,
   accountsFailure,
+  viewerKind,
+  canWrite,
+  isPending,
+  onSetState,
+  onSetNote,
   onClose,
 }: {
   cell: FinishLineCell;
@@ -66,14 +88,37 @@ export function CellDetailPanel({
    * the panel says the read failed and shows the detail.
    */
   accountsFailure?: ReadFailure;
+  /** Cosmetic gating only — the trigger re-decides from the credential. */
+  viewerKind: 'owner' | 'contributor';
+  /** Whether THIS viewer may write THIS cell (contributor: own entity only). */
+  canWrite: boolean;
+  isPending: boolean;
+  onSetState: (state: CellState) => void;
+  onSetNote: (note: string | undefined) => void;
   onClose: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // null = not editing. The draft holds the textarea between open and save.
+  const [noteDraft, setNoteDraft] = useState<string | null>(null);
 
   const state: CellState = cell.state;
   const tone = STATE_TONE[state];
   const StateIcon = tone.icon;
   const { label, consequence } = stateClauses(state);
+
+  /**
+   * The same table the trigger enforces. A target is offered when the viewer
+   * could actually land it: the owner anywhere, a contributor only forward
+   * from input to figure — everything else renders disabled WITH the reason,
+   * because a control that is present-and-failing teaches people the app is
+   * broken rather than the rule exists.
+   */
+  const stateAllowed = (target: CellState): boolean => {
+    if (!canWrite || target === state) return false;
+    if (viewerKind === 'owner') return true;
+    return state === 'input' && target === 'figure';
+  };
+  const submitted = cell.actorKind === 'contributor';
 
   const coverage = coverageOf(accounts);
   const ordered = sortAccounts(accounts);
@@ -151,8 +196,122 @@ export function CellDetailPanel({
         </span>
       </p>
 
-      {cell.note && (
+      {/* THE SUBMISSION MARK. A contributor-written state is a claim the owner
+          has not looked at yet, and any owner touch clears it (the trigger
+          resets actor_kind). Distinct, not decorative: this is the
+          verification signal that replaces the sixth state the schema
+          deliberately refuses. */}
+      {submitted && (
+        <p className="mt-2 flex items-start gap-2 rounded-sm border border-primary/40 bg-primary/10 px-2.5 py-2 text-[11px] leading-5 text-primary">
+          <UserRound className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            <span className="font-semibold">Diisi kontributor</span> — belum disentuh pemilik
+            sejak diubah.
+          </span>
+        </p>
+      )}
+
+      {/* Attribution, straight off the trigger-written columns. */}
+      {cell.changedAt && (
+        <p className="mt-2 text-[10px] tabular-nums text-foreground-muted">
+          Terakhir diubah oleh{' '}
+          {cell.actorKind === 'contributor'
+            ? `kontributor${cell.actor ? ` · ${cell.actor.slice(0, 8)}` : ''}`
+            : 'pemilik'}{' '}
+          · {cell.changedAt.slice(0, 16).replace('T', ' ')} UTC
+        </p>
+      )}
+
+      {cell.note && noteDraft === null && (
         <p className="mt-2 text-[11px] leading-5 text-foreground-muted">{cell.note}</p>
+      )}
+
+      {/* --- the editors: the cell's own two authored fields ----------------- */}
+      {canWrite && (
+        <div className="mt-3 border-t border-border-subtle pt-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground-muted">
+            Ubah state
+          </p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {ALL_STATES.map((target) => {
+              const targetTone = STATE_TONE[target];
+              const TargetIcon = targetTone.icon;
+              const current = target === state;
+              const allowed = stateAllowed(target);
+              return (
+                <button
+                  key={target}
+                  type="button"
+                  disabled={!allowed || isPending}
+                  aria-pressed={current}
+                  onClick={() => onSetState(target)}
+                  title={
+                    current
+                      ? 'State saat ini'
+                      : allowed
+                        ? stateClauses(target).label
+                        : viewerKind === 'contributor'
+                          ? CONTRIBUTOR_STATE_HINT
+                          : undefined
+                  }
+                  className={cn(
+                    'inline-flex min-h-8 items-center gap-1 rounded-sm border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    current
+                      ? targetTone.line
+                      : allowed
+                        ? 'border-border text-foreground-secondary hover:bg-surface-3'
+                        : 'cursor-not-allowed border-border-subtle text-foreground-muted opacity-40',
+                  )}
+                >
+                  <TargetIcon className="size-3" />
+                  {stateClauses(target).label}
+                </button>
+              );
+            })}
+          </div>
+          {viewerKind === 'contributor' && (
+            <p className="mt-1.5 text-[10px] leading-4 text-foreground-muted">
+              {CONTRIBUTOR_STATE_HINT}
+            </p>
+          )}
+
+          {noteDraft === null ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={() => setNoteDraft(cell.note ?? '')}
+            >
+              {cell.note ? 'Ubah catatan' : 'Tulis catatan'}
+            </Button>
+          ) : (
+            <div className="mt-2">
+              <textarea
+                value={noteDraft}
+                onChange={(event) => setNoteDraft(event.target.value)}
+                rows={2}
+                placeholder="Satu baris: apa yang kurang untuk entitas ini"
+                aria-label="Catatan sel"
+                className="w-full rounded-sm border border-border bg-background px-2.5 py-2 text-[11px] leading-5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <div className="mt-1.5 flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={isPending}
+                  onClick={() => {
+                    onSetNote(noteDraft.trim() || undefined);
+                    setNoteDraft(null);
+                  }}
+                >
+                  Simpan catatan
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setNoteDraft(null)}>
+                  Batal
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
       {/* --- the four workbook facts, all scoped to THIS cell --------------- */}
