@@ -233,17 +233,22 @@ export function getCollaboratorClient(): SupabaseClient {
 }
 
 /**
- * Sends the magic link. `shouldCreateUser: false` is load-bearing: there is
- * deliberately no invite flow, so an address that was not first created in
- * the Supabase dashboard gets nothing — a mistyped or uninvited email must
- * not mint an account that then holds a real JWT.
+ * Consumes a hashed sign-in token minted by the provision-collaborator Edge
+ * Function (the owner hands the link over out of band; THE APP NEVER SENDS
+ * EMAIL). One use, short-lived; on success the collaborator client holds a
+ * persisted session exactly as if a mailed magic link had been clicked.
  */
-export async function signInCollaborator(email: string): Promise<{ error?: string }> {
-  const { error } = await getCollaboratorClient().auth.signInWithOtp({
-    email,
-    options: { shouldCreateUser: false, emailRedirectTo: window.location.origin },
+export async function consumeCollaboratorToken(
+  tokenHash: string,
+): Promise<{ user?: { id: string; email?: string }; error?: string }> {
+  const { data, error } = await getCollaboratorClient().auth.verifyOtp({
+    token_hash: tokenHash,
+    type: 'magiclink',
   });
-  return error ? { error: error.message } : {};
+  if (error) return { error: error.message };
+  const user = data.user ?? data.session?.user;
+  if (!user) return { error: 'No session was established' };
+  return { user: { id: user.id, email: user.email ?? undefined } };
 }
 
 /** The current collaborator session's user id and email, if one exists. */
@@ -276,6 +281,50 @@ export async function listMyMemberships(): Promise<string[]> {
 /** The same repository class, driven by the session-bearing client. */
 export function createCollaboratorRepository(): Repository {
   return new SupabaseRepository(getCollaboratorClient());
+}
+
+// --- owner-side provisioning ------------------------------------------------
+//
+// The management calls behind the owner's collaborator panel. Every one is a
+// POST to the provision-collaborator Edge Function, which verifies the
+// x-app-key owner credential server-side (same bcrypt + lockout as the
+// passphrase gate) before touching anything. The app sends no email at any
+// point: `create` and `link` RETURN a one-time sign-in link for the owner to
+// hand over out of band.
+
+export interface ProvisionedUser {
+  userId: string;
+  email: string;
+  entityCodes: string[];
+  lastSignInAt: string | null;
+  createdAt: string | null;
+}
+
+export interface ProvisionLinkResult {
+  userId?: string;
+  email?: string;
+  entityCodes?: string[];
+  link?: string;
+  expiry?: string;
+  removedEntityCodes?: string[];
+  users?: ProvisionedUser[];
+  error?: string;
+  retryAfter?: number;
+}
+
+export async function provisionCollaborator(
+  appKey: string,
+  body:
+    | { action: 'create'; email: string; entityCodes: string[] }
+    | { action: 'link'; email: string }
+    | { action: 'revoke'; email: string }
+    | { action: 'list' },
+): Promise<ProvisionLinkResult> {
+  return edgeFunctionCall<ProvisionLinkResult>('provision-collaborator', {
+    method: 'POST',
+    body,
+    appKey,
+  });
 }
 
 // --- row shapes -------------------------------------------------------------

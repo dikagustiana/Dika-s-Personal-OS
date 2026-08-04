@@ -1,13 +1,13 @@
-import { Lock, Users } from 'lucide-react';
+import { Lock } from 'lucide-react';
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  consumeCollaboratorToken,
   createCollaboratorRepository,
   createSupabaseRepository,
   getCollaboratorUser,
   isSupabaseConfigured,
   listMyMemberships,
   requestPassphraseRecovery,
-  signInCollaborator,
   signOutCollaborator,
   verifyAppKey,
 } from '../data/supabaseRepository';
@@ -113,12 +113,12 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
   const [failures, setFailures] = useState(0);
   const [recovery, setRecovery] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
-  // The collaborator side of the gate: a small email form under the
-  // passphrase one. 'sent' shows the check-your-email copy; nothing here
-  // grants anything — the JWT and the membership rows do, server-side.
-  const [collabMode, setCollabMode] = useState(false);
-  const [collabEmail, setCollabEmail] = useState('');
-  const [collabState, setCollabState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  // The collaborator side of the gate has NO CONTROL — deliberately. The app
+  // never sends email, so an email form here would be a control that lies
+  // about what it does and an abuse surface against arbitrary addresses.
+  // Collaborators arrive by an owner-handed link (#collab_token=…), consumed
+  // below; when a session lapses they ask the owner for a fresh one. This
+  // notice line is the only collaborator-facing surface on the gate.
   const [collabNotice, setCollabNotice] = useState<string | null>(null);
 
   /**
@@ -161,8 +161,26 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
         }
         clearStoredKey();
       }
-      // Then a collaborator session — including the one the magic-link
-      // redirect just planted in the URL, which the client parses on init.
+      // An owner-handed sign-in link: #collab_token=<hashed token minted by
+      // provision-collaborator>. Consumed exactly once, then stripped from
+      // the URL so a reload or a shared screenshot does not re-present it.
+      const tokenMatch = window.location.hash.match(/collab_token=([A-Za-z0-9._-]+)/);
+      if (tokenMatch) {
+        const consumed = await consumeCollaboratorToken(tokenMatch[1]);
+        window.history.replaceState(
+          null,
+          '',
+          window.location.pathname + window.location.search,
+        );
+        if (cancelled) return true;
+        if (consumed.user) {
+          await enterAsCollaborator(consumed.user);
+          return true;
+        }
+        setCollabNotice('Tautan tidak berlaku atau sudah dipakai. Minta tautan baru ke pemilik.');
+        return false;
+      }
+      // Then an existing collaborator session (persistSession keeps them in).
       const user = await getCollaboratorUser();
       if (cancelled) return true;
       if (user) {
@@ -232,26 +250,6 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
     }
   };
 
-  const sendCollabLink = async (event: FormEvent) => {
-    event.preventDefault();
-    const email = collabEmail.trim();
-    if (!email || collabState === 'sending') return;
-    setCollabState('sending');
-    setCollabNotice(null);
-    try {
-      const { error: sendError } = await signInCollaborator(email);
-      // shouldCreateUser is false, so an unknown address errors — but which
-      // addresses exist is not this screen's to reveal. Same copy either way.
-      void sendError;
-      setCollabState('sent');
-      setCollabNotice(
-        'Jika alamat ini terdaftar, tautan masuk sudah dikirim. Buka dari email untuk masuk.',
-      );
-    } catch {
-      setCollabState('idle');
-      setCollabNotice(OFFLINE_COPY);
-    }
-  };
 
   if (state === 'unlocked') return <>{children}</>;
 
@@ -341,48 +339,17 @@ export function PassphraseGate({ children }: { children: ReactNode }) {
         </div>
       </form>
 
-      {/* The collaborator door. Folded by default: the owner unlocks daily
-          and must not scan past a form that is not for him. Nothing here is
-          a boundary — the JWT and the membership rows are, in SQL. */}
-      {!collabMode ? (
-        <button
-          type="button"
-          onClick={() => setCollabMode(true)}
-          className="mx-auto mt-3 flex items-center gap-2 text-sm text-foreground-muted hover:text-foreground-secondary"
-        >
-          <Users className="size-4" />
-          Masuk sebagai kolaborator
-        </button>
-      ) : (
-        <form
-          onSubmit={sendCollabLink}
-          className="mt-3 w-full rounded-lg border border-border bg-card p-6"
-        >
-          <p className="surface-label mb-3">Kolaborator — tautan masuk via email</p>
-          <Input
-            type="email"
-            value={collabEmail}
-            onChange={(event) => setCollabEmail(event.target.value)}
-            placeholder="email@kantor"
-            aria-label="Email kolaborator"
-          />
-          <Button
-            type="submit"
-            variant="secondary"
-            className="mt-3 w-full"
-            disabled={collabState === 'sending' || !collabEmail.trim()}
-          >
-            {collabState === 'sending' ? 'Mengirim…' : 'Kirim tautan masuk'}
-          </Button>
-          <div
-            role="status"
-            aria-live="polite"
-            className="mt-3 text-sm text-foreground-secondary empty:hidden"
-          >
-            {collabNotice}
-          </div>
-        </form>
-      )}
+      {/* No collaborator control here, deliberately: the app sends no email,
+          so a form would lie about what it does and invite sends against
+          arbitrary addresses. Collaborators arrive by an owner-handed link;
+          this line is where a dead link's outcome is explained. */}
+      <p
+        role="status"
+        aria-live="polite"
+        className="mx-auto mt-3 max-w-sm text-center text-xs text-foreground-muted"
+      >
+        {collabNotice ?? 'Kolaborator masuk lewat tautan dari pemilik.'}
+      </p>
       </div>
     </div>
   );

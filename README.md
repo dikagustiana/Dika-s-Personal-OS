@@ -41,24 +41,24 @@ Run the same statement any time you want to rotate the passphrase.
 
 Collaborators are colleagues who write Finish Line cells for their own
 entities (`input → figure` plus the note) and read SAMB WORK projects —
-nothing else; see REVIEW.md for the full boundary. Like the passphrase, their
-identities live **outside version control**: no migration seeds them and no
-invite UI exists. Two manual steps, in this order:
+nothing else; see REVIEW.md for the full boundary. Their identities live
+**outside version control**, like the passphrase: no migration seeds them,
+and **the app never sends email**.
 
-1. Create the user in the Supabase dashboard (Authentication → Users → Add
-   user, with their email). Email magic-link sign-in must be enabled once
-   under Authentication → Providers → Email.
-2. Grant membership with one SQL statement per entity (SQL editor):
+Provisioning is owner-only, from the **Kolaborator panel** on the Finish Line
+page (owner session): enter their email, tick their entities, and the panel
+returns a **one-time sign-in link** — copy it and send it yourself over
+WhatsApp. Links are short-lived and single-use; when a collaborator's session
+lapses, generate a fresh one with *Tautan baru* on their row. *Cabut* removes
+every membership immediately (their next query reads nothing) while keeping
+the auth user, so cell history keeps its actor.
 
-```sql
-insert into public.os_entity_members (user_id, entity_code)
-values ('<auth user uuid>', 'ASI');  -- one of SAMB · ASI · ARBI · KNI · KDU
-```
-
-They then enter through "Masuk sebagai kolaborator" on the unlock screen; the
-magic link signs them in and membership decides what they see. Revoke by
-deleting the membership row (their session then reads nothing), or delete the
-user in the dashboard.
+Behind the panel sits the `provision-collaborator` Edge Function: it verifies
+the owner passphrase server-side with the same bcrypt-plus-lockout check as
+the unlock gate, holds the service role key in its environment only, and
+appends every action to `private.os_provision_log`. No dashboard steps, no
+SMTP, and no self-service path exist — an email address gets access only when
+the owner types it into that panel.
 
 ## Verify
 
