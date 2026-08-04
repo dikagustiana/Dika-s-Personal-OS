@@ -219,6 +219,40 @@ submission dot exists so unverified claims cannot masquerade as reviewed.
 Magic-link email is the authentication factor: a compromised mailbox is a
 compromised contributor account, bounded by the surface above.
 
+### Provisioning (revised 2026-08-04, same day): owner-provisioned, no email
+
+The first cut of collaborator entry — a magic-link email form on the gate —
+was removed the day it landed, before any collaborator existed. Three
+reasons: `os_entity_members` is owner-write-only, so self-service produced
+accounts that could see nothing and saved the owner no steps; a public email
+input invites sends against arbitrary addresses on Supabase's rate-limited
+built-in mailer; and making email delivery the only entry path meant SMTP
+and DNS work before a single person could log in.
+
+The replacement: the owner provisions from a panel inside the passphrase
+session. The `provision-collaborator` Edge Function (actions `create`,
+`link`, `revoke`, `list`) creates the confirmed user, grants membership,
+and **generates a sign-in link without sending anything** — the link is
+returned to the owner, who hands it over out of band. The link targets the
+app itself (`#collab_token=<hashed token>`); the gate consumes it with
+`verifyOtp`, so no Supabase redirect, Site-URL setting, or SMTP is involved
+anywhere. The gate's collaborator surface is now a passive sentence — there
+is no control on the public screen at all.
+
+That function is the most privileged code path in the app — service role,
+RLS bypassed — and is bounded accordingly: gated by the same
+bcrypt + escalating-delay + lockout check as the unlock gate
+(`_shared/appKeyAuth.ts`, one shared counter), before the body is parsed;
+the service role key exists only in the function environment; the action
+set is a closed enum with `role` hardcoded `'contributor'`; emails are
+validated and entity codes checked against `os_finish_line_entities`;
+nothing structural is read from a request. Every successful action appends
+to `private.os_provision_log` (append-only, `private` schema, one
+service_role-only SECURITY DEFINER door in — the `os_auth_attempts`
+posture), and a failed audit write fails the action. `revoke` deletes
+membership rows and deliberately keeps the auth user: history rows keep
+their actor, and a membershipless JWT reads nothing from its next query on.
+
 ### The share read key, confirmed as a boundary
 
 Every SELECT policy's owner arm reads `os_key_valid() OR os_read_key_valid()`

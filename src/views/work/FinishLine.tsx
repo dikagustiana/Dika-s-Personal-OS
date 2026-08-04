@@ -52,9 +52,11 @@ import {
   type Resolution,
 } from '../../logic/finishLine';
 import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAccounts';
+import { isSupabaseConfigured } from '../../data/supabaseRepository';
 import { useAppStore } from '../../store/appStore';
 import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
+import { CollaboratorCard } from './CollaboratorCard';
 import { ShareLinkCard } from './ShareLinkCard';
 import { FinishLineEntityView } from './FinishLineEntity';
 import {
@@ -921,6 +923,13 @@ export function FinishLine() {
           return true;
         }}
       />
+      )}
+
+      {/* Collaborator provisioning — owner only, group level, live database
+          only: the panel drives an Edge Function, which the mock has no
+          equivalent of. Entity chips come from the same read as the matrix. */}
+      {isOwnerViewer && level === 'group' && isSupabaseConfigured && loaded && (
+        <CollaboratorCard entities={entityRows} />
       )}
     </div>
   );
