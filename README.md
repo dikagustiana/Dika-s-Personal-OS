@@ -67,6 +67,33 @@ pnpm test:run
 pnpm build
 ```
 
+## Writing Finish Line cells (changed 2026-08-04)
+
+Cell writes are guarded by a database trigger: an UPDATE on
+`os_finish_line_cells` must carry either the owner's `x-app-key` header or a
+member JWT. A bare UPDATE from the SQL editor now **fails loudly** with
+`finish line cells: writes require the owner key or an authenticated
+contributor` — that is the design, because every cell write must land in
+`os_finish_line_cell_history` with an actor.
+
+So: cell states and notes are edited **through the app** (the cell panel).
+If a SQL session is genuinely needed, satisfy the owner branch at the top of
+the transaction:
+
+```sql
+begin;
+select set_config('request.headers',
+       json_build_object('x-app-key', '<passphrase>')::text, true);
+-- updates to os_finish_line_cells here run as the owner and are audited
+commit;
+```
+
+The passphrase typed into that `set_config` line is the real credential:
+**never let it end up in a saved query, a committed file, or a pasted
+prompt.** Type it, run it, close the editor tab. Everything else — items,
+entities, deps, edges, accounts — is not behind this trigger and behaves as
+before.
+
 ## Data boundary
 
 Every read and write goes through the async [`Repository`](src/data/repository.ts) interface, with the active implementation supplied by the Zustand store. [`MockRepository`](src/data/mockRepository.ts) keeps seeded data in memory and is the no-credentials fallback. [`supabaseRepository.ts`](src/data/supabaseRepository.ts) implements the same interface against Postgres — the swap happens in [`PassphraseGate`](src/components/PassphraseGate.tsx) after the passphrase is verified, and no view or logic code knows the difference. See [REVIEW.md](REVIEW.md) for the schema mapping and the security posture, including residual risk.

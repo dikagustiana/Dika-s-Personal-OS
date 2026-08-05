@@ -253,6 +253,37 @@ posture), and a failed audit write fails the action. `revoke` deletes
 membership rows and deliberately keeps the auth user: history rows keep
 their actor, and a membershipless JWT reads nothing from its next query on.
 
+### Standing integrity check: the history note chain
+
+Since migration `20260804000043`, every history row stores the note contents
+on both sides (`from_note` / `to_note`, `''` for an empty note). NULL in
+those columns occurs **only** in the 3 rows written before that migration —
+the trigger can no longer produce one. The redundancy is a gap detector:
+`to_note` of row N must equal `from_note` of row N+1, and the final
+`to_note` must equal the live cell note. A break means something wrote to a
+cell outside the trigger. Run this whenever that question matters; **zero
+rows returned = intact**:
+
+```sql
+with ordered as (
+  select h.cell_id, h.changed_at, h.from_note, h.to_note,
+         lead(h.from_note) over (partition by h.cell_id order by h.changed_at) as next_from
+  from public.os_finish_line_cell_history h
+  where h.from_note is not null   -- pre-2026-08-04 rows never captured notes
+)
+select 'mid-chain break' as kind, cell_id, changed_at, to_note, next_from
+from ordered
+where next_from is not null and to_note is distinct from next_from
+union all
+select 'tip disagrees with live cell', o.cell_id, o.changed_at, o.to_note, coalesce(c.note, '')
+from ordered o
+join public.os_finish_line_cells c on c.id = o.cell_id
+where o.next_from is null and o.to_note is distinct from coalesce(c.note, '');
+```
+
+Verified clean at migration time (3 rows, all pre-migration nulls, zero
+breaks).
+
 ### The share read key, confirmed as a boundary
 
 Every SELECT policy's owner arm reads `os_key_valid() OR os_read_key_valid()`

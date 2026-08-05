@@ -234,6 +234,84 @@ describe('contributor viewer — the write surface (§9 cases 6–14, mirrored)'
   });
 });
 
+describe('history note capture — from/to contents on every row (migration G mirror)', () => {
+  let repo: MockRepository;
+
+  beforeEach(() => {
+    repo = new MockRepository();
+    seedCells(repo, [
+      cell('c-note', 'ASI', 'input'),
+      { ...cell('c-with-note', 'ASI', 'input'), note: 'catatan awal' },
+    ]);
+  });
+
+  it('a note edit records both sides, empty as the empty string', async () => {
+    await repo.setFinishLineCellNote('c-note', 'catatan baru');
+    const [row] = repo.readCellHistory();
+    expect(row).toMatchObject({
+      cellId: 'c-note',
+      fromState: 'input',
+      toState: 'input',
+      noteChanged: true,
+      fromNote: '',
+      toNote: 'catatan baru',
+    });
+  });
+
+  it('a state-only change carries the unchanged note on both sides', async () => {
+    await repo.setFinishLineCellState('c-with-note', 'figure', 'human');
+    const [row] = repo.readCellHistory();
+    expect(row).toMatchObject({
+      fromState: 'input',
+      toState: 'figure',
+      noteChanged: false,
+      fromNote: 'catatan awal',
+      toNote: 'catatan awal',
+    });
+  });
+
+  it('a simultaneous state + note change captures all four values', async () => {
+    // The Repository interface has no combined call; production reaches this
+    // through a single PATCH hitting the trigger. Exercise the mock's
+    // trigger-mirror directly, the same way the SQL validation exercised the
+    // trigger.
+    const internals = repo as unknown as {
+      finishLineCells: Map<string, FinishLineCell>;
+      applyCellWrite: (current: FinishLineCell, next: FinishLineCell) => FinishLineCell;
+    };
+    const current = internals.finishLineCells.get('c-with-note') as FinishLineCell;
+    internals.applyCellWrite(current, { ...current, state: 'figure', note: 'sekaligus' });
+    const [row] = repo.readCellHistory();
+    expect(row).toMatchObject({
+      fromState: 'input',
+      toState: 'figure',
+      noteChanged: true,
+      fromNote: 'catatan awal',
+      toNote: 'sekaligus',
+    });
+  });
+
+  it('no newly written row ever has a null note column, and the chain holds', async () => {
+    await repo.setFinishLineCellState('c-note', 'figure', 'human');
+    await repo.setFinishLineCellNote('c-note', 'a');
+    await repo.setFinishLineCellNote('c-note', undefined);
+    await repo.setFinishLineCellState('c-note', 'input', 'human');
+    const rows = repo.readCellHistory().filter((row) => row.cellId === 'c-note');
+    expect(rows.length).toBe(4);
+    for (const row of rows) {
+      expect(typeof row.fromNote).toBe('string');
+      expect(typeof row.toNote).toBe('string');
+    }
+    // to_note of row N equals from_note of row N+1; final to_note = live note.
+    for (let i = 0; i < rows.length - 1; i++) {
+      expect(rows[i].toNote).toBe(rows[i + 1].fromNote);
+    }
+    const cells = await repo.listFinishLineCells();
+    const live = cells.ok ? cells.rows.find((c) => c.id === 'c-note') : undefined;
+    expect(rows[rows.length - 1].toNote).toBe(live?.note ?? '');
+  });
+});
+
 describe('owner viewer — unchanged, and attribution resets to the owner', () => {
   let repo: MockRepository;
 

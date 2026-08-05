@@ -79,6 +79,14 @@ export interface MockCellHistoryEntry {
   fromState: CellState;
   toState: CellState;
   noteChanged: boolean;
+  /**
+   * Note contents, both sides, '' for an empty note — REQUIRED strings, never
+   * null: the mock starts empty so it has no pre-migration rows, and
+   * production's trigger writes coalesce(note, ''). toNote of row N equals
+   * fromNote of row N+1; the final toNote equals the live cell note.
+   */
+  fromNote: string;
+  toNote: string;
   actorKind: CellActorKind;
   actor?: string;
   changedAt: string;
@@ -620,6 +628,10 @@ export class MockRepository implements Repository {
         fromState: current.state,
         toState: next.state,
         noteChanged: (next.note ?? undefined) !== (current.note ?? undefined),
+        // coalesce(note, '') — an empty note is '' and never null, exactly as
+        // the trigger records it since migration 20260804000043.
+        fromNote: current.note ?? '',
+        toNote: next.note ?? '',
         actorKind: next.actorKind,
         changedAt: next.changedAt,
       };
