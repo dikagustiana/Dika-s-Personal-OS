@@ -1,14 +1,14 @@
-import { Copy, RefreshCw, UserPlus, UserX, X } from 'lucide-react';
+import { Check, Copy, Lock, RefreshCw, UserPlus, UserX, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
-import { readStoredKey } from '../../components/PassphraseGate';
+import { lockApp, readStoredKey } from '../../components/PassphraseGate';
 import {
   provisionCollaborator,
   type ProvisionedUser,
 } from '../../data/supabaseRepository';
-import type { FinishLineEntity, Project, ProjectMember } from '../../data/types';
+import type { Engagement, FinishLineEntity, Project } from '../../data/types';
 import { useAppStore } from '../../store/appStore';
 import { cn } from '../../lib/utils';
 
@@ -20,33 +20,55 @@ import { cn } from '../../lib/utils';
  * WhatsApp. Links are short-lived, so "Tautan baru" will be used far more
  * often than create — it is one click per row.
  *
- * Every call goes to the provision-collaborator Edge Function, which verifies
- * the owner passphrase server-side (same bcrypt + lockout as the gate) before
- * touching anything, and appends each action to private.os_provision_log.
- * This panel is rendered only inside the owner session, but that is
- * cosmetic — the function's own check is the boundary.
+ * EVERY GRANT-CHANGING CALL goes to the provision-collaborator Edge Function,
+ * which verifies the owner passphrase server-side (same bcrypt + lockout as
+ * the gate) before touching anything, and appends each action to
+ * private.os_provision_log. That includes PROJECT grants since the zero-grant
+ * incident: the first cut wrote them straight to the table through the
+ * repository, mounted the picker behind Edge-Function state, and when the
+ * stored key expired mid-session the picker silently unmounted — the owner
+ * attempted grants that never sent a single request. Now the same gate that
+ * makes a dead session fail LOUDLY covers every write, and a dead session
+ * renders an explicit re-unlock banner instead of a half-empty panel.
  *
- * TWO INDEPENDENT GRANT SETS PER PERSON, labelled apart on purpose (slice 1):
- * ENTITAS opens Finish line columns, PROYEK opens a project's tasks. Neither
- * implies the other — the axes are separate tables behind separate policies.
- * Entity grants ride the Edge Function (they are minted with the account);
- * project grants are plain owner writes on os_project_members through the
- * repository, because the user already exists.
+ * TWO INDEPENDENT GRANT SETS PER PERSON, labelled apart on purpose: ENTITAS
+ * opens Finish line columns, PROYEK opens a project's tasks. Neither implies
+ * the other. Project chips are grouped by `engagement` — informing the
+ * human; the ENFORCED rule (WORK only, trigger + function + policy) does not
+ * depend on this UI, and the picker offering only WORK projects is
+ * convenience, not the boundary.
  *
- * Revoke removes MEMBERSHIP ON BOTH AXES, not the auth user: history rows
- * keep their actor, and a membershipless session reads nothing from its next
- * query on.
+ * Revoke removes MEMBERSHIP ON BOTH AXES — server-side, one audited action —
+ * not the auth user: history rows keep their actor, and a membershipless
+ * session reads nothing from its next query on.
  */
+
+const ENGAGEMENT_GROUPS: Array<{ engagement: Engagement; label: string; caution: boolean }> = [
+  { engagement: 'samb', label: 'SAMB', caution: false },
+  // A different client's work. Zero rows today; the group exists so a future
+  // Gunung Jati project never renders undifferentiated beside SAMB ones.
+  { engagement: 'gunungjati', label: 'GUNUNG JATI — klien lain', caution: true },
+  // Deliberately grantable (Consolidation & group modeling is meant to be
+  // shared) but separated so Decks / Meta / PMO are never a mis-click away.
+  { engagement: 'internal', label: 'INTERNAL — proyek pribadi pemilik, cek dua kali', caution: true },
+];
+
 export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] }) {
   const repository = useAppStore((state) => state.repository);
   const [users, setUsers] = useState<ProvisionedUser[] | null>(null);
   const [workProjects, setWorkProjects] = useState<Project[]>([]);
-  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  // The stored key died (12h sessionStorage TTL, per tab). Every panel write
+  // needs it; nothing else in the panel can proceed, so this renders one
+  // explicit banner with the one action that fixes it.
+  const [sessionDead, setSessionDead] = useState(false);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
   const [email, setEmail] = useState('');
   const [codes, setCodes] = useState<Set<string>>(new Set());
+  // Per-user project picker: which row is open, and which projects are ticked.
+  const [grantingFor, setGrantingFor] = useState<string | null>(null);
+  const [pendingProjects, setPendingProjects] = useState<Set<string>>(new Set());
   // The freshly minted link, per email — shown once with a copy button, like
   // the share-link card: what leaves this panel is the owner's to carry.
   const [link, setLink] = useState<{ email: string; url: string; expiry: string } | null>(null);
@@ -56,7 +78,10 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     async <T,>(fn: (appKey: string) => Promise<T>): Promise<T | undefined> => {
       const appKey = readStoredKey();
       if (!appKey) {
-        setNotice('Sesi terkunci — buka ulang dengan passphrase dulu.');
+        // Loud, specific, actionable — never a silent no-op. The grant that
+        // "failed because the session died" must read as failed.
+        setSessionDead(true);
+        setNotice('Sesi panel kedaluwarsa — buka kunci ulang untuk melanjutkan.');
         return undefined;
       }
       setBusy(true);
@@ -74,66 +99,27 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
   );
 
   const refresh = useCallback(async () => {
+    // The project titles come from the repository (owner client, key baked at
+    // unlock) and deliberately do NOT depend on the Edge-Function call below —
+    // the zero-grant incident began with exactly that coupling.
+    try {
+      const projects = await repository.listProjects('work');
+      setWorkProjects(projects.filter((project) => project.recurring !== 'monthly'));
+    } catch {
+      setWorkProjects([]);
+    }
     const result = await call((appKey) => provisionCollaborator(appKey, { action: 'list' }));
     if (!result) return;
     if (result.error) setNotice(result.error);
-    else setUsers(result.users ?? []);
-    // The project axis, straight from the repository (owner path). Failure
-    // leaves the chips empty rather than taking the whole panel down.
-    // The 'work' filter on the picker is CONVENIENCE, NOT THE BOUNDARY: the
-    // boundary is the domain-guard trigger on os_project_members plus the
-    // WORK filter inside os_member_projects() (migration 20260804000047) —
-    // a growth id sent past this UI is refused in SQL, owner key included.
-    try {
-      const [memberRows, projects] = await Promise.all([
-        repository.listProjectMembers(),
-        repository.listProjects('work'),
-      ]);
-      setProjectMembers(memberRows.ok ? memberRows.rows : []);
-      setWorkProjects(projects.filter((project) => project.recurring !== 'monthly'));
-    } catch {
-      setProjectMembers([]);
+    else {
+      setUsers(result.users ?? []);
+      setSessionDead(false);
     }
   }, [call, repository]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
-
-  const grantsFor = useCallback(
-    (userId: string) => projectMembers.filter((member) => member.userId === userId),
-    [projectMembers],
-  );
-
-  const grantProject = async (userId: string, projectId: string) => {
-    if (!projectId) return;
-    setBusy(true);
-    try {
-      await repository.grantProjectMembership(userId, projectId);
-      const rows = await repository.listProjectMembers();
-      setProjectMembers(rows.ok ? rows.rows : []);
-    } catch {
-      setNotice('Gagal memberi akses proyek.');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const revokeProject = async (userId: string, projectId: string) => {
-    setBusy(true);
-    try {
-      await repository.revokeProjectMembership(userId, projectId);
-      setProjectMembers((current) =>
-        current.filter(
-          (member) => !(member.userId === userId && member.projectId === projectId),
-        ),
-      );
-    } catch {
-      setNotice('Gagal mencabut akses proyek.');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const create = async () => {
     const trimmed = email.trim();
@@ -171,7 +157,7 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     setCopied(false);
   };
 
-  const revoke = async (target: string, userId: string) => {
+  const revoke = async (target: string) => {
     if (
       !window.confirm(
         `Cabut semua akses ${target} — entitas dan proyek? Riwayat sel dan tugasnya tetap tersimpan.`,
@@ -182,20 +168,69 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       provisionCollaborator(appKey, { action: 'revoke', email: target }),
     );
     if (!result) return;
-    if (result.error) setNotice(result.error);
-    // The Edge Function clears the ENTITY axis; the project axis is cleared
-    // here, grant by grant, through the same owner-key policies. Leaving it
-    // would leave a "revoked" account still reading its granted projects.
-    for (const member of grantsFor(userId)) {
-      try {
-        await repository.revokeProjectMembership(userId, member.projectId);
-      } catch {
-        setNotice('Sebagian akses proyek gagal dicabut — coba lagi.');
-      }
+    if (result.error) {
+      setNotice(result.error);
+      return;
     }
     if (link?.email === target) setLink(null);
     await refresh();
   };
+
+  const openGrantPicker = (userId: string) => {
+    setGrantingFor((current) => (current === userId ? null : userId));
+    setPendingProjects(new Set());
+  };
+
+  const togglePendingProject = (projectId: string) =>
+    setPendingProjects((current) => {
+      const next = new Set(current);
+      if (next.has(projectId)) next.delete(projectId);
+      else next.add(projectId);
+      return next;
+    });
+
+  const grantProjects = async (target: string) => {
+    if (pendingProjects.size === 0) return;
+    const result = await call((appKey) =>
+      provisionCollaborator(appKey, {
+        action: 'grant-projects',
+        email: target,
+        projectIds: [...pendingProjects],
+      }),
+    );
+    if (!result) return;
+    if (result.error) {
+      setNotice(result.error);
+      return;
+    }
+    setGrantingFor(null);
+    setPendingProjects(new Set());
+    await refresh();
+  };
+
+  const revokeProject = async (target: string, projectId: string) => {
+    const result = await call((appKey) =>
+      provisionCollaborator(appKey, { action: 'revoke-project', email: target, projectId }),
+    );
+    if (!result) return;
+    if (result.error) {
+      setNotice(result.error);
+      return;
+    }
+    await refresh();
+  };
+
+  const toggleCode = (code: string) =>
+    setCodes((current) => {
+      const next = new Set(current);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+
+  const titleFor = (projectId: string) =>
+    workProjects.find((project) => project.id === projectId)?.title ??
+    `proyek ${projectId.slice(0, 8)}`;
 
   const copyLink = async () => {
     if (!link) return;
@@ -206,14 +241,6 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       setNotice('Salin manual dari kolom di bawah.');
     }
   };
-
-  const toggleCode = (code: string) =>
-    setCodes((current) => {
-      const next = new Set(current);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
 
   return (
     <Card className="mt-5">
@@ -230,12 +257,25 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
             variant="secondary"
             size="sm"
             onClick={() => setCreating((current) => !current)}
-            disabled={busy}
+            disabled={busy || sessionDead}
           >
             <UserPlus className="size-4" />
             {creating ? 'Batal' : 'Tambah kolaborator'}
           </Button>
         </div>
+
+        {sessionDead && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
+            <p className="text-[11px] leading-4 text-foreground-secondary">
+              Sesi panel kedaluwarsa (12 jam). Tidak ada yang dikirim atau diubah — buka kunci
+              ulang, lalu ulangi aksinya.
+            </p>
+            <Button variant="secondary" size="sm" onClick={() => lockApp()}>
+              <Lock className="size-3.5" />
+              Buka kunci ulang
+            </Button>
+          </div>
+        )}
 
         {creating && (
           <div className="mt-3 rounded-md border border-border bg-surface-2/50 p-3">
@@ -293,21 +333,20 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
 
         <div className="mt-3 border-t border-border-subtle pt-3">
           {users === null ? (
-            <p className="text-[11px] text-foreground-muted">Memuat daftar…</p>
+            <p className="text-[11px] text-foreground-muted">
+              {sessionDead ? 'Daftar tidak dimuat — sesi terkunci.' : 'Memuat daftar…'}
+            </p>
           ) : users.length === 0 ? (
             <p className="text-[11px] text-foreground-muted">Belum ada kolaborator.</p>
           ) : (
             <ul className="divide-y divide-border-subtle">
               {users.map((user) => {
-                const grants = grantsFor(user.userId);
-                const grantedIds = new Set(grants.map((member) => member.projectId));
+                const grantedIds = new Set(user.projectIds);
                 const grantable = workProjects.filter(
                   (project) => !grantedIds.has(project.id),
                 );
-                const titleFor = (projectId: string) =>
-                  workProjects.find((project) => project.id === projectId)?.title ??
-                  `proyek ${projectId.slice(0, 8)}`;
-                const hasAccess = user.entityCodes.length > 0 || grants.length > 0;
+                const hasAccess = user.entityCodes.length > 0 || user.projectIds.length > 0;
+                const pickerOpen = grantingFor === user.userId;
                 return (
                   <li key={user.userId} className="py-2">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -323,7 +362,7 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                         variant="ghost"
                         size="sm"
                         onClick={() => void makeLink(user.email)}
-                        disabled={busy || !hasAccess}
+                        disabled={busy || sessionDead || !hasAccess}
                         title={
                           hasAccess
                             ? 'Hasilkan tautan masuk baru'
@@ -336,8 +375,8 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => void revoke(user.email, user.userId)}
-                        disabled={busy || !hasAccess}
+                        onClick={() => void revoke(user.email)}
+                        disabled={busy || sessionDead || !hasAccess}
                         title="Hapus keanggotaan entitas DAN proyek; akun dan riwayatnya tetap"
                       >
                         <UserX className="size-3.5" />
@@ -368,20 +407,20 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                       <span className="font-semibold uppercase tracking-[0.08em] text-foreground-muted">
                         Proyek
                       </span>
-                      {grants.length === 0 && (
+                      {user.projectIds.length === 0 && (
                         <span className="text-foreground-muted">tidak ada</span>
                       )}
-                      {grants.map((member) => (
+                      {user.projectIds.map((projectId) => (
                         <span
-                          key={member.projectId}
+                          key={projectId}
                           className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-foreground-secondary"
                         >
-                          {titleFor(member.projectId)}
+                          {titleFor(projectId)}
                           <button
                             type="button"
-                            onClick={() => void revokeProject(user.userId, member.projectId)}
-                            disabled={busy}
-                            aria-label={`Cabut akses ${user.email} ke ${titleFor(member.projectId)}`}
+                            onClick={() => void revokeProject(user.email, projectId)}
+                            disabled={busy || sessionDead}
+                            aria-label={`Cabut akses ${user.email} ke ${titleFor(projectId)}`}
                             className="text-foreground-muted transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <X className="size-3" />
@@ -389,24 +428,71 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                         </span>
                       ))}
                       {grantable.length > 0 && (
-                        <select
-                          className="native-select !h-7 !w-auto text-[10px]"
-                          value=""
-                          disabled={busy}
-                          onChange={(event) =>
-                            void grantProject(user.userId, event.target.value)
-                          }
-                          aria-label={`Beri ${user.email} akses proyek`}
+                        <button
+                          type="button"
+                          onClick={() => openGrantPicker(user.userId)}
+                          disabled={busy || sessionDead}
+                          aria-expanded={pickerOpen}
+                          className="rounded-sm border border-dashed border-border px-1.5 py-0.5 text-foreground-muted transition-colors hover:text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
-                          <option value="">+ beri akses proyek</option>
-                          {grantable.map((project) => (
-                            <option key={project.id} value={project.id}>
-                              {project.title}
-                            </option>
-                          ))}
-                        </select>
+                          {pickerOpen ? 'tutup' : '+ beri akses proyek'}
+                        </button>
                       )}
                     </div>
+                    {pickerOpen && (
+                      <div className="mt-2 rounded-md border border-border bg-surface-2/50 p-2.5">
+                        {/* Same chip multi-select as the entity axis: pick
+                            several, one submit. Groups by engagement so
+                            internal projects are never a mis-click away —
+                            the grouping informs; the WORK-only rule is
+                            enforced in SQL either way. */}
+                        {ENGAGEMENT_GROUPS.map(({ engagement, label, caution }) => {
+                          const group = grantable.filter(
+                            (project) => project.engagement === engagement,
+                          );
+                          if (group.length === 0) return null;
+                          return (
+                            <div key={engagement} className="mb-2 last:mb-0">
+                              <p
+                                className={cn(
+                                  'mb-1 text-[9px] font-bold uppercase tracking-[0.12em]',
+                                  caution ? 'text-destructive' : 'text-foreground-muted',
+                                )}
+                              >
+                                {label}
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {group.map((project) => (
+                                  <button
+                                    key={project.id}
+                                    type="button"
+                                    onClick={() => togglePendingProject(project.id)}
+                                    aria-pressed={pendingProjects.has(project.id)}
+                                    className={cn(
+                                      'min-h-8 rounded-sm border px-2 py-1 text-[10px] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                      pendingProjects.has(project.id)
+                                        ? 'border-primary bg-primary/10 text-primary'
+                                        : 'border-border text-foreground-muted hover:text-foreground-secondary',
+                                    )}
+                                  >
+                                    {project.title}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <Button
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => void grantProjects(user.email)}
+                          disabled={busy || sessionDead || pendingProjects.size === 0}
+                        >
+                          <Check className="size-3.5" />
+                          Berikan akses ({pendingProjects.size})
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}

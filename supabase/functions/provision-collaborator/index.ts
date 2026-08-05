@@ -12,9 +12,13 @@
 // It runs with the service role and BYPASSES EVERY RLS POLICY, which makes it
 // the most privileged code path in the app:
 //   - the service role key exists only in this function's environment
-//   - the action set is a closed enum; role is hardcoded 'contributor'
+//   - the action set is a closed enum (create / link / revoke / list /
+//     grant-projects / revoke-project); role is hardcoded 'contributor'
 //   - emails are validated, entity codes are checked against
-//     os_finish_line_entities, and nothing structural is read from the body
+//     os_finish_line_entities, project ids against os_projects — and the
+//     GROWTH domain guard trigger fires for this service role exactly as for
+//     everyone, so the function cannot grant a growth project even if its
+//     own pre-check were wrong
 //   - every successful action is appended to private.os_provision_log via
 //     os_provision_record (service_role-only), and a failed audit write fails
 //     the action — an unlogged grant must not succeed silently
@@ -26,9 +30,11 @@ import { checkAppKey } from '../_shared/appKeyAuth.ts';
 import {
   adminClient,
   provisionCreate,
+  provisionGrantProjects,
   provisionLink,
   provisionList,
   provisionRevoke,
+  provisionRevokeProject,
 } from '../_shared/provision.ts';
 
 const CORS = {
@@ -58,11 +64,15 @@ Deno.serve(async (request) => {
   let action = '';
   let email: unknown;
   let entityCodes: unknown;
+  let projectIds: unknown;
+  let projectId: unknown;
   try {
     const body = await request.json();
     action = typeof body?.action === 'string' ? body.action : '';
     email = body?.email;
     entityCodes = body?.entityCodes;
+    projectIds = body?.projectIds;
+    projectId = body?.projectId;
   } catch {
     return json({ error: 'Expected a JSON body' }, 400);
   }
@@ -81,7 +91,11 @@ Deno.serve(async (request) => {
             ? await provisionRevoke(admin, email)
             : action === 'list'
               ? await provisionList(admin)
-              : null;
+              : action === 'grant-projects'
+                ? await provisionGrantProjects(admin, email, projectIds)
+                : action === 'revoke-project'
+                  ? await provisionRevokeProject(admin, email, projectId)
+                  : null;
     if (!outcome) return json({ error: 'Unknown action' }, 400);
     if (!outcome.ok) return json({ error: outcome.error }, outcome.status);
     return json(outcome.body);

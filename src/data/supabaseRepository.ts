@@ -299,6 +299,8 @@ export interface ProvisionedUser {
   userId: string;
   email: string;
   entityCodes: string[];
+  /** Project grants (the second axis), listed by the same gated call. */
+  projectIds: string[];
   lastSignInAt: string | null;
   createdAt: string | null;
 }
@@ -307,9 +309,11 @@ export interface ProvisionLinkResult {
   userId?: string;
   email?: string;
   entityCodes?: string[];
+  projectIds?: string[];
   link?: string;
   expiry?: string;
   removedEntityCodes?: string[];
+  removedProjectIds?: string[];
   users?: ProvisionedUser[];
   error?: string;
   retryAfter?: number;
@@ -320,8 +324,16 @@ export async function provisionCollaborator(
   body:
     | { action: 'create'; email: string; entityCodes: string[] }
     | { action: 'link'; email: string }
+    // Revoke clears BOTH axes server-side — entities and project grants in
+    // one audited action, so a half-revoked account cannot exist.
     | { action: 'revoke'; email: string }
-    | { action: 'list' },
+    | { action: 'list' }
+    // Project grants are provisioning actions like any other: owner-gated,
+    // service-role, audited to private.os_provision_log — never a direct
+    // table write from the panel, whose session state the writes must not
+    // silently depend on.
+    | { action: 'grant-projects'; email: string; projectIds: string[] }
+    | { action: 'revoke-project'; email: string; projectId: string },
 ): Promise<ProvisionLinkResult> {
   return edgeFunctionCall<ProvisionLinkResult>('provision-collaborator', {
     method: 'POST',

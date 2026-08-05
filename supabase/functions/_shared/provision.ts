@@ -68,6 +68,19 @@ async function memberships(admin: SupabaseClient, userId: string): Promise<strin
   return (data as { entity_code: string }[]).map((row) => row.entity_code);
 }
 
+/** The second axis: project ids this user holds grants on. */
+async function projectGrants(admin: SupabaseClient, userId: string): Promise<string[]> {
+  const { data, error } = await admin
+    .from('os_project_members')
+    .select('project_id')
+    .eq('user_id', userId)
+    .order('project_id');
+  if (error) throw new Error(`project grant read failed: ${error.message}`);
+  return (data as { project_id: string }[]).map((row) => row.project_id);
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function generateAppLink(
   admin: SupabaseClient,
   email: string,
@@ -82,14 +95,16 @@ async function generateAppLink(
 
 async function audit(
   admin: SupabaseClient,
-  action: 'create' | 'link' | 'revoke' | 'list',
+  action: 'create' | 'link' | 'revoke' | 'list' | 'grant-projects' | 'revoke-project',
   email: string | null,
   entityCodes: string[] | null,
+  projectIds: string[] | null = null,
 ): Promise<void> {
   const { error } = await admin.rpc('os_provision_record', {
     p_action: action,
     p_email: email,
     p_entity_codes: entityCodes,
+    p_project_ids: projectIds,
   });
   // An unlogged provisioning action must not succeed silently.
   if (error) throw new Error(`audit write failed: ${error.message}`);
@@ -181,14 +196,121 @@ export async function provisionRevoke(
   const user = await findUserByEmail(admin, email);
   if (!user) return { ok: false, status: 404, error: 'No such user' };
   const before = await memberships(admin, user.id);
+  const beforeProjects = await projectGrants(admin, user.id);
   const { error } = await admin.from('os_entity_members').delete().eq('user_id', user.id);
   if (error) return { ok: false, status: 500, error: `revoke failed: ${error.message}` };
+  // BOTH AXES, server-side, one action. Leaving the project axis to the
+  // client (as the first cut did) left a "revoked" account still reading its
+  // granted projects whenever the second call was skipped or failed.
+  const { error: projectError } = await admin
+    .from('os_project_members')
+    .delete()
+    .eq('user_id', user.id);
+  if (projectError) {
+    return { ok: false, status: 500, error: `project revoke failed: ${projectError.message}` };
+  }
   // The auth user is DELIBERATELY kept: history rows reference actor, and
-  // deleting the user would null who did what. With zero membership,
-  // os_member_entities() returns {} and every member policy fails closed —
-  // access is gone the moment this commits, whatever JWT they still hold.
-  await audit(admin, 'revoke', email, before);
-  return { ok: true, body: { userId: user.id, email, removedEntityCodes: before } };
+  // deleting the user would null who did what. With zero membership on
+  // either axis, os_member_entities() and os_member_projects() both return
+  // {} and every member policy fails closed — access is gone the moment
+  // this commits, whatever JWT they still hold.
+  await audit(admin, 'revoke', email, before, beforeProjects);
+  return {
+    ok: true,
+    body: {
+      userId: user.id,
+      email,
+      removedEntityCodes: before,
+      removedProjectIds: beforeProjects,
+    },
+  };
+}
+
+/**
+ * Grants one user several WORK projects in one audited action. The domain
+ * pre-check here exists for a clean 400 — THE BOUNDARY IS THE DATABASE
+ * TRIGGER on os_project_members, which fires for this service role exactly
+ * as it fires for everyone (verified live: a growth insert as service_role
+ * raises).
+ */
+export async function provisionGrantProjects(
+  admin: SupabaseClient,
+  rawEmail: unknown,
+  rawProjectIds: unknown,
+): Promise<ProvisionOutcome> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { ok: false, status: 400, error: 'A well-formed email is required' };
+  if (
+    !Array.isArray(rawProjectIds) ||
+    rawProjectIds.length === 0 ||
+    !rawProjectIds.every((id) => typeof id === 'string' && UUID_RE.test(id))
+  ) {
+    return { ok: false, status: 400, error: 'projectIds must be a non-empty array of project ids' };
+  }
+  const requested = [...new Set(rawProjectIds as string[])];
+
+  const user = await findUserByEmail(admin, email);
+  if (!user) return { ok: false, status: 404, error: 'No such user — provision them first' };
+
+  const { data: projectRows, error: projectError } = await admin
+    .from('os_projects')
+    .select('id, domain')
+    .in('id', requested);
+  if (projectError) return { ok: false, status: 500, error: 'Could not read projects' };
+  const byId = new Map((projectRows as { id: string; domain: string }[]).map((row) => [row.id, row.domain]));
+  const unknown = requested.filter((id) => !byId.has(id));
+  if (unknown.length > 0) {
+    return { ok: false, status: 400, error: `Unknown project ids: ${unknown.join(', ')}` };
+  }
+  const nonWork = requested.filter((id) => byId.get(id) !== 'work');
+  if (nonWork.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: 'Only WORK projects are grantable; sharing a growth project requires a migration, not a grant',
+    };
+  }
+
+  const rows = requested.map((id) => ({
+    user_id: user.id,
+    project_id: id,
+    role: 'contributor',
+    created_by: 'owner',
+  }));
+  const { error: grantError } = await admin
+    .from('os_project_members')
+    .upsert(rows, { onConflict: 'user_id,project_id', ignoreDuplicates: true });
+  if (grantError) {
+    return { ok: false, status: 500, error: `project grant failed: ${grantError.message}` };
+  }
+
+  const granted = await projectGrants(admin, user.id);
+  await audit(admin, 'grant-projects', email, null, requested);
+  return { ok: true, body: { userId: user.id, email, projectIds: granted } };
+}
+
+/** Removes one project grant, audited. The auth user and every other grant stay. */
+export async function provisionRevokeProject(
+  admin: SupabaseClient,
+  rawEmail: unknown,
+  rawProjectId: unknown,
+): Promise<ProvisionOutcome> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { ok: false, status: 400, error: 'A well-formed email is required' };
+  if (typeof rawProjectId !== 'string' || !UUID_RE.test(rawProjectId)) {
+    return { ok: false, status: 400, error: 'projectId must be a project id' };
+  }
+  const user = await findUserByEmail(admin, email);
+  if (!user) return { ok: false, status: 404, error: 'No such user' };
+  const { error } = await admin
+    .from('os_project_members')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('project_id', rawProjectId);
+  if (error) return { ok: false, status: 500, error: `project revoke failed: ${error.message}` };
+  const remaining = await projectGrants(admin, user.id);
+  await audit(admin, 'revoke-project', email, null, [rawProjectId]);
+  return { ok: true, body: { userId: user.id, email, projectIds: remaining } };
 }
 
 export async function provisionList(admin: SupabaseClient): Promise<ProvisionOutcome> {
@@ -201,6 +323,17 @@ export async function provisionList(admin: SupabaseClient): Promise<ProvisionOut
     byUser.set(row.user_id, [...(byUser.get(row.user_id) ?? []), row.entity_code]);
   }
 
+  // The project axis rides the same list, so the panel renders both grant
+  // sets from one gated read.
+  const { data: grantRows, error: grantError } = await admin
+    .from('os_project_members')
+    .select('user_id, project_id');
+  if (grantError) return { ok: false, status: 500, error: 'Could not read project grants' };
+  const projectsByUser = new Map<string, string[]>();
+  for (const row of grantRows as { user_id: string; project_id: string }[]) {
+    projectsByUser.set(row.user_id, [...(projectsByUser.get(row.user_id) ?? []), row.project_id]);
+  }
+
   const users: Array<Record<string, unknown>> = [];
   let page = 1;
   for (;;) {
@@ -211,6 +344,7 @@ export async function provisionList(admin: SupabaseClient): Promise<ProvisionOut
         userId: user.id,
         email: user.email ?? '',
         entityCodes: (byUser.get(user.id) ?? []).sort(),
+        projectIds: (projectsByUser.get(user.id) ?? []).sort(),
         lastSignInAt: user.last_sign_in_at ?? null,
         createdAt: user.created_at ?? null,
       });

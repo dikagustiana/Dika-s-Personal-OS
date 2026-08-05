@@ -47,22 +47,25 @@ where o.next_from is null and o.to_note is distinct from coalesce(c.note, '');
 -- CHECK 2: the password grant surface.
 -- ---------------------------------------------------------------------------
 -- grant_type=password is enabled at the project level (see the probe script)
--- but it is INERT while no user has a password. A non-null
--- encrypted_password means the grant can succeed for that user — a
--- credential that does not expire, entered through no owner-provisioned
--- path.
+-- but it is INERT while no user has a usable password. The convention since
+-- migration 20260804000049 is '' — never NULL (GoTrue's Go scanner has
+-- 500'd on NULL string columns in this very project) — and a BEFORE INSERT
+-- trigger forces '' at birth, because GoTrue's admin createUser GENERATES a
+-- random hash when none is supplied (caught live 2026-08-05: both
+-- provision-created users were born with one; the hand-inserted user was
+-- not). A real hash therefore means a POST-BIRTH set.
 --
--- A HIT MEANS: a user holds a password we did not issue. The app has no
--- password UI and provision-collaborator neither sets nor accepts one
--- (audited 2026-08-04) — the routes are service-role code, a live session
--- calling updateUser({password}), or the recovery flow (live: the built-in
--- mailer sends, see REVIEW.md). Respond by nulling it and finding out which
--- route set it:
---   update auth.users set encrypted_password = null where id = '<id>';
+-- A HIT MEANS: a user holds a usable password. The app has no password UI
+-- and provision-collaborator neither sets nor accepts one (audited
+-- 2026-08-04) — the routes are service-role code, a live session calling
+-- updateUser({password}), or the recovery flow (live: the built-in mailer
+-- sends, see REVIEW.md). Respond by emptying it and finding out which route
+-- set it:
+--   update auth.users set encrypted_password = '' where id = '<id>';
 select 'password surface: user holds a password' as finding,
        id::text, created_at, email, last_sign_in_at
 from auth.users
-where encrypted_password is not null;
+where encrypted_password is not null and encrypted_password <> '';
 
 -- ---------------------------------------------------------------------------
 -- CHECK 3: the task history chain (slice 1).

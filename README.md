@@ -69,9 +69,17 @@ task history keep their actor.
 Behind the panel sits the `provision-collaborator` Edge Function: it verifies
 the owner passphrase server-side with the same bcrypt-plus-lockout check as
 the unlock gate, holds the service role key in its environment only, and
-appends every action to `private.os_provision_log`. No dashboard steps, no
-SMTP, and no self-service path exist — an email address gets access only when
-the owner types it into that panel.
+appends every action — entity grants, **project grants**, links, revokes —
+to `private.os_provision_log`. No dashboard steps, no SMTP, and no
+self-service path exist — an email address gets access only when the owner
+types it into that panel.
+
+There is deliberately **no manual-SQL membership recipe** here anymore: the
+first cut documented one beside the passphrase statement, and it was retired
+when provisioning shipped, because a grant that skips the panel skips the
+audit log. The owner key can still write the membership tables from the SQL
+editor — that power is inherent — but the panel is the path that leaves a
+record, so use it.
 
 ## Verify
 
