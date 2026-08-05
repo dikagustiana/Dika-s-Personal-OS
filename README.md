@@ -39,19 +39,29 @@ Run the same statement any time you want to rotate the passphrase.
 
 ### Adding a collaborator
 
-Collaborators are colleagues who write Finish Line cells for their own
-entities (`input → figure` plus the note) and read SAMB WORK projects —
-nothing else; see REVIEW.md for the full boundary. Their identities live
-**outside version control**, like the passphrase: no migration seeds them,
-and **the app never sends email**.
+Collaborators are colleagues who hold two **independent** kinds of access —
+see REVIEW.md for the full boundary:
+
+- **Entity access** opens their Finish Line columns: cell writes
+  (`input → figure` plus the note), nothing structural.
+- **Project access** opens individual WORK projects, granted **one by one**:
+  read the project, and create/edit its tasks (status, due date, assignee —
+  never delete; a task ends as *done* or *cancelled*). A project with no
+  grants is the owner's private project, and the card says so (`privat`).
+
+Neither grant implies the other, and zero grants reads zero rows. Their
+identities live **outside version control**, like the passphrase: no
+migration seeds them, and **the app never sends email**.
 
 Provisioning is owner-only, from the **Kolaborator panel** on the Finish Line
 page (owner session): enter their email, tick their entities, and the panel
 returns a **one-time sign-in link** — copy it and send it yourself over
-WhatsApp. Links are short-lived and single-use; when a collaborator's session
-lapses, generate a fresh one with *Tautan baru* on their row. *Cabut* removes
-every membership immediately (their next query reads nothing) while keeping
-the auth user, so cell history keeps its actor.
+WhatsApp. Project grants sit on the same row, labelled apart from the entity
+chips (*+ beri akses proyek* / ×). Links are short-lived and single-use; when
+a collaborator's session lapses, generate a fresh one with *Tautan baru* on
+their row. *Cabut* removes every membership on **both axes** immediately
+(their next query reads nothing) while keeping the auth user, so cell and
+task history keep their actor.
 
 Behind the panel sits the `provision-collaborator` Edge Function: it verifies
 the owner passphrase server-side with the same bcrypt-plus-lockout check as

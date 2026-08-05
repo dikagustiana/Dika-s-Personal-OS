@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { ProjectCard } from './ProjectCard';
+import type { TaskSectionData } from './project/TaskSection';
 import { Progress } from './ui/Progress';
 import type { Domain, FinishLineEdge, Project, TaskEntry, WeeklyGoal } from '../data/types';
 import type { ReadResult } from '../data/readResult';
@@ -31,6 +32,10 @@ export interface ProjectChildrenProps {
   /** The finish-line pack — forwarded so nested cards answer "why" too. */
   finishLineEdges?: ReadResult<FinishLineEdge> | null;
   onOpenFinishLine?: (itemId: string, entityCode?: string, cellIds?: string[]) => void;
+  /** Per-project task-section data (slice 1); nested projects carry tasks too. */
+  taskSectionFor?: (projectId: string) => TaskSectionData | undefined;
+  /** Per-project member count for the shared/private marker. */
+  memberCountFor?: (projectId: string) => number | undefined;
 }
 
 function AlertBadge({ alert }: { alert: 'overdue' | 'blocked' }) {
@@ -73,6 +78,8 @@ export function ProjectChildren({
   milestonesOpenFor,
   finishLineEdges,
   onOpenFinishLine,
+  taskSectionFor,
+  memberCountFor,
 }: ProjectChildrenProps) {
   if (nodes.length === 0) return null;
   const now = today ?? new Date();
@@ -127,6 +134,8 @@ export function ProjectChildren({
                   onChange={onChange}
                   finishLineEdges={finishLineEdges}
                   onOpenFinishLine={onOpenFinishLine}
+                  taskSection={taskSectionFor?.(node.project.id)}
+                  memberCount={memberCountFor?.(node.project.id)}
                 />
                 {/* Grandchildren keep the same treatment rather than becoming
                     full cards at depth two. */}
@@ -146,6 +155,8 @@ export function ProjectChildren({
                   onNavigateToProject={onNavigateToProject}
                   finishLineEdges={finishLineEdges}
                   onOpenFinishLine={onOpenFinishLine}
+                  taskSectionFor={taskSectionFor}
+                  memberCountFor={memberCountFor}
                 />
               </div>
             )}

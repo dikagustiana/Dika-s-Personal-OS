@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { readStoredKey } from '../../components/PassphraseGate';
 import { ProjectCard } from '../../components/ProjectCard';
 import { ProjectChildren } from '../../components/ProjectChildren';
 import {
@@ -7,10 +8,21 @@ import {
   emptyProjectDraft,
   type ProjectDraft,
 } from '../../components/ProjectEditor';
+import { ContributorProjectCard } from '../../components/project/ContributorProjectCard';
+import type { TaskSectionData } from '../../components/project/TaskSection';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { readThrew, type ReadResult } from '../../data/readResult';
-import type { FinishLineEdge, Project, TaskEntry, WeeklyPlan } from '../../data/types';
+import type { ProjectTaskWrite } from '../../data/repository';
+import { isSupabaseConfigured, provisionCollaborator } from '../../data/supabaseRepository';
+import type {
+  FinishLineEdge,
+  Project,
+  ProjectMember,
+  ProjectTask,
+  TaskEntry,
+  WeeklyPlan,
+} from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
   ancestorIds,
@@ -38,6 +50,8 @@ const ALL_ENTITIES = '__all__';
 export function Projects() {
   const repository = useAppStore((state) => state.repository);
   const domain = useAppStore((state) => state.workspace);
+  const viewer = useAppStore((state) => state.viewer);
+  const isContributor = viewer.kind === 'contributor';
   const projectFocus = useAppStore((state) => state.projectFocus);
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
   const setWorkView = useAppStore((state) => state.setWorkView);
@@ -48,6 +62,15 @@ export function Projects() {
   // `null` means this domain has no pack at all; a failed ReadResult means the
   // pack exists and we could not read it. Neither may render as a zero.
   const [finishLineEdges, setFinishLineEdges] = useState<ReadResult<FinishLineEdge> | null>(null);
+  // Slice 1: the tasks inside projects and the project-membership grants.
+  // For a collaborator both arrive RLS-scoped (granted projects; own grant
+  // rows); the owner reads everything and uses the grants for the marker.
+  const [projectTasks, setProjectTasks] = useState<ProjectTask[]>([]);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
+  // uuid → email, from the provisioning list. Owner-only and best-effort:
+  // when the Edge Function is unreachable the UI falls back to short ids —
+  // attribution still renders, just less friendly.
+  const [emailByUser, setEmailByUser] = useState<Map<string, string>>(new Map());
   const [creating, setCreating] = useState(false);
   const [entityFilter, setEntityFilter] = useState<string>(ALL_ENTITIES);
   const [draft, setDraft] = useState<ProjectDraft>(emptyProjectDraft);
@@ -72,14 +95,108 @@ export function Projects() {
       } catch (error: unknown) {
         setFinishLineEdges(readThrew('listFinishLineEdges', error));
       }
+      const [taskRows, memberRows] = await Promise.all([
+        repository.listProjectTasks(),
+        repository.listProjectMembers(),
+      ]);
+      setProjectTasks(taskRows.ok ? taskRows.rows : []);
+      setProjectMembers(memberRows.ok ? memberRows.rows : []);
     } else {
       setFinishLineEdges(null);
+      setProjectTasks([]);
+      setProjectMembers([]);
     }
   }, [domain, repository]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Email resolution for attribution and the assignee picker. Skipped in mock
+  // mode and for contributors (the function is owner-gated); a failure is
+  // silent because short ids are an acceptable fallback, a blocked page not.
+  useEffect(() => {
+    if (isContributor || domain !== 'work' || !isSupabaseConfigured) return;
+    const appKey = readStoredKey();
+    if (!appKey) return;
+    let cancelled = false;
+    void provisionCollaborator(appKey, { action: 'list' })
+      .then((result) => {
+        if (cancelled || result.error || !result.users) return;
+        setEmailByUser(new Map(result.users.map((user) => [user.userId, user.email])));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [domain, isContributor]);
+
+  const resolveUser = useCallback(
+    (userId: string): string => {
+      const email = emailByUser.get(userId);
+      if (email) return email;
+      if (viewer.kind === 'contributor' && viewer.userId === userId) {
+        return viewer.email ?? 'saya';
+      }
+      return `kontributor ${userId.slice(0, 8)}`;
+    },
+    [emailByUser, viewer],
+  );
+
+  const createTask = useCallback(
+    async (input: {
+      projectId: string;
+      title: string;
+      detail?: string;
+      dueDate?: string;
+      assignee?: string;
+    }): Promise<boolean> => {
+      const created = await run('Tambah tugas', () => repository.createProjectTask(input));
+      if (!created) return false;
+      setProjectTasks((current) => [...current, created]);
+      return true;
+    },
+    [repository, run],
+  );
+
+  const updateTask = useCallback(
+    async (id: string, patch: ProjectTaskWrite): Promise<boolean> => {
+      const updated = await run('Simpan tugas', () => repository.updateProjectTask(id, patch));
+      if (!updated) return false;
+      setProjectTasks((current) =>
+        current.map((task) => (task.id === updated.id ? updated : task)),
+      );
+      return true;
+    },
+    [repository, run],
+  );
+
+  const taskSectionFor = useCallback(
+    (projectId: string): TaskSectionData | undefined => {
+      if (domain !== 'work') return undefined;
+      return {
+        tasks: projectTasks.filter((task) => task.projectId === projectId),
+        memberIds: projectMembers
+          .filter((member) => member.projectId === projectId)
+          .map((member) => member.userId),
+        ...(viewer.kind === 'contributor' ? { viewerUserId: viewer.userId } : {}),
+        resolveUser,
+        onCreate: createTask,
+        onUpdate: updateTask,
+      };
+    },
+    [createTask, domain, projectMembers, projectTasks, resolveUser, updateTask, viewer],
+  );
+
+  // The shared/private marker is the OWNER's fact: a contributor sees only
+  // their own grant rows, from which a count would be a half-truth.
+  const memberCountFor = useCallback(
+    (projectId: string): number | undefined => {
+      if (domain !== 'work' || isContributor) return undefined;
+      return projectMembers.filter((member) => member.projectId === projectId).length;
+    },
+    [domain, isContributor, projectMembers],
+  );
 
   const tags = useMemo(() => entityTags(projects), [projects]);
   const tree = useMemo(() => buildProjectTree(projects), [projects]);
@@ -233,6 +350,8 @@ export function Projects() {
         onChange={onChange}
         finishLineEdges={domain === 'work' ? finishLineEdges : null}
         onOpenFinishLine={openFinishLine}
+        taskSection={taskSectionFor(node.project.id)}
+        memberCount={memberCountFor(node.project.id)}
       />
       <ProjectChildren
         nodes={node.children}
@@ -251,9 +370,52 @@ export function Projects() {
         onChange={onChange}
         finishLineEdges={domain === 'work' ? finishLineEdges : null}
         onOpenFinishLine={openFinishLine}
+        taskSectionFor={taskSectionFor}
+        memberCountFor={memberCountFor}
       />
     </div>
   );
+
+  // A collaborator's Projects page is the granted list, flat: parents they
+  // were not granted are invisible, so the owner's tree would misplace what
+  // remains. Zero grants renders as exactly that — nothing is wrong, nothing
+  // was shared yet — never as an error.
+  if (isContributor) {
+    return (
+      <div className="page-shell">
+        <header className="mb-7 border-b border-border-subtle pb-7">
+          <p className="page-kicker">work / Projects</p>
+          <h1 className="page-title">Proyek yang dibagikan</h1>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
+            Daftar proyek yang aksesnya diberikan ke akunmu, dengan tugas dan linimasa per
+            proyek.
+          </p>
+        </header>
+        {projects.length === 0 ? (
+          <Card>
+            <CardContent className="pt-5">
+              <p className="text-sm text-foreground-secondary">
+                Belum ada proyek yang dibagikan ke akunmu.
+              </p>
+              <p className="mt-1.5 text-xs leading-5 text-foreground-muted">
+                Akses proyek diberikan per proyek oleh pemilik — terpisah dari akses entitas
+                Finish line. Minta pemilik membagikan proyeknya, lalu muat ulang halaman ini.
+              </p>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid items-start gap-5 2xl:grid-cols-2">
+            {projects.map((project) => {
+              const data = taskSectionFor(project.id);
+              return data ? (
+                <ContributorProjectCard key={project.id} project={project} taskData={data} />
+              ) : null;
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="page-shell">

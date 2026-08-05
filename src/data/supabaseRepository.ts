@@ -10,7 +10,7 @@ import {
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
 import { okRows, readFailure, type ReadResult } from './readResult';
-import type { Repository } from './repository';
+import type { ProjectTaskWrite, Repository } from './repository';
 import type {
   DailyLog,
   FinishLineAccount,
@@ -40,10 +40,13 @@ import type {
   LinkedProject,
   Project,
   ProjectDocument,
+  ProjectMember,
+  ProjectTask,
   ShareLink,
   ShareScope,
   SharedView,
   ShareView,
+  TaskStatus,
   WeeklyPlan,
   WebsiteCategory,
 } from './types';
@@ -1391,6 +1394,119 @@ class SupabaseRepository implements Repository {
     }
   }
 
+  // --- tasks + the project-membership axis (slice 1) ------------------------
+  //
+  // NO CLIENT-SIDE VISIBILITY FILTERING anywhere in this section: for a
+  // collaborator JWT the reads come back scoped by RLS (granted projects
+  // only) and every write is judged by the os_tasks write-guard trigger. The
+  // client's guard is the ProjectTaskWrite type, which cannot even name a
+  // non-allowlisted column — the fast failure; the trigger is the boundary.
+  // There is deliberately no delete method — see the Repository interface.
+
+  async listProjectTasks(projectId?: string): Promise<ReadResult<ProjectTask>> {
+    let query = this.client.from('os_tasks').select(PROJECT_TASK_COLUMNS);
+    if (projectId) query = query.eq('project_id', projectId);
+    const { data, error } = await query
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) return readFailure('listProjectTasks', error);
+    return okRows((data as ProjectTaskRow[]).map(rowToProjectTask));
+  }
+
+  async createProjectTask(input: {
+    projectId: string;
+    title: string;
+    detail?: string;
+    status?: TaskStatus;
+    dueDate?: string;
+    assignee?: string;
+    sortOrder?: number;
+  }): Promise<ProjectTask> {
+    const { data, error } = await this.client
+      .from('os_tasks')
+      .insert({
+        project_id: input.projectId,
+        title: input.title,
+        detail: input.detail ?? '',
+        status: input.status ?? 'open',
+        due_date: input.dueDate ?? null,
+        assignee: input.assignee ?? null,
+        sort_order: input.sortOrder ?? 0,
+        // created_by* / actor* / changed_at / created_at are trigger-written;
+        // anything sent for them is overwritten server-side.
+      })
+      .select(PROJECT_TASK_COLUMNS)
+      .single();
+    if (error) throw new Error(`createProjectTask failed: ${error.message}`);
+    return rowToProjectTask(data as ProjectTaskRow);
+  }
+
+  async updateProjectTask(id: string, patch: ProjectTaskWrite): Promise<ProjectTask> {
+    const row: Record<string, unknown> = {};
+    if ('title' in patch && patch.title !== undefined) row.title = patch.title;
+    if ('detail' in patch && patch.detail !== undefined) row.detail = patch.detail;
+    if ('status' in patch && patch.status !== undefined) row.status = patch.status;
+    if ('dueDate' in patch) row.due_date = patch.dueDate ?? null;
+    if ('assignee' in patch) row.assignee = patch.assignee ?? null;
+    if ('sortOrder' in patch && patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
+    if (Object.keys(row).length === 0) {
+      const { data, error } = await this.client
+        .from('os_tasks')
+        .select(PROJECT_TASK_COLUMNS)
+        .eq('id', id)
+        .maybeSingle();
+      if (error) throw new Error(`updateProjectTask failed: ${error.message}`);
+      if (!data) throw new Error(`Task not found: ${id}`);
+      return rowToProjectTask(data as ProjectTaskRow);
+    }
+    const { data, error } = await this.client
+      .from('os_tasks')
+      .update(row)
+      .eq('id', id)
+      .select(PROJECT_TASK_COLUMNS)
+      .maybeSingle();
+    if (error) throw new Error(`updateProjectTask failed: ${error.message}`);
+    // A task in a non-granted project is invisible to a member: zero rows
+    // matched, exactly as cross-entity cells read. Same message both ways.
+    if (!data) throw new Error(`Task not found: ${id}`);
+    return rowToProjectTask(data as ProjectTaskRow);
+  }
+
+  async listProjectMembers(): Promise<ReadResult<ProjectMember>> {
+    // The owner reads every grant; a member's JWT reads exactly their own
+    // rows. Both are RLS outcomes of the same query.
+    const { data, error } = await this.client
+      .from('os_project_members')
+      .select('user_id, project_id, role, created_at, created_by')
+      .order('created_at', { ascending: true });
+    if (error) return readFailure('listProjectMembers', error);
+    return okRows((data as ProjectMemberRow[]).map(rowToProjectMember));
+  }
+
+  async grantProjectMembership(userId: string, projectId: string): Promise<void> {
+    // Owner-only via the app-key INSERT policy; a JWT caller gets an RLS
+    // rejection here, never a row. created_by records the passphrase path,
+    // which carries no uid — the literal 'owner', as on cell attribution.
+    const { error } = await this.client
+      .from('os_project_members')
+      .upsert(
+        { user_id: userId, project_id: projectId, created_by: 'owner' },
+        { onConflict: 'user_id,project_id' },
+      );
+    if (error) throw new Error(`grantProjectMembership failed: ${error.message}`);
+  }
+
+  async revokeProjectMembership(userId: string, projectId: string): Promise<void> {
+    // Revocation is the delete of one grant row; the member's next query
+    // reads zero. The auth user stays — task attribution keeps its actor.
+    const { error } = await this.client
+      .from('os_project_members')
+      .delete()
+      .eq('user_id', userId)
+      .eq('project_id', projectId);
+    if (error) throw new Error(`revokeProjectMembership failed: ${error.message}`);
+  }
+
   // --- share links ---------------------------------------------------------
   //
   // All four go through SECURITY DEFINER functions rather than the table:
@@ -1477,6 +1593,66 @@ interface FinishLineCellRow {
 
 const FINISH_LINE_CELL_COLUMNS =
   'id, item_id, entity_code, state, note, actor_kind, actor, changed_at';
+
+// --- tasks + membership row shapes ------------------------------------------
+
+interface ProjectTaskRow {
+  id: string;
+  project_id: string;
+  title: string;
+  detail: string;
+  status: TaskStatus;
+  due_date: string | null;
+  assignee: string | null;
+  sort_order: number;
+  created_at: string;
+  created_by_kind: CellActorKind;
+  created_by: string | null;
+  actor_kind: CellActorKind;
+  actor: string | null;
+  changed_at: string | null;
+}
+
+const PROJECT_TASK_COLUMNS =
+  'id, project_id, title, detail, status, due_date, assignee, sort_order, created_at, created_by_kind, created_by, actor_kind, actor, changed_at';
+
+function rowToProjectTask(row: ProjectTaskRow): ProjectTask {
+  const task: ProjectTask = {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    detail: row.detail,
+    status: row.status,
+    sortOrder: row.sort_order,
+    createdAt: toIso(row.created_at),
+    createdByKind: row.created_by_kind,
+    actorKind: row.actor_kind,
+  };
+  if (row.due_date) task.dueDate = row.due_date;
+  if (row.assignee) task.assignee = row.assignee;
+  if (row.created_by) task.createdBy = row.created_by;
+  if (row.actor) task.actor = row.actor;
+  if (row.changed_at) task.changedAt = toIso(row.changed_at);
+  return task;
+}
+
+interface ProjectMemberRow {
+  user_id: string;
+  project_id: string;
+  role: 'contributor';
+  created_at: string;
+  created_by: string;
+}
+
+function rowToProjectMember(row: ProjectMemberRow): ProjectMember {
+  return {
+    userId: row.user_id,
+    projectId: row.project_id,
+    role: row.role,
+    createdAt: toIso(row.created_at),
+    createdBy: row.created_by,
+  };
+}
 
 interface FinishLineEdgeRow {
   id: string;

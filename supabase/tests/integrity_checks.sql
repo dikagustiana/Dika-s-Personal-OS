@@ -63,3 +63,61 @@ select 'password surface: user holds a password' as finding,
        id::text, created_at, email, last_sign_in_at
 from auth.users
 where encrypted_password is not null;
+
+-- ---------------------------------------------------------------------------
+-- CHECK 3: the task history chain (slice 1).
+-- ---------------------------------------------------------------------------
+-- os_tasks and os_task_history were created TOGETHER (20260804000046), so
+-- unlike the cell note columns there is no pre-migration null case — the
+-- value columns are NOT NULL by constraint, and the trigger writes birth
+-- rows from '' for all five content fields on INSERT. That buys a stronger
+-- invariant than the cell chain: every field of every live task must have
+-- an unbroken chain from '' to the live value. Four ways it can break, four
+-- arms below.
+--
+-- A HIT MEANS: something wrote to os_tasks outside the write-guard trigger
+-- (or history was tampered with, which no policy permits). Find the write
+-- path and close it; do not repair the chain by editing history — it is
+-- append-only evidence. History rows whose task no longer exists are NOT
+-- findings: the owner may delete tasks and history outlives the row.
+with rendered as (
+  select t.id as task_id, f.field,
+         case f.field
+           when 'title'    then t.title
+           when 'detail'   then t.detail
+           when 'status'   then t.status
+           when 'due_date' then coalesce(t.due_date::text, '')
+           when 'assignee' then coalesce(t.assignee::text, '')
+         end as live_value
+  from public.os_tasks t
+  cross join (values ('title'), ('detail'), ('status'), ('due_date'), ('assignee')) as f(field)
+),
+ordered as (
+  select h.task_id, h.field, h.changed_at, h.from_value, h.to_value,
+         row_number() over w as rn,
+         lead(h.from_value) over w as next_from
+  from public.os_task_history h
+  window w as (partition by h.task_id, h.field order by h.changed_at)
+)
+select 'task chain: live field has no history at all' as finding,
+       r.task_id, r.field, null::timestamptz as changed_at,
+       r.live_value as to_value, null as expected
+from rendered r
+where not exists (select 1 from ordered o
+                  where o.task_id = r.task_id and o.field = r.field)
+union all
+select 'task chain: first row does not start from empty',
+       o.task_id, o.field, o.changed_at, o.from_value, ''
+from ordered o
+where o.rn = 1 and o.from_value <> ''
+union all
+select 'task chain: mid-chain break',
+       o.task_id, o.field, o.changed_at, o.to_value, o.next_from
+from ordered o
+where o.next_from is not null and o.to_value is distinct from o.next_from
+union all
+select 'task chain: tip disagrees with live row',
+       o.task_id, o.field, o.changed_at, o.to_value, r.live_value
+from ordered o
+join rendered r on r.task_id = o.task_id and r.field = o.field
+where o.next_from is null and o.to_value is distinct from r.live_value;
