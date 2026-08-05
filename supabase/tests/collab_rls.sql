@@ -681,6 +681,149 @@ begin
 end
 $$;
 
+-- ===========================================================================
+-- DOMAIN-GUARD PATCH — the GROWTH gap, closed and proven. 6 cases.
+-- ===========================================================================
+-- Membership fails closed against the ABSENCE of a grant; these cases prove
+-- it now also fails against a WRONG one, in three layers. Case 3 is the one
+-- that matters: the layer-one trigger is DISABLED inside the transaction and
+-- a GROWTH membership row planted directly, so layer two (the domain join in
+-- os_member_projects()) is proven independently rather than assumed to be
+-- shielded by layer one.
+--
+--   1  granting a GROWTH project via the owner path → layer-one trigger
+--      refuses, owner included: GROWTH isolation is not a permission the
+--      owner can spend
+--   2  granting a project id that resolves to nothing → distinct message
+--   3  with the trigger disabled, a planted GROWTH membership row:
+--      os_member_projects() returns EMPTY for that user
+--   4  same state: the projects policy returns zero rows
+--   5  same state, with a real task on that GROWTH project (owner-created):
+--      the tasks policy returns zero rows
+--   6  a WORK grant still succeeds and behaves exactly as before — and the
+--      poisoned GROWTH row stays inert beside it
+do $$
+declare
+  uid_g constant uuid := 'a11ce000-5afe-4000-8000-c0113b000004';
+  failures text[] := '{}';
+  n bigint;
+  proj_work uuid; proj_growth uuid;
+  old_hash text;
+begin
+  -- ===== fixture, as postgres ==============================================
+  insert into auth.users (id, instance_id, aud, role, email) values
+    (uid_g, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-selftest-domain@example.invalid');
+  select id into proj_work   from public.os_projects where domain = 'work'   order by id limit 1;
+  select id into proj_growth from public.os_projects where domain = 'growth' order by id limit 1;
+  if proj_work is null or proj_growth is null then
+    raise exception 'domain-guard fixture: needed a WORK and a GROWTH project';
+  end if;
+
+  -- Owner path shape: anon role + a txn-local throwaway key (never the real
+  -- passphrase — this file is committed and the repo is public).
+  select key_hash into old_hash from private.os_app_secret;
+  update private.os_app_secret
+     set key_hash = extensions.crypt('domain-guard-throwaway', extensions.gen_salt('bf'));
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'domain-guard-throwaway')::text, true);
+  perform set_config('request.jwt.claims', '{}', true);
+  execute 'set local role anon';
+
+  -- ===== case 1: GROWTH grant refused, owner path included ================
+  begin
+    insert into public.os_project_members (user_id, project_id, created_by)
+    values (uid_g, proj_growth, 'owner');
+    failures := failures || 'case 1: GROWTH grant via the owner path was allowed';
+  exception when others then
+    if sqlerrm not like '%only WORK projects are grantable%' then
+      failures := failures || format('case 1: rejected by the wrong layer: %s', sqlerrm);
+    end if;
+  end;
+  raise notice 'patch case 1: GROWTH grant refused by the layer-one trigger, owner included';
+
+  -- ===== case 2: unresolvable project id, distinct message =================
+  begin
+    insert into public.os_project_members (user_id, project_id, created_by)
+    values (uid_g, '00000000-0000-4000-8000-00000000beef', 'owner');
+    failures := failures || 'case 2: grant on a nonexistent project was allowed';
+  exception when others then
+    if sqlerrm not like '%does not resolve to a project%' then
+      failures := failures || format('case 2: wrong message: %s', sqlerrm);
+    end if;
+  end;
+  raise notice 'patch case 2: unresolvable project id refused with its own message';
+
+  -- A real task on the GROWTH project, via the owner path (the owner may) —
+  -- this is what case 5 must NOT show the member.
+  insert into public.os_tasks (project_id, title) values (proj_growth, 'domain-guard growth task');
+  execute 'reset role';
+
+  -- ===== plant the poisoned row: layer one out of the way ==================
+  alter table public.os_project_members disable trigger os_project_members_domain_guard;
+  insert into public.os_project_members (user_id, project_id, created_by)
+  values (uid_g, proj_growth, 'layer-two-test');
+  alter table public.os_project_members enable trigger os_project_members_domain_guard;
+
+  update private.os_app_secret set key_hash = old_hash;
+  perform set_config('request.headers', '{}', true);
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', uid_g, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+
+  -- ===== case 3: the function excludes the row — layer two, independent ====
+  if public.os_member_projects() <> '{}'::uuid[] then
+    failures := failures || format('case 3: os_member_projects() = %s with only a GROWTH row — layer two is not independent',
+      public.os_member_projects());
+  end if;
+  raise notice 'patch case 3: os_member_projects() empty despite the planted GROWTH row';
+
+  -- ===== case 4: the projects policy returns zero rows =====================
+  select count(*) into n from public.os_projects;
+  if n <> 0 then failures := failures || format('case 4: %s projects visible through a GROWTH grant', n); end if;
+  raise notice 'patch case 4: projects policy returns zero rows';
+
+  -- ===== case 5: the tasks policy returns zero rows ========================
+  select count(*) into n from public.os_tasks;
+  if n <> 0 then failures := failures || format('case 5: %s tasks visible through a GROWTH grant', n); end if;
+  raise notice 'patch case 5: tasks policy returns zero rows, growth task invisible';
+
+  -- ===== case 6: WORK grants unchanged; the poisoned row stays inert =======
+  execute 'reset role';
+  select key_hash into old_hash from private.os_app_secret;
+  update private.os_app_secret
+     set key_hash = extensions.crypt('domain-guard-throwaway', extensions.gen_salt('bf'));
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'domain-guard-throwaway')::text, true);
+  perform set_config('request.jwt.claims', '{}', true);
+  execute 'set local role anon';
+  insert into public.os_project_members (user_id, project_id, created_by)
+  values (uid_g, proj_work, 'owner');
+  execute 'reset role';
+  update private.os_app_secret set key_hash = old_hash;
+  perform set_config('request.headers', '{}', true);
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', uid_g, 'role', 'authenticated')::text, true);
+  execute 'set local role authenticated';
+  if public.os_member_projects() <> array[proj_work] then
+    failures := failures || format('case 6: os_member_projects() = %s, expected exactly the WORK grant',
+      public.os_member_projects());
+  end if;
+  select count(*) into n from public.os_projects;
+  if n <> 1 then failures := failures || format('case 6: %s projects visible, expected 1', n); end if;
+  insert into public.os_tasks (project_id, title) values (proj_work, 'domain-guard work task');
+  select count(*) into n from public.os_tasks;
+  if n <> 1 then failures := failures || format('case 6: %s tasks visible, expected exactly the own WORK task', n); end if;
+  execute 'reset role';
+
+  -- ===== verdict =====
+  if array_length(failures, 1) is not null then
+    raise exception E'DOMAIN-GUARD VERIFICATION FAILED — % problem(s):\n%',
+      array_length(failures, 1), array_to_string(failures, E'\n');
+  end if;
+  raise notice 'ALL 6 DOMAIN-GUARD CASES PASSED';
+end
+$$;
+
 rollback;
 
-select 'collab_rls: all 31 cases passed (16 original + 15 slice 1); transaction rolled back, no fixture survives' as result;
+select 'collab_rls: all 37 cases passed (16 original + 15 slice 1 + 6 domain guard); transaction rolled back, no fixture survives' as result;
