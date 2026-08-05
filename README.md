@@ -48,6 +48,9 @@ see REVIEW.md for the full boundary:
   read the project, and create/edit its tasks (status, due date, assignee —
   never delete; a task ends as *done* or *cancelled*). A project with no
   grants is the owner's private project, and the card says so (`privat`).
+  **Only WORK projects are grantable at all** — a GROWTH grant is refused in
+  the database, the owner's own session included; sharing a growth project
+  would take a migration, not a click.
 
 Neither grant implies the other, and zero grants reads zero rows. Their
 identities live **outside version control**, like the passphrase: no

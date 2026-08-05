@@ -121,3 +121,24 @@ select 'task chain: tip disagrees with live row',
 from ordered o
 join rendered r on r.task_id = o.task_id and r.field = o.field
 where o.next_from is null and o.to_value is distinct from r.live_value;
+
+-- ---------------------------------------------------------------------------
+-- CHECK 4: the project-membership domain boundary.
+-- ---------------------------------------------------------------------------
+-- Since migration 20260804000047 only WORK projects are grantable — a
+-- trigger refuses everything else, the owner path included, and
+-- os_member_projects() filters by domain so a wrong row would be inert
+-- anyway. This check watches for the case the trigger cannot see: a
+-- membership row whose project's domain was CHANGED after the grant (or a
+-- row written past the trigger).
+--
+-- A HIT MEANS: a grant points at a non-WORK project. It grants nothing
+-- (layers two and three filter it), but it should not exist. Delete the
+-- row; if the project's domain was flipped on purpose, decide whether its
+-- grants should have survived the flip — they deliberately do not.
+select 'project membership: grant on a non-WORK project' as finding,
+       m.user_id::text, m.project_id::text as project_id, m.created_at,
+       coalesce(p.domain, 'no such project') as domain
+from public.os_project_members m
+left join public.os_projects p on p.id = m.project_id
+where p.domain is distinct from 'work';
