@@ -170,7 +170,7 @@ policies untouched; the additions are all permissive, `to authenticated`,
 | os_finish_line_cells | member SELECT (own entities) + member UPDATE (own entities; trigger enforces the transition) |
 | os_finish_line_items / _entities / _account_map | member SELECT (any membership — structure needed to render a column) |
 | os_finish_line_deps / _item_projects | member SELECT via `exists` join to an own-entity cell; item-grain edges (`cell_id null`) stay invisible |
-| os_projects | member SELECT `domain='work' and engagement='samb'` — **read only**, no write policy of any kind |
+| os_projects | member SELECT — as first shipped, `domain='work' and engagement='samb'`; **replaced at slice 1** by the per-project grant, see the 2026-08-05 section below. Still read only, no write policy of any kind |
 | os_entity_members | owner CRUD (passphrase; SELECT deliberately does **not** accept the share read key) + member SELECT of own rows |
 | os_finish_line_cell_history | owner SELECT only |
 | **os_finish_line_accounts** | **nothing** — 560 rows of real chart of accounts stay owner-only; a member read returns a clean empty set and the UI renders an empty state |
@@ -198,17 +198,23 @@ A collaborator holds a real JWT and can call PostgREST directly; the UI is
 cosmetic. The complete reachable surface of that JWT is:
 
 - **Read**: Finish Line structure (items, entities, account map), cells /
-  deps / cell-grain edges for *their* entities only, WORK projects where
-  `engagement='samb'` (21 rows today, including milestone text, PICs and
-  documents links inside those rows), and their own membership rows.
+  deps / cell-grain edges for *their* entities only, projects the owner
+  granted them **one by one** (since slice 1 — including milestone text,
+  PICs and documents links inside those rows), tasks inside those granted
+  projects, and their own membership rows on both axes.
 - **Write**: `state` (`input → figure` only) and `note` on cells in their
-  entities. Every such write is stamped and appended to history by the
-  trigger; client-supplied actor values are overwritten.
+  entities; tasks in their granted projects — INSERT and UPDATE of content
+  fields only (`title, detail, status, due_date, assignee, sort_order`),
+  `project_id` immutable, a changed assignee must belong to the project, no
+  DELETE. Every such write is stamped and appended to history by a trigger;
+  client-supplied actor values are overwritten.
 - **Nothing else.** No GROWTH row by any path (no policy exists to
-  misconfigure), no accounts, no entries/logs/plans, no history reads, no
-  INSERT or DELETE anywhere, no share-link functions (they check the owner
-  key internally). A contributor with zero membership rows reads nothing at
-  all.
+  misconfigure), no accounts, no entries/logs/plans, no history reads on
+  either history table, no task or project DELETE, no project INSERT or
+  UPDATE, no share-link functions (they check the owner key internally). A
+  contributor with zero membership rows reads nothing at all — on both axes
+  independently: an entity grant opens zero projects, a project grant opens
+  zero cells.
 
 Accepted residuals: a contributor can see the *names* of all five entities
 and the full pack structure (not per-entity states outside their own); they
@@ -253,6 +259,57 @@ posture), and a failed audit write fails the action. `revoke` deletes
 membership rows and deliberately keeps the auth user: history rows keep
 their actor, and a membershipless JWT reads nothing from its next query on.
 
+### WORK collaboration slice 1 (2026-08-05): the second axis, tasks, and one policy replaced
+
+**The first deliberate removal of a live policy in this project.** Everything
+before slice 1 was additive; migration `20260804000045` dropped
+`member reads samb work projects` on `os_projects` and replaced it with
+`member reads granted projects`:
+`using (id = any ((select public.os_member_projects())::uuid[]))` — no
+`domain` condition, no `engagement` condition. Why replaced rather than
+extended: the old predicate was a broad allow (one entity grant exposed
+every SAMB WORK project), and membership fails closed where an engagement
+predicate cannot — zero grants reads zero projects, observed live before
+anything else shipped. `engagement` is demoted to a client attribute
+(grouping/reporting); an owner's private WORK project is simply a project
+with no members, and the owner UI marks the two states (`dibagikan · N` /
+`privat`) so private-by-omission is never accidental. The down-migration
+restores the engagement policy verbatim; the removal is the only one — the
+policy inventory diff shows every other table byte-identical, GROWTH
+included.
+
+**Project membership is a second tenancy axis, independent of the first.**
+`os_project_members` (user → project, owner-written only, never seeded) and
+`os_member_projects()` mirror the entity axis exactly, including the
+InitPlan calling convention (verified in the live plans: `os_key_valid`,
+`os_read_key_valid` and `os_member_projects` each evaluate once per query).
+Neither grant implies the other: the RLS suite proves an entity-only
+identity reads zero projects and a project-only identity reads zero cells.
+
+**Tasks are the first member-writable, member-creatable table** —
+`os_tasks`, with `os_task_history` born in the same migration, which is the
+note-history lesson applied before it costs anything: the value columns are
+NOT NULL, the trigger writes five birth rows (`from_value = ''`) on every
+INSERT, so every field of every task has an unbroken chain from `''` to the
+live value and *any* out-of-band write is caught by the chain check — there
+is no pre-migration null case at all. The `os_tasks_write_guard()` trigger
+is the boundary (owner branch unrestricted; member branch: membership on
+INSERT, `project_id` immutable even between two granted projects, jsonb-diff
+column allowlist, changed-assignee-must-be-member, attribution stamped,
+EXECUTE revoked from client roles at birth). Members have **no DELETE
+anywhere** — `done` or `cancelled` are the terminal states, so history keeps
+meaning — and no task-history access; the owner reads history with the full
+key only (the share read key was deliberately **not** widened to tasks:
+an already-issued credential does not silently grow scope).
+
+Verified live 2026-08-05, all inside `begin…rollback` against production:
+the original 16 RLS cases (case 5 rewritten to the new zero-grant truth) and
+15 slice-1 cases in `supabase/tests/collab_rls.sql` — including revocation
+on live claims with an entity-axis positive control, and the owner path
+exercised as the anon role with a transaction-local throwaway key; the
+task-chain checker validated arm by arm against deliberately tampered
+history; advisors clean of new findings.
+
 ### Standing integrity checks — run the file, not the prose
 
 The runnable set lives in **`supabase/tests/integrity_checks.sql`** (paste
@@ -267,6 +324,12 @@ carries its own what-a-hit-means comment). It currently holds:
 2. **The password grant surface.** Any `auth.users` row with a non-null
    `encrypted_password` — see the boundary below for why this is the control
    that matters.
+3. **The task history chain** (slice 1). Stronger than the note chain
+   because tasks were born audited: every content field of every live task
+   must chain unbroken from `''` to the live value — four arms (no history
+   at all, first row not from empty, mid-chain break, tip vs live row), each
+   proven to fire on a deliberately tampered chain before the check was
+   committed.
 
 Companion in the same set: `scripts/probe-password-grant.sh` (anon key only)
 reports whether the platform-level password grant is enabled. All checks

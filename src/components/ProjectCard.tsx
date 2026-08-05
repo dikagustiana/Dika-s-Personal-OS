@@ -41,6 +41,7 @@ import { DocumentLinks, DocumentUpload } from './project/DocumentSection';
 import { LinkedSection } from './project/LinkedSection';
 import { MetricTiles } from './project/MetricTiles';
 import { MilestoneSection } from './project/MilestoneSection';
+import { TaskSection, type TaskSectionData } from './project/TaskSection';
 import { WeekStripSection } from './project/WeekStripSection';
 import { useMutation } from '../hooks/useMutation';
 import { cn } from '../lib/utils';
@@ -115,6 +116,19 @@ export interface ProjectCardProps {
    * the cells this project makes trustworthy.
    */
   onOpenFinishLine?: (itemId: string, entityCode?: string, cellIds?: string[]) => void;
+  /**
+   * The task list + per-project timeline (slice 1). Supplied by views that
+   * load tasks and membership (WORK Projects); absent everywhere else, and
+   * the section simply does not render.
+   */
+  taskSection?: TaskSectionData;
+  /**
+   * How many collaborators hold a grant on this project. `undefined` hides
+   * the marker (GROWTH, or a view that did not load membership). A WORK
+   * project with zero members is the owner's PRIVATE project — visibly
+   * marked, so that state is never accidental.
+   */
+  memberCount?: number;
 }
 
 /**
@@ -141,6 +155,8 @@ export function ProjectCard({
   today,
   finishLineEdges,
   onOpenFinishLine,
+  taskSection,
+  memberCount,
 }: ProjectCardProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(() => projectToDraft(project));
@@ -270,6 +286,24 @@ export function ProjectCard({
                   {project.entityTag}
                 </span>
               )}
+              {/* The sharing state, stated — never inferred from engagement.
+                  Zero members = the owner's private project, on purpose. */}
+              {memberCount !== undefined &&
+                (memberCount > 0 ? (
+                  <span
+                    className="shrink-0 rounded-sm border border-primary/40 bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-primary"
+                    title="Kolaborator memegang akses proyek ini"
+                  >
+                    dibagikan · {memberCount}
+                  </span>
+                ) : (
+                  <span
+                    className="shrink-0 rounded-sm border border-border-subtle px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted"
+                    title="Tidak ada kolaborator yang bisa melihat proyek ini"
+                  >
+                    privat
+                  </span>
+                ))}
             </div>
             <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.16em] text-foreground-muted">
               {project.recurring === 'monthly' ? 'monthly close' : project.type}
@@ -379,6 +413,15 @@ export function ProjectCard({
           linkedMilestoneIds={packMilestoneIds}
           packCellCounts={packCellsByMilestone}
         />
+
+        {taskSection && (
+          <TaskSection
+            projectId={project.id}
+            projectTitle={project.title}
+            data={taskSection}
+            today={now}
+          />
+        )}
 
         {!compact && (
           <>

@@ -1,4 +1,4 @@
-import { Copy, RefreshCw, UserPlus, UserX } from 'lucide-react';
+import { Copy, RefreshCw, UserPlus, UserX, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
@@ -8,7 +8,8 @@ import {
   provisionCollaborator,
   type ProvisionedUser,
 } from '../../data/supabaseRepository';
-import type { FinishLineEntity } from '../../data/types';
+import type { FinishLineEntity, Project, ProjectMember } from '../../data/types';
+import { useAppStore } from '../../store/appStore';
 import { cn } from '../../lib/utils';
 
 /**
@@ -25,11 +26,22 @@ import { cn } from '../../lib/utils';
  * This panel is rendered only inside the owner session, but that is
  * cosmetic — the function's own check is the boundary.
  *
- * Revoke removes MEMBERSHIP, not the auth user: history rows keep their
- * actor, and a membershipless session reads nothing from its next query on.
+ * TWO INDEPENDENT GRANT SETS PER PERSON, labelled apart on purpose (slice 1):
+ * ENTITAS opens Finish line columns, PROYEK opens a project's tasks. Neither
+ * implies the other — the axes are separate tables behind separate policies.
+ * Entity grants ride the Edge Function (they are minted with the account);
+ * project grants are plain owner writes on os_project_members through the
+ * repository, because the user already exists.
+ *
+ * Revoke removes MEMBERSHIP ON BOTH AXES, not the auth user: history rows
+ * keep their actor, and a membershipless session reads nothing from its next
+ * query on.
  */
 export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] }) {
+  const repository = useAppStore((state) => state.repository);
   const [users, setUsers] = useState<ProvisionedUser[] | null>(null);
+  const [workProjects, setWorkProjects] = useState<Project[]>([]);
+  const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -66,11 +78,58 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     if (!result) return;
     if (result.error) setNotice(result.error);
     else setUsers(result.users ?? []);
-  }, [call]);
+    // The project axis, straight from the repository (owner path). Failure
+    // leaves the chips empty rather than taking the whole panel down.
+    try {
+      const [memberRows, projects] = await Promise.all([
+        repository.listProjectMembers(),
+        repository.listProjects('work'),
+      ]);
+      setProjectMembers(memberRows.ok ? memberRows.rows : []);
+      setWorkProjects(projects.filter((project) => project.recurring !== 'monthly'));
+    } catch {
+      setProjectMembers([]);
+    }
+  }, [call, repository]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const grantsFor = useCallback(
+    (userId: string) => projectMembers.filter((member) => member.userId === userId),
+    [projectMembers],
+  );
+
+  const grantProject = async (userId: string, projectId: string) => {
+    if (!projectId) return;
+    setBusy(true);
+    try {
+      await repository.grantProjectMembership(userId, projectId);
+      const rows = await repository.listProjectMembers();
+      setProjectMembers(rows.ok ? rows.rows : []);
+    } catch {
+      setNotice('Gagal memberi akses proyek.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeProject = async (userId: string, projectId: string) => {
+    setBusy(true);
+    try {
+      await repository.revokeProjectMembership(userId, projectId);
+      setProjectMembers((current) =>
+        current.filter(
+          (member) => !(member.userId === userId && member.projectId === projectId),
+        ),
+      );
+    } catch {
+      setNotice('Gagal mencabut akses proyek.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const create = async () => {
     const trimmed = email.trim();
@@ -108,13 +167,28 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     setCopied(false);
   };
 
-  const revoke = async (target: string) => {
-    if (!window.confirm(`Cabut semua akses ${target}? Riwayat selnya tetap tersimpan.`)) return;
+  const revoke = async (target: string, userId: string) => {
+    if (
+      !window.confirm(
+        `Cabut semua akses ${target} — entitas dan proyek? Riwayat sel dan tugasnya tetap tersimpan.`,
+      )
+    )
+      return;
     const result = await call((appKey) =>
       provisionCollaborator(appKey, { action: 'revoke', email: target }),
     );
     if (!result) return;
     if (result.error) setNotice(result.error);
+    // The Edge Function clears the ENTITY axis; the project axis is cleared
+    // here, grant by grant, through the same owner-key policies. Leaving it
+    // would leave a "revoked" account still reading its granted projects.
+    for (const member of grantsFor(userId)) {
+      try {
+        await repository.revokeProjectMembership(userId, member.projectId);
+      } catch {
+        setNotice('Sebagian akses proyek gagal dicabut — coba lagi.');
+      }
+    }
     if (link?.email === target) setLink(null);
     await refresh();
   };
@@ -220,48 +294,118 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
             <p className="text-[11px] text-foreground-muted">Belum ada kolaborator.</p>
           ) : (
             <ul className="divide-y divide-border-subtle">
-              {users.map((user) => (
-                <li
-                  key={user.userId}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
-                >
-                  <span className="min-w-0 flex-1 break-words text-[11px] font-medium text-foreground">
-                    {user.email}
-                    <span className="ml-2 text-foreground-muted">
-                      {user.entityCodes.length > 0 ? user.entityCodes.join(', ') : 'tanpa akses'}
-                    </span>
-                  </span>
-                  <span className="text-[10px] tabular-nums text-foreground-muted">
-                    {user.lastSignInAt
-                      ? `masuk ${user.lastSignInAt.slice(0, 16).replace('T', ' ')}`
-                      : 'belum pernah masuk'}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void makeLink(user.email)}
-                    disabled={busy || user.entityCodes.length === 0}
-                    title={
-                      user.entityCodes.length === 0
-                        ? 'Tanpa akses — beri entitas dulu lewat Tambah kolaborator'
-                        : 'Hasilkan tautan masuk baru'
-                    }
-                  >
-                    <RefreshCw className="size-3.5" />
-                    Tautan baru
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => void revoke(user.email)}
-                    disabled={busy || user.entityCodes.length === 0}
-                    title="Hapus semua keanggotaan entitas; akun dan riwayatnya tetap"
-                  >
-                    <UserX className="size-3.5" />
-                    Cabut
-                  </Button>
-                </li>
-              ))}
+              {users.map((user) => {
+                const grants = grantsFor(user.userId);
+                const grantedIds = new Set(grants.map((member) => member.projectId));
+                const grantable = workProjects.filter(
+                  (project) => !grantedIds.has(project.id),
+                );
+                const titleFor = (projectId: string) =>
+                  workProjects.find((project) => project.id === projectId)?.title ??
+                  `proyek ${projectId.slice(0, 8)}`;
+                const hasAccess = user.entityCodes.length > 0 || grants.length > 0;
+                return (
+                  <li key={user.userId} className="py-2">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="min-w-0 flex-1 break-words text-[11px] font-medium text-foreground">
+                        {user.email}
+                      </span>
+                      <span className="text-[10px] tabular-nums text-foreground-muted">
+                        {user.lastSignInAt
+                          ? `masuk ${user.lastSignInAt.slice(0, 16).replace('T', ' ')}`
+                          : 'belum pernah masuk'}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void makeLink(user.email)}
+                        disabled={busy || !hasAccess}
+                        title={
+                          hasAccess
+                            ? 'Hasilkan tautan masuk baru'
+                            : 'Tanpa akses — beri entitas atau proyek dulu'
+                        }
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Tautan baru
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void revoke(user.email, user.userId)}
+                        disabled={busy || !hasAccess}
+                        title="Hapus keanggotaan entitas DAN proyek; akun dan riwayatnya tetap"
+                      >
+                        <UserX className="size-3.5" />
+                        Cabut
+                      </Button>
+                    </div>
+                    {/* Two grant sets, labelled apart: entity access is the
+                        Finish line column, project access is tasks. One chip
+                        row each, so they can never be read as one thing. */}
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <span className="font-semibold uppercase tracking-[0.08em] text-foreground-muted">
+                        Entitas
+                      </span>
+                      {user.entityCodes.length > 0 ? (
+                        user.entityCodes.map((code) => (
+                          <span
+                            key={code}
+                            className="rounded-sm border border-border px-1.5 py-0.5 font-semibold uppercase tracking-[0.08em] text-foreground-secondary"
+                          >
+                            {code}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-foreground-muted">tidak ada</span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <span className="font-semibold uppercase tracking-[0.08em] text-foreground-muted">
+                        Proyek
+                      </span>
+                      {grants.length === 0 && (
+                        <span className="text-foreground-muted">tidak ada</span>
+                      )}
+                      {grants.map((member) => (
+                        <span
+                          key={member.projectId}
+                          className="inline-flex items-center gap-1 rounded-sm border border-primary/40 bg-primary/5 px-1.5 py-0.5 text-foreground-secondary"
+                        >
+                          {titleFor(member.projectId)}
+                          <button
+                            type="button"
+                            onClick={() => void revokeProject(user.userId, member.projectId)}
+                            disabled={busy}
+                            aria-label={`Cabut akses ${user.email} ke ${titleFor(member.projectId)}`}
+                            className="text-foreground-muted transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </span>
+                      ))}
+                      {grantable.length > 0 && (
+                        <select
+                          className="native-select !h-7 !w-auto text-[10px]"
+                          value=""
+                          disabled={busy}
+                          onChange={(event) =>
+                            void grantProject(user.userId, event.target.value)
+                          }
+                          aria-label={`Beri ${user.email} akses proyek`}
+                        >
+                          <option value="">+ beri akses proyek</option>
+                          {grantable.map((project) => (
+                            <option key={project.id} value={project.id}>
+                              {project.title}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
