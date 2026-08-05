@@ -824,6 +824,106 @@ begin
 end
 $$;
 
+-- ===========================================================================
+-- PROVISIONING-PATH CASES — the Edge Function's SQL, replayed as its role.
+-- ===========================================================================
+-- provision-collaborator runs as service_role. These cases replay the exact
+-- statements its grant-projects / revoke actions run, AS service_role, so
+-- the audited path is proven at the SQL surface without the owner
+-- passphrase (which this committed file must never carry). The HTTP half —
+-- a wrong or absent owner key answering 401 with zero writes — is probed
+-- live against the deployed function (verified 2026-08-05: {"error":
+-- "Unauthorized"}, member_rows 0, log rows 0).
+--
+--   P1 granting several projects at once writes several os_project_members
+--      rows and ONE provision-log entry carrying every project id
+--   P2 a GROWTH grant as service_role is refused by the domain trigger —
+--      RLS is bypassed for this role; triggers are not
+--   P3 revoke clears BOTH axes and writes one log row carrying both arrays
+do $$
+declare
+  uid_p constant uuid := 'a11ce000-5afe-4000-8000-c0113b000007';
+  failures text[] := '{}';
+  n bigint;
+  proj_a uuid; proj_b uuid; proj_g uuid;
+begin
+  insert into auth.users (id, instance_id, aud, role, email)
+  values (uid_p, '00000000-0000-0000-0000-000000000000',
+          'authenticated', 'authenticated', 'rls-selftest-provisioning@example.invalid');
+  insert into public.os_entity_members (user_id, entity_code) values (uid_p, 'ASI');
+  select id into proj_a from public.os_projects where domain = 'work'   order by id limit 1;
+  select id into proj_b from public.os_projects where domain = 'work'   order by id offset 1 limit 1;
+  select id into proj_g from public.os_projects where domain = 'growth' order by id limit 1;
+  if proj_a is null or proj_b is null or proj_g is null then
+    raise exception 'provisioning fixture: needed two WORK projects and a GROWTH project';
+  end if;
+  create temporary table _prov on commit drop as select proj_a as a, proj_b as b, proj_g as g;
+  grant select on _prov to service_role;
+
+  -- ===== P1: multi-grant, one audited action ===============================
+  execute 'set local role service_role';
+  insert into public.os_project_members (user_id, project_id, role, created_by)
+  select uid_p, p.id, 'contributor', 'owner'
+  from (select a as id from _prov union all select b from _prov) p
+  on conflict (user_id, project_id) do nothing;
+  perform public.os_provision_record(
+    p_action := 'grant-projects',
+    p_email := 'rls-selftest-provisioning@example.invalid',
+    p_project_ids := (select array[a, b] from _prov));
+  execute 'reset role';
+  select count(*) into n from public.os_project_members where user_id = uid_p;
+  if n <> 2 then failures := failures || format('P1: %s membership rows, expected 2', n); end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'grant-projects' and email = 'rls-selftest-provisioning@example.invalid';
+  if n <> 1 then failures := failures || format('P1: %s log rows, expected exactly 1', n); end if;
+  select array_length(project_ids, 1) into n from private.os_provision_log
+   where action = 'grant-projects' and email = 'rls-selftest-provisioning@example.invalid';
+  if n <> 2 then failures := failures || format('P1: log row carries %s project ids, expected 2', n); end if;
+  raise notice 'P1: multi-grant wrote 2 rows and one audited action carrying both ids';
+
+  -- ===== P2: the trigger holds against the function''s own role =============
+  execute 'set local role service_role';
+  begin
+    insert into public.os_project_members (user_id, project_id, role, created_by)
+    select uid_p, g, 'contributor', 'owner' from _prov;
+    failures := failures || 'P2: GROWTH grant as service_role was allowed';
+  exception when others then
+    if sqlerrm not like '%only WORK projects are grantable%' then
+      failures := failures || format('P2: refused by the wrong layer: %s', sqlerrm);
+    end if;
+  end;
+  execute 'reset role';
+  raise notice 'P2: GROWTH grant refused for service_role — triggers are not RLS';
+
+  -- ===== P3: revoke clears both axes, one audited action ===================
+  execute 'set local role service_role';
+  delete from public.os_entity_members where user_id = uid_p;
+  delete from public.os_project_members where user_id = uid_p;
+  perform public.os_provision_record(
+    p_action := 'revoke',
+    p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'],
+    p_project_ids := (select array[a, b] from _prov));
+  execute 'reset role';
+  select count(*) into n from public.os_entity_members where user_id = uid_p;
+  if n <> 0 then failures := failures || format('P3: %s entity rows survive revoke', n); end if;
+  select count(*) into n from public.os_project_members where user_id = uid_p;
+  if n <> 0 then failures := failures || format('P3: %s project rows survive revoke', n); end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'revoke' and email = 'rls-selftest-provisioning@example.invalid'
+     and entity_codes = array['ASI'] and array_length(project_ids, 1) = 2;
+  if n <> 1 then failures := failures || 'P3: revoke log row missing or missing an axis'; end if;
+  raise notice 'P3: revoke cleared both axes and logged both arrays in one action';
+
+  -- ===== verdict =====
+  if array_length(failures, 1) is not null then
+    raise exception E'PROVISIONING-PATH VERIFICATION FAILED — % problem(s):\n%',
+      array_length(failures, 1), array_to_string(failures, E'\n');
+  end if;
+  raise notice 'ALL 3 PROVISIONING-PATH CASES PASSED';
+end
+$$;
+
 rollback;
 
-select 'collab_rls: all 37 cases passed (16 original + 15 slice 1 + 6 domain guard); transaction rolled back, no fixture survives' as result;
+select 'collab_rls: all 40 cases passed (16 original + 15 slice 1 + 6 domain guard + 3 provisioning path); transaction rolled back, no fixture survives' as result;
