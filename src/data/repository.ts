@@ -202,10 +202,17 @@ export interface Repository {
   updateProjectTask(id: string, patch: ProjectTaskWrite): Promise<ProjectTask>;
 
   /**
-   * The project-membership grants — the OWNER's surface. A collaborator's
-   * repository can call listProjectMembers and receives exactly their own
-   * rows (RLS); grant and revoke require the app key and fail for a JWT, the
-   * same shape as every other owner-only write.
+   * The project-membership grants. A collaborator's repository can call
+   * listProjectMembers and receives exactly their own rows (RLS); grant and
+   * revoke require the app key and fail for a JWT, the same shape as every
+   * other owner-only write.
+   *
+   * THE PANEL DOES NOT USE grant/revoke: since the zero-grant incident,
+   * panel grants travel through the provision-collaborator Edge Function
+   * (audited to private.os_provision_log, loud on a dead session). These
+   * methods remain because the capability exists in SQL for the owner key
+   * and the mock's trigger-mirror tests exercise it — they model the
+   * boundary, not the panel's transport.
    */
   listProjectMembers(): Promise<ReadResult<ProjectMember>>;
   grantProjectMembership(userId: string, projectId: string): Promise<void>;

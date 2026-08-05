@@ -260,6 +260,27 @@ posture), and a failed audit write fails the action. `revoke` deletes
 membership rows and deliberately keeps the auth user: history rows keep
 their actor, and a membershipless JWT reads nothing from its next query on.
 
+**Revised 2026-08-05 (the zero-grant incident).** The magic-link entry is
+now PROVEN end to end — a generated link was consumed live and the account
+carries a real `last_sign_in_at` — but the slice-1 project grants never
+landed once: the panel wrote them straight to `os_project_members` through
+the repository while mounting the picker behind Edge-Function state, and
+the stored key's 12-hour sessionStorage TTL expired minutes after the owner
+created the first two collaborators. Every later panel visit failed its
+gated `list`, bailed before loading the picker's data, and showed a lock
+notice with nothing actionable — the grant attempts never sent one request
+(API logs: zero writes against `os_project_members`). The fix moves the
+project axis into the function: actions `grant-projects` (several ids, one
+audited log row) and `revoke-project` join the enum, project ids are
+validated against `os_projects` with the WORK-only rule pre-checked for a
+clean 400 — while the domain-guard trigger stays the boundary and fires for
+the service role too, verified live — `revoke` clears BOTH axes
+server-side in one audited action, and a dead panel session now renders an
+explicit re-unlock banner and refuses every write loudly. The log gained a
+`project_ids` column (`20260804000048`). The repository's grant/revoke
+methods remain as the SQL capability model and the mock's test surface; the
+panel no longer uses them.
+
 ### WORK collaboration slice 1 (2026-08-05): the second axis, tasks, and one policy replaced
 
 **The first deliberate removal of a live policy in this project.** Everything
@@ -373,9 +394,11 @@ carries its own what-a-hit-means comment). It currently holds:
    pre-migration rows). `to_note` of row N must equal `from_note` of row N+1
    and the final `to_note` must equal the live cell note — a break means a
    write bypassed the trigger.
-2. **The password grant surface.** Any `auth.users` row with a non-null
-   `encrypted_password` — see the boundary below for why this is the control
-   that matters.
+2. **The password grant surface.** Any `auth.users` row whose
+   `encrypted_password` is a real hash (`''` is the explicit no-password
+   convention since `20260804000049`) — see the boundary below for why this
+   is the control that matters. Fired for real on 2026-08-05 and caught the
+   GoTrue birth-password behaviour; proven to fire on a post-birth hash.
 3. **The task history chain** (slice 1). Stronger than the note chain
    because tasks were born audited: every content field of every live task
    must chain unbroken from `''` to the live value — four arms (no history
@@ -404,11 +427,20 @@ What is true, not what is meant:
   its state (verbatim on 2026-08-05:
   `{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}`
   — enabled).
-- **No user currently has a password** (`encrypted_password` null across
-  `auth.users`; the verification identity's throwaway credential was nulled
-  on 2026-08-04). Detection is check 2 in
-  `supabase/tests/integrity_checks.sql`, and the grant is **inert while that
-  check returns zero rows**.
+- **No user currently has a usable password**, and since migration
+  `20260804000049` none can be BORN with one. Check 2 fired for real on
+  2026-08-05: both collaborators created that day held non-null hashes from
+  the moment of creation — GoTrue's admin `createUser` **generates a random
+  password when none is supplied**, a platform behaviour the code-level
+  audit of provision-collaborator could not see (the hand-inserted test
+  user, which skipped GoTrue, stayed null; the auth log shows only
+  `user_signedup`, no password change — birth, not a set). Response: every
+  `encrypted_password` normalized to `''` (never NULL — GoTrue's Go scanner
+  has 500'd on NULL string columns in this project) and a BEFORE INSERT
+  trigger on `auth.users` forces `''` at birth for every future insert,
+  GoTrue included. A usable password now requires a deliberate post-birth
+  UPDATE — exactly the two routes below — and check 2 flags any real hash.
+  The grant is **inert while that check returns zero rows**.
 - **A collaborator with a live session can set themselves a password**
   (`updateUser({ password })` against GoTrue directly — the app offers no
   UI for it). That yields a credential that does not expire, but it grants

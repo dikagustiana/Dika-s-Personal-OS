@@ -35,12 +35,12 @@ surface that never passes through owner provisioning.
 
 ## B. Run the positive provisioning path — on the production domain
 
-The one path in the whole feature that has never executed end to end:
-`generateLink`'s output has never been consumed, and the gate's
-`#collab_token` → `verifyOtp` handler has never succeeded once. Running it on
-`https://personal-os.dikagustiana.com` (or `dika-personal-os.vercel.app`)
-also closes the localhost caveat from the verification report — production
-carries its own baked env vars, which a local run did not exercise.
+> **Status 2026-08-05: the core of this is PROVEN.** A generated link was
+> consumed on the production domain and the account carries a real
+> `last_sign_in_at` — `generateLink` → `#collab_token` → `verifyOtp` works
+> end to end. Still unwalked from the steps below: the second-use failure of
+> a consumed link (step 3's tail), the `Tautan baru` (`link`) action, and
+> the revoke-then-reload check (step 5) — those are folded into section E.
 
 1. Owner session (passphrase) → Finish line → **Kolaborator** panel.
 2. `Tambah kolaborator` → a fresh address you control → tick **one** entity →
@@ -76,14 +76,18 @@ check in REVIEW.md returns zero rows.
 
 ## D. Walk the front door — slice 1 + the domain patch (OUTSTANDING, deferred twice)
 
+> **Status 2026-08-05:** the magic-link half of this is proven (see B) and
+> the grant path was REBUILT after the zero-grant incident — grants are now
+> audited Edge-Function actions with a re-unlock banner on a dead session.
+> What remains unwalked is the list below minus the link consumption; the
+> two decisive steps are restated compactly in section E.
+
 Every verification across two slices used synthetic SQL identities and a
 production bundle served from localhost. The following has **never executed
 once**, and the surface riding on it has grown each slice: the panel's
-project grants, `generateLink` output actually being consumed, the gate's
-`#collab_token` → `verifyOtp` handler succeeding, the contributor project
-card, the task list, the empty state, the assignee picker, and revoke
-clearing **both** axes (behaviour that changed in slice 1 and has only been
-tested in SQL).
+project grants, the contributor project card, the task list, the empty
+state, the assignee picker, and revoke clearing **both** axes (now
+server-side in one action, tested in SQL only).
 
 Run on **`https://personal-os.dikagustiana.com`** (or
 `dika-personal-os.vercel.app`) — the production domain, not localhost:
@@ -116,3 +120,39 @@ inviting anyone real. Bonus check while in the panel: the project picker
 offers WORK projects only — and if a GROWTH id is ever forced past the UI,
 the database refuses it (that part IS proven, in
 `supabase/tests/collab_rls.sql`).
+
+## E. The two steps that need the owner (2026-08-05) — everything else is done
+
+After the zero-grant fix, both of these are one short action plus one look.
+Fresh unlock first — the panel now tells you outright when its 12-hour
+session has expired, with a **Buka kunci ulang** button; nothing silently
+no-ops anymore.
+
+### E1. Grant a project and watch it land
+
+The entity axis and the magic link are proven; the project axis has **never
+once worked end to end** — every prior attempt died before sending anything.
+
+1. Owner session → Finish line → Kolaborator → on a collaborator's row press
+   `+ beri akses proyek`, tick one or more projects (SAMB group on top;
+   INTERNAL sits apart with a red label on purpose), press
+   `Berikan akses (N)`.
+2. **Expected:** the chips appear on the row immediately; in SQL,
+   `select * from os_project_members` shows one row per ticked project and
+   `select * from private.os_provision_log order by created_at desc limit 1`
+   shows ONE `grant-projects` row carrying every ticked id; the granted
+   project's card on the Projects page flips `privat` → `dibagikan · 1`.
+3. In the collaborator's session (or after their next sign-in): Projects
+   lists exactly the granted projects, with the task list open.
+
+### E2. tteddy.suryadi@gmail.com has never signed in
+
+A link was generated at creation but either not sent or already expired —
+links are single-use and short-lived (~1 hour).
+
+1. On that row press `Tautan baru`, copy the fresh link, and send it over
+   WhatsApp yourself.
+2. **Expected:** the panel shows the link with the expiry note and the log
+   gains a `link` row (an action that has never run). After they open it:
+   their row shows a `masuk …` timestamp, and they land on the ARBI column
+   of the matrix — plus whatever projects E1 granted them.
