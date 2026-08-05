@@ -7,7 +7,7 @@ import {
   type CellWriteOrigin,
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
-import type { Repository } from './repository';
+import type { ProjectTaskWrite, Repository } from './repository';
 import { okRows, type ReadResult } from './readResult';
 import {
   seedDailyLogs,
@@ -36,9 +36,12 @@ import type {
   IeltsResult,
   IeltsSession,
   Project,
+  ProjectMember,
+  ProjectTask,
   ShareLink,
   ShareScope,
   ShareView,
+  TaskStatus,
   WeeklyPlan,
 } from './types';
 
@@ -68,6 +71,12 @@ function planKey(week: string, domain: Domain): string {
  * stamping, history rows. INVARIANT 6: the mock is what the tests reason
  * about, so a guard added to the Supabase path lands here too or the suite
  * asserts against fiction.
+ *
+ * The viewer carries entityCodes because that axis predates slice 1; the
+ * PROJECT axis is deliberately NOT a viewer field. Project grants are DATA —
+ * rows in the membership store, written by grant/revokeProjectMembership —
+ * exactly as live, so a revocation test exercises the same path production
+ * revocation does.
  */
 export type MockViewer =
   | { kind: 'owner' }
@@ -87,6 +96,23 @@ export interface MockCellHistoryEntry {
    */
   fromNote: string;
   toNote: string;
+  actorKind: CellActorKind;
+  actor?: string;
+  changedAt: string;
+}
+
+/**
+ * One row shaped like os_task_history: per-field content, both sides,
+ * REQUIRED strings. Tasks are born WITH history (the trigger writes five
+ * birth rows from '' on INSERT), so unlike the cell columns there is no
+ * pre-migration null case at all — the same invariant the SQL enforces with
+ * NOT NULL.
+ */
+export interface MockTaskHistoryEntry {
+  taskId: string;
+  field: 'title' | 'detail' | 'status' | 'due_date' | 'assignee';
+  fromValue: string;
+  toValue: string;
   actorKind: CellActorKind;
   actor?: string;
   changedAt: string;
@@ -116,12 +142,30 @@ export class MockRepository implements Repository {
     return !this.isContributor() || this.memberEntities().includes(cell.entityCode);
   }
 
-  /** Mirrors the member SELECT policy on projects: WORK ∧ SAMB only. */
+  /**
+   * THE SECOND AXIS AS DATA, exactly like production: grants live in a
+   * membership table written by the owner (grant/revokeProjectMembership),
+   * and the viewer is only the credential. Entity membership deliberately
+   * plays no part here — since 20260804000045 project read is per-project
+   * grant, nothing else.
+   */
+  private readonly projectMembers: ProjectMember[] = [];
+
+  private memberProjects(): string[] {
+    if (this.viewer.kind !== 'contributor') return [];
+    const uid = this.viewer.userId;
+    return this.projectMembers
+      .filter((member) => member.userId === uid)
+      .map((member) => member.projectId);
+  }
+
+  /**
+   * Mirrors `member reads granted projects`: the granted set and nothing
+   * else — no domain condition, no engagement condition, zero grants reads
+   * zero projects. `engagement` is a client attribute now, not visibility.
+   */
   private projectVisible(project: Project): boolean {
-    return (
-      !this.isContributor() ||
-      (project.domain === 'work' && project.engagement === 'samb')
-    );
+    return !this.isContributor() || this.memberProjects().includes(project.id);
   }
 
   /**
@@ -143,6 +187,15 @@ export class MockRepository implements Repository {
 
   readCellHistory(): MockCellHistoryEntry[] {
     return clone(this.finishLineCellHistory);
+  }
+
+  // Same arrangement for tasks: written only by the task trigger-mirror,
+  // read-only for tests. Rows survive task deletion — history outlives the
+  // row, as live (no FK on os_task_history.task_id).
+  private readonly taskHistory: MockTaskHistoryEntry[] = [];
+
+  readTaskHistory(): MockTaskHistoryEntry[] {
+    return clone(this.taskHistory);
   }
 
   private readonly entries = new Map(seedEntries.map((entry) => [entry.id, clone(entry)]));
@@ -730,6 +783,214 @@ export class MockRepository implements Repository {
     }
   }
 
+  // --- tasks + the project-membership axis (slice 1) ------------------------
+
+  /**
+   * STARTS EMPTY, exactly like the live table: os_tasks was born with zero
+   * rows, so the mock's empty task list is parity, not a placeholder.
+   */
+  private readonly tasks = new Map<string, ProjectTask>();
+
+  /** Renders a field the way the SQL trigger stores history: '' for empty. */
+  private static taskFieldValue(task: ProjectTask, field: MockTaskHistoryEntry['field']): string {
+    switch (field) {
+      case 'title':
+        return task.title;
+      case 'detail':
+        return task.detail;
+      case 'status':
+        return task.status;
+      case 'due_date':
+        return task.dueDate ?? '';
+      case 'assignee':
+        return task.assignee ?? '';
+    }
+  }
+
+  private static readonly TASK_HISTORY_FIELDS: MockTaskHistoryEntry['field'][] = [
+    'title',
+    'detail',
+    'status',
+    'due_date',
+    'assignee',
+  ];
+
+  /**
+   * THE TASK TRIGGER-MIRROR — the os_tasks write guard, replayed. The owner
+   * passes unrestricted and is stamped 'owner'; a contributor must hold the
+   * task's project, may not move it (the Repository interface cannot even
+   * express a move, but direct callers of this mirror are held to it too),
+   * and a CHANGED assignee must belong to the project. History: five birth
+   * rows from '' on create, one row per changed content field on update —
+   * sort_order deliberately writes none, reordering is presentation.
+   */
+  private applyTaskWrite(current: ProjectTask | undefined, next: ProjectTask): ProjectTask {
+    if (this.viewer.kind === 'contributor') {
+      const granted = this.memberProjects();
+      const anchor = current ? current.projectId : next.projectId;
+      if (!granted.includes(anchor)) {
+        // The SQL trigger's message, so a test asserting on it holds both ways.
+        throw new Error(`tasks: ${anchor} is not one of your projects`);
+      }
+      if (current && next.projectId !== current.projectId) {
+        throw new Error('tasks: a member may not move a task between projects');
+      }
+      if (
+        next.assignee !== undefined &&
+        (current === undefined || next.assignee !== current.assignee) &&
+        !this.projectMembers.some(
+          (member) => member.userId === next.assignee && member.projectId === next.projectId,
+        )
+      ) {
+        throw new Error("tasks: assignee must be a member of the task's project");
+      }
+      next.actorKind = 'contributor';
+      next.actor = this.viewer.userId;
+      if (!current) {
+        next.createdByKind = 'contributor';
+        next.createdBy = this.viewer.userId;
+      }
+    } else {
+      next.actorKind = 'owner';
+      delete next.actor;
+      if (!current) {
+        next.createdByKind = 'owner';
+        delete next.createdBy;
+      }
+    }
+    next.changedAt = new Date().toISOString();
+
+    for (const field of MockRepository.TASK_HISTORY_FIELDS) {
+      const fromValue = current ? MockRepository.taskFieldValue(current, field) : '';
+      const toValue = MockRepository.taskFieldValue(next, field);
+      // Birth rows are written even when ''→'' — every field's chain starts
+      // at birth, which is what lets the standing check catch any
+      // out-of-band write. Updates write only actual changes.
+      if (current && fromValue === toValue) continue;
+      const entry: MockTaskHistoryEntry = {
+        taskId: next.id,
+        field,
+        fromValue,
+        toValue,
+        actorKind: next.actorKind,
+        changedAt: next.changedAt,
+      };
+      if (next.actor) entry.actor = next.actor;
+      this.taskHistory.push(entry);
+    }
+
+    this.tasks.set(next.id, clone(next));
+    return clone(next);
+  }
+
+  async listProjectTasks(projectId?: string): Promise<ReadResult<ProjectTask>> {
+    return okRows(
+      clone(
+        [...this.tasks.values()]
+          .filter((task) => {
+            const project = this.projects.get(task.projectId);
+            return project !== undefined && this.projectVisible(project);
+          })
+          .filter((task) => !projectId || task.projectId === projectId)
+          .sort(
+            (a, b) => a.sortOrder - b.sortOrder || a.createdAt.localeCompare(b.createdAt),
+          ),
+      ),
+    );
+  }
+
+  async createProjectTask(input: {
+    projectId: string;
+    title: string;
+    detail?: string;
+    status?: TaskStatus;
+    dueDate?: string;
+    assignee?: string;
+    sortOrder?: number;
+  }): Promise<ProjectTask> {
+    if (!this.projects.has(input.projectId)) {
+      throw new Error(`createProjectTask failed: no such project`);
+    }
+    const task: ProjectTask = {
+      id: createId(),
+      projectId: input.projectId,
+      title: input.title,
+      detail: input.detail ?? '',
+      status: input.status ?? 'open',
+      sortOrder: input.sortOrder ?? 0,
+      createdAt: new Date().toISOString(),
+      // Overwritten by the trigger-mirror, exactly as supplied values are live.
+      createdByKind: 'owner',
+      actorKind: 'owner',
+    };
+    if (input.dueDate) task.dueDate = input.dueDate;
+    if (input.assignee) task.assignee = input.assignee;
+    return this.applyTaskWrite(undefined, task);
+  }
+
+  async updateProjectTask(id: string, patch: ProjectTaskWrite): Promise<ProjectTask> {
+    const current = this.tasks.get(id);
+    const project = current ? this.projects.get(current.projectId) : undefined;
+    // A task in a non-granted project is INVISIBLE, so the id does not
+    // resolve — the same "Task not found" production RLS produces.
+    if (!current || !project || !this.projectVisible(project)) {
+      throw new Error(`Task not found: ${id}`);
+    }
+    const next: ProjectTask = { ...current };
+    if (patch.title !== undefined) next.title = patch.title;
+    if (patch.detail !== undefined) next.detail = patch.detail;
+    if (patch.status !== undefined) next.status = patch.status;
+    if ('dueDate' in patch) {
+      if (patch.dueDate) next.dueDate = patch.dueDate;
+      else delete next.dueDate;
+    }
+    if ('assignee' in patch) {
+      if (patch.assignee) next.assignee = patch.assignee;
+      else delete next.assignee;
+    }
+    if (patch.sortOrder !== undefined) next.sortOrder = patch.sortOrder;
+    return this.applyTaskWrite(current, next);
+  }
+
+  async listProjectMembers(): Promise<ReadResult<ProjectMember>> {
+    // Owner reads every grant; a member reads exactly their own rows.
+    if (this.viewer.kind === 'contributor') {
+      const uid = this.viewer.userId;
+      return okRows(clone(this.projectMembers.filter((member) => member.userId === uid)));
+    }
+    return okRows(clone(this.projectMembers));
+  }
+
+  async grantProjectMembership(userId: string, projectId: string): Promise<void> {
+    this.assertOwnerWrite('grantProjectMembership');
+    if (!this.projects.has(projectId)) {
+      throw new Error('grantProjectMembership failed: no such project');
+    }
+    // PK (user_id, project_id): a repeated grant is an upsert, not a dup.
+    if (
+      this.projectMembers.some(
+        (member) => member.userId === userId && member.projectId === projectId,
+      )
+    ) {
+      return;
+    }
+    this.projectMembers.push({
+      userId,
+      projectId,
+      role: 'contributor',
+      createdAt: new Date().toISOString(),
+      createdBy: 'owner',
+    });
+  }
+
+  async revokeProjectMembership(userId: string, projectId: string): Promise<void> {
+    this.assertOwnerWrite('revokeProjectMembership');
+    const at = this.projectMembers.findIndex(
+      (member) => member.userId === userId && member.projectId === projectId,
+    );
+    if (at >= 0) this.projectMembers.splice(at, 1);
+  }
+
   // --- share links ---------------------------------------------------------
   //
   // In memory, and holding no token: the mock stores the same digest-shaped
@@ -786,12 +1047,20 @@ export class MockRepository implements Repository {
   }
 
   /**
-   * Mirrors the database cascade: deleting a project takes its edges. The CELL
+   * Mirrors the database cascade: deleting a project takes its edges, its
+   * tasks and its membership grants (all `on delete cascade`). The CELL
    * stays, now unplanned — which is the row the two lists in §7.5 exist to
-   * surface.
+   * surface — and TASK HISTORY stays too: it has no FK and outlives the row.
    */
   private cascadeProjectDeletion(projectId: string): void {
     this.finishLineEdges = this.finishLineEdges.filter((edge) => edge.projectId !== projectId);
+    for (const [id, task] of [...this.tasks]) {
+      if (task.projectId === projectId) this.tasks.delete(id);
+    }
+    for (let at = this.projectMembers.length - 1; at >= 0; at -= 1) {
+      const member = this.projectMembers[at];
+      if (member && member.projectId === projectId) this.projectMembers.splice(at, 1);
+    }
   }
 }
 

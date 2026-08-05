@@ -21,11 +21,29 @@ import type {
   IeltsSession,
   OrphanMilestone,
   Project,
+  ProjectMember,
+  ProjectTask,
   ShareLink,
   ShareScope,
   ShareView,
+  TaskStatus,
   WeeklyPlan,
 } from './types';
+
+/**
+ * The writable surface of a task. Exactly the columns the SQL trigger's
+ * allowlist accepts from a member (minus the trigger-owned attribution
+ * columns) — the type and the allowlist must not drift apart, because this
+ * type is the fast failure and the trigger is the boundary.
+ */
+export interface ProjectTaskWrite {
+  title?: string;
+  detail?: string;
+  status?: TaskStatus;
+  dueDate?: string | null;
+  assignee?: string | null;
+  sortOrder?: number;
+}
 
 export interface Repository {
   listEntries(filter?: {
@@ -155,6 +173,43 @@ export interface Repository {
   setCellEdges(cellId: string, edges: { projectId: string; milestoneId?: string }[]): Promise<void>;
   /** The same operation inverted, from a milestone. */
   setMilestoneEdges(projectId: string, milestoneId: string, cellIds: string[]): Promise<void>;
+
+  /**
+   * =========================================================================
+   * TASKS AND THE PROJECT-MEMBERSHIP AXIS (slice 1).
+   * =========================================================================
+   * THERE IS NO deleteProjectTask, ON PURPOSE. A task ends as `done` or
+   * `cancelled`; removal would orphan its history. The interface not having
+   * the method is the client half of the rule — the database half is the
+   * absence of any member DELETE policy.
+   *
+   * project scoping is not passed as trust: for a collaborator the list is
+   * scoped by RLS regardless of the filter argument, and creates/updates are
+   * judged by the SQL trigger. The filter exists so the owner's per-project
+   * card does one read, not one read per project.
+   */
+  listProjectTasks(projectId?: string): Promise<ReadResult<ProjectTask>>;
+  createProjectTask(input: {
+    projectId: string;
+    title: string;
+    detail?: string;
+    status?: TaskStatus;
+    dueDate?: string;
+    assignee?: string;
+    sortOrder?: number;
+  }): Promise<ProjectTask>;
+  /** Patch is allowlisted by type; projectId is deliberately not patchable. */
+  updateProjectTask(id: string, patch: ProjectTaskWrite): Promise<ProjectTask>;
+
+  /**
+   * The project-membership grants — the OWNER's surface. A collaborator's
+   * repository can call listProjectMembers and receives exactly their own
+   * rows (RLS); grant and revoke require the app key and fail for a JWT, the
+   * same shape as every other owner-only write.
+   */
+  listProjectMembers(): Promise<ReadResult<ProjectMember>>;
+  grantProjectMembership(userId: string, projectId: string): Promise<void>;
+  revokeProjectMembership(userId: string, projectId: string): Promise<void>;
 
   /**
    * =========================================================================

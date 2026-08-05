@@ -702,6 +702,62 @@ export interface OrphanMilestone {
 
 /**
  * ===========================================================================
+ * TASKS — THE FIRST MEMBER-WRITABLE, MEMBER-CREATABLE SURFACE (slice 1).
+ * ===========================================================================
+ * Tasks belong to a project and tenant on PROJECT MEMBERSHIP, the second
+ * axis: entity membership grants no task, project membership grants no cell.
+ *
+ * THERE IS NO DELETE — not in the Repository interface, not in the database
+ * policies. A task ends as `done` or `cancelled`, so its history keeps
+ * meaning. Every write passes the SQL write-guard trigger, which stamps
+ * attribution and appends per-field content history; the client never
+ * supplies `createdBy*`, `actor*` or `changedAt` and anything it does supply
+ * is overwritten.
+ */
+export type TaskStatus = 'open' | 'in_progress' | 'blocked' | 'done' | 'cancelled';
+
+export interface ProjectTask {
+  id: string;
+  /** IMMUTABLE FOR MEMBERS. Moving a task between projects is a structural
+   *  act — trigger-enforced, even between two projects the member holds. */
+  projectId: string;
+  title: string;
+  /** Longer body. Empty string when blank — the database default. */
+  detail: string;
+  status: TaskStatus;
+  dueDate?: string; // YYYY-MM-DD — feeds the per-project timeline
+  /** auth.users id. If set by a member, must belong to the task's project —
+   *  trigger-enforced. The owner has no uid; "owner's task" is null here. */
+  assignee?: string;
+  sortOrder: number;
+  createdAt: string;
+  /** Who created the task. Trigger-written, same split as cell attribution. */
+  createdByKind: CellActorKind;
+  /** Creating contributor's uid; absent for the owner. */
+  createdBy?: string;
+  /** Who last touched the task; any owner write resets it to 'owner'. */
+  actorKind: CellActorKind;
+  actor?: string;
+  changedAt?: string;
+}
+
+/**
+ * One grant on the project axis. Rows are written by the OWNER only (the
+ * app-key path); a member can read exactly their own rows. Mirrors the shape
+ * of entity membership deliberately — one role, hardcoded, until a second
+ * role exists.
+ */
+export interface ProjectMember {
+  userId: string;
+  projectId: string;
+  role: 'contributor';
+  createdAt: string;
+  /** 'owner' or the granting uid — the actor pattern in one text column. */
+  createdBy: string;
+}
+
+/**
+ * ===========================================================================
  * SHARE LINKS — READ-ONLY ACCESS TO ONE VIEW, WITH ONE FILTER, UNTIL A DATE.
  * ===========================================================================
  * The two names here are the only ones a token may carry, and the database
