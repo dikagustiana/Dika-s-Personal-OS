@@ -198,10 +198,11 @@ A collaborator holds a real JWT and can call PostgREST directly; the UI is
 cosmetic. The complete reachable surface of that JWT is:
 
 - **Read**: Finish Line structure (items, entities, account map), cells /
-  deps / cell-grain edges for *their* entities only, projects the owner
-  granted them **one by one** (since slice 1 — including milestone text,
-  PICs and documents links inside those rows), tasks inside those granted
-  projects, and their own membership rows on both axes.
+  deps / cell-grain edges for *their* entities only, **WORK** projects the
+  owner granted them **one by one** (since slice 1 — including milestone
+  text, PICs and documents links inside those rows; GROWTH projects are not
+  grantable at all, by trigger, the owner path included), tasks inside those
+  granted projects, and their own membership rows on both axes.
 - **Write**: `state` (`input → figure` only) and `note` on cells in their
   entities; tasks in their granted projects — INSERT and UPDATE of content
   fields only (`title, detail, status, due_date, assignee, sort_order`),
@@ -266,17 +267,18 @@ before slice 1 was additive; migration `20260804000045` dropped
 `member reads samb work projects` on `os_projects` and replaced it with
 `member reads granted projects`:
 `using (id = any ((select public.os_member_projects())::uuid[]))` — no
-`domain` condition, no `engagement` condition. Why replaced rather than
-extended: the old predicate was a broad allow (one entity grant exposed
-every SAMB WORK project), and membership fails closed where an engagement
-predicate cannot — zero grants reads zero projects, observed live before
-anything else shipped. `engagement` is demoted to a client attribute
-(grouping/reporting); an owner's private WORK project is simply a project
-with no members, and the owner UI marks the two states (`dibagikan · N` /
-`privat`) so private-by-omission is never accidental. The down-migration
-restores the engagement policy verbatim; the removal is the only one — the
-policy inventory diff shows every other table byte-identical, GROWTH
-included.
+`domain` condition, no `engagement` condition *as first shipped* (the
+`domain` half of that was a mistake, corrected the same day — see the
+domain-gap section below). Why replaced rather than extended: the old
+predicate was a broad allow (one entity grant exposed every SAMB WORK
+project), and membership fails closed where an engagement predicate cannot —
+zero grants reads zero projects, observed live before anything else shipped.
+`engagement` is demoted to a client attribute (grouping/reporting); an
+owner's private WORK project is simply a project with no members, and the
+owner UI marks the two states (`dibagikan · N` / `privat`) so
+private-by-omission is never accidental. The down-migration restores the
+engagement policy verbatim; the removal is the only one — the policy
+inventory diff shows every other table byte-identical, GROWTH included.
 
 **Project membership is a second tenancy axis, independent of the first.**
 `os_project_members` (user → project, owner-written only, never seeded) and
@@ -310,6 +312,56 @@ exercised as the anon role with a transaction-local throwaway key; the
 task-chain checker validated arm by arm against deliberately tampered
 history; advisors clean of new findings.
 
+### The GROWTH domain gap, closed same day (2026-08-05): the second policy replacement
+
+Slice 1's per-project policy dropped **both** conditions, and only one of
+those drops was right. Membership fails closed against the **absence** of a
+grant; it does nothing against a **wrong** one — one mis-click in the
+collaborator panel would have exposed a GROWTH project row (all 16 GROWTH
+rows carry real milestone content: LPDP, Chevening, IELTS, Research,
+Website), and the same gap ran into `os_tasks`, whose member policies
+consume the same function. That violated the standing invariant: GROWTH is
+never reachable by an authenticated non-owner through any code path.
+
+Migration `20260804000047` closes it in three deliberately redundant layers:
+
+1. **The grant itself fails.** A `BEFORE INSERT OR UPDATE` trigger on
+   `os_project_members` refuses any non-WORK project — **the owner path
+   included**. GROWTH isolation is not a permission the owner can spend; it
+   is a property of the schema. If a growth project ever genuinely needs
+   sharing, the escape hatch is a migration — a deliberate act with a diff,
+   not a click in a panel. An id that resolves to nothing gets its own
+   distinct message. EXECUTE revoked from client roles at birth.
+2. **The function filters.** `os_member_projects()` now joins `os_projects`
+   and keeps `domain='work'`, so every consumer — the projects policy, all
+   three task policies, anything a later slice adds — inherits the guard in
+   one place, still as one InitPlan per query. **The task policies carry no
+   domain condition BY DESIGN**: they consume this function. Do not add a
+   redundant join later thinking the omission is an oversight.
+3. **The policy says it out loud.** `member reads granted projects` now
+   reads `domain = 'work' and id = any (…)`. Redundant given layer two and
+   kept anyway: a column check on the row already being filtered costs
+   nothing and makes the intent readable in the policy list. **This is the
+   second deliberate policy replacement** (the first: `20260804000045`);
+   the down-migration restores the slice-1 predicate verbatim.
+
+The panel's work-only picker remains what it always was — convenience, not
+the control.
+
+Verified live 2026-08-05, rolled back: 6 new cases in `collab_rls.sql` —
+GROWTH grant refused on the owner path; unresolvable id refused with its own
+message; **with the layer-one trigger disabled and a GROWTH membership row
+planted directly, `os_member_projects()` returns empty, the projects policy
+returns zero rows, and the tasks policy returns zero rows for a real
+owner-created task on that project** (layer two proven independently, not
+assumed to be shielded by layer one); a WORK grant behaves exactly as
+before with the poisoned row inert beside it. All 31 prior cases re-run
+unchanged. The policy inventory diff shows exactly this one replacement;
+GROWTH tables untouched; advisors show no new findings. Standing check 4
+(below) watches for the one case the trigger cannot see: a project whose
+domain is flipped after a grant — such grants deliberately do not survive
+the flip.
+
 ### Standing integrity checks — run the file, not the prose
 
 The runnable set lives in **`supabase/tests/integrity_checks.sql`** (paste
@@ -330,6 +382,11 @@ carries its own what-a-hit-means comment). It currently holds:
    at all, first row not from empty, mid-chain break, tip vs live row), each
    proven to fire on a deliberately tampered chain before the check was
    committed.
+4. **The project-membership domain boundary** (domain-gap patch). Any
+   `os_project_members` row whose project is not `domain='work'` — the case
+   the layer-one trigger cannot see (a domain flipped after the grant). Such
+   a row grants nothing (layers two and three filter it) but must not
+   exist. Proven to fire on a deliberately planted row.
 
 Companion in the same set: `scripts/probe-password-grant.sh` (anon key only)
 reports whether the platform-level password grant is enabled. All checks

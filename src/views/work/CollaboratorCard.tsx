@@ -80,6 +80,10 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     else setUsers(result.users ?? []);
     // The project axis, straight from the repository (owner path). Failure
     // leaves the chips empty rather than taking the whole panel down.
+    // The 'work' filter on the picker is CONVENIENCE, NOT THE BOUNDARY: the
+    // boundary is the domain-guard trigger on os_project_members plus the
+    // WORK filter inside os_member_projects() (migration 20260804000047) —
+    // a growth id sent past this UI is refused in SQL, owner key included.
     try {
       const [memberRows, projects] = await Promise.all([
         repository.listProjectMembers(),

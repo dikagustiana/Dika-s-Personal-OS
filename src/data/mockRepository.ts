@@ -151,21 +151,32 @@ export class MockRepository implements Repository {
    */
   private readonly projectMembers: ProjectMember[] = [];
 
+  /**
+   * Layer two of the domain guard (20260804000047), mirrored: the WORK
+   * filter lives HERE, exactly as it lives inside os_member_projects(), so
+   * every consumer inherits it and a poisoned GROWTH membership row is
+   * inert even when planted past layer one.
+   */
   private memberProjects(): string[] {
     if (this.viewer.kind !== 'contributor') return [];
     const uid = this.viewer.userId;
     return this.projectMembers
       .filter((member) => member.userId === uid)
+      .filter((member) => this.projects.get(member.projectId)?.domain === 'work')
       .map((member) => member.projectId);
   }
 
   /**
-   * Mirrors `member reads granted projects`: the granted set and nothing
-   * else — no domain condition, no engagement condition, zero grants reads
-   * zero projects. `engagement` is a client attribute now, not visibility.
+   * Mirrors `member reads granted projects`: WORK and granted, nothing
+   * else — no engagement condition; zero grants reads zero projects.
+   * `engagement` is a client attribute now, not visibility. The explicit
+   * domain check restates layer three's redundant conjunct.
    */
   private projectVisible(project: Project): boolean {
-    return !this.isContributor() || this.memberProjects().includes(project.id);
+    return (
+      !this.isContributor() ||
+      (project.domain === 'work' && this.memberProjects().includes(project.id))
+    );
   }
 
   /**
@@ -963,8 +974,17 @@ export class MockRepository implements Repository {
 
   async grantProjectMembership(userId: string, projectId: string): Promise<void> {
     this.assertOwnerWrite('grantProjectMembership');
-    if (!this.projects.has(projectId)) {
-      throw new Error('grantProjectMembership failed: no such project');
+    // Layer one of the domain guard, mirrored with the SQL trigger's own
+    // messages — the OWNER path included: GROWTH isolation is not a
+    // permission the owner can spend, and the escape hatch is a migration.
+    const project = this.projects.get(projectId);
+    if (!project) {
+      throw new Error(`project membership: ${projectId} does not resolve to a project`);
+    }
+    if (project.domain !== 'work') {
+      throw new Error(
+        `project membership: only WORK projects are grantable — ${projectId} is ${project.domain}; sharing a growth project requires a migration, not a grant`,
+      );
     }
     // PK (user_id, project_id): a repeated grant is an upsert, not a dup.
     if (

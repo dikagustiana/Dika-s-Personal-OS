@@ -73,3 +73,46 @@ it. Recovery is not possible; a decision is:
 Either way the history chain stays honest: the pre-migration rows carry null
 note columns, everything after carries full contents, and the standing chain
 check in REVIEW.md returns zero rows.
+
+## D. Walk the front door — slice 1 + the domain patch (OUTSTANDING, deferred twice)
+
+Every verification across two slices used synthetic SQL identities and a
+production bundle served from localhost. The following has **never executed
+once**, and the surface riding on it has grown each slice: the panel's
+project grants, `generateLink` output actually being consumed, the gate's
+`#collab_token` → `verifyOtp` handler succeeding, the contributor project
+card, the task list, the empty state, the assignee picker, and revoke
+clearing **both** axes (behaviour that changed in slice 1 and has only been
+tested in SQL).
+
+Run on **`https://personal-os.dikagustiana.com`** (or
+`dika-personal-os.vercel.app`) — the production domain, not localhost:
+
+1. Owner session → collaborator panel → create with a fresh test address you
+   control, grant entity `ASI` **and** one WORK project. Expected: the two
+   grant sets render as **separate labelled rows** (Entitas / Proyek) —
+   distinct chips, not one blended list.
+2. Copy the link, open it in a separate browser profile. Expected: no
+   passphrase prompt; the session lands signed in.
+3. Confirm: the nav shows **Projects and Finish line only**; Projects lists
+   **only the granted project**; the matrix shows **only ASI** cells.
+4. Create a task, set a due date, assign it to yourself, and confirm it
+   appears on the per-project timeline with the date.
+5. Back in the owner session: confirm the task renders as
+   **contributor-written** (the dot + attribution), and that an owner edit
+   resets it to owner.
+6. Confirm the granted project's card reads `dibagikan · 1` and an ungranted
+   one reads `privat`.
+7. Exercise `list` and `link` from the panel — **neither has ever run** end
+   to end: the list should show the test account with its last sign-in, and
+   `Tautan baru` should mint a link that works in the other profile.
+8. Revoke, and confirm the still-open collaborator session reads **zero
+   across projects, tasks, and cells** on its next load.
+9. Confirm `private.os_provision_log` recorded every provisioning action
+   (create / link / revoke rows).
+
+If any step shows something other than expected, stop and investigate before
+inviting anyone real. Bonus check while in the panel: the project picker
+offers WORK projects only — and if a GROWTH id is ever forced past the UI,
+the database refuses it (that part IS proven, in
+`supabase/tests/collab_rls.sql`).

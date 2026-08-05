@@ -549,6 +549,48 @@ describe('project membership + tasks — the slice-1 trigger and policies, mirro
     expect(repo.readTaskHistory().some((row) => row.taskId === task.id)).toBe(true);
   });
 
+  it('a GROWTH project is not grantable — the owner path included (layer one)', async () => {
+    const growth = (await repo.listProjects('growth'))[0];
+    await expect(repo.grantProjectMembership(CONTRIBUTOR.userId, growth.id)).rejects.toThrow(
+      /only WORK projects are grantable/,
+    );
+    await expect(
+      repo.grantProjectMembership(CONTRIBUTOR.userId, 'no-such-project-id'),
+    ).rejects.toThrow(/does not resolve to a project/);
+  });
+
+  it('a planted GROWTH membership row is inert — layer two, independent of layer one', async () => {
+    const growth = (await repo.listProjects('growth'))[0];
+    // Bypass the grant guard the way the SQL suite disables the trigger:
+    // write the row straight into the store, then prove the read side alone
+    // keeps GROWTH unreachable.
+    const internals = repo as unknown as {
+      projectMembers: {
+        userId: string;
+        projectId: string;
+        role: 'contributor';
+        createdAt: string;
+        createdBy: string;
+      }[];
+    };
+    internals.projectMembers.push({
+      userId: CONTRIBUTOR.userId,
+      projectId: growth.id,
+      role: 'contributor',
+      createdAt: new Date().toISOString(),
+      createdBy: 'layer-two-test',
+    });
+    repo.setViewer(CONTRIBUTOR);
+    const visible = await repo.listProjects();
+    expect(visible.map((project) => project.id)).toEqual([granted]);
+    expect(await repo.listProjects('growth')).toEqual([]);
+    const tasks = await repo.listProjectTasks(growth.id);
+    expect(tasks.ok && tasks.rows).toEqual([]);
+    await expect(
+      repo.createProjectTask({ projectId: growth.id, title: 'nope' }),
+    ).rejects.toThrow(/not one of your projects/);
+  });
+
   it('the task chain invariant holds in the mock: tip equals the live row', async () => {
     repo.setViewer(CONTRIBUTOR);
     const task = await repo.createProjectTask({ projectId: granted, title: 'v1', detail: 'a' });
