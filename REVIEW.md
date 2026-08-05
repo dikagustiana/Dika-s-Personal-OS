@@ -253,36 +253,62 @@ posture), and a failed audit write fails the action. `revoke` deletes
 membership rows and deliberately keeps the auth user: history rows keep
 their actor, and a membershipless JWT reads nothing from its next query on.
 
-### Standing integrity check: the history note chain
+### Standing integrity checks — run the file, not the prose
 
-Since migration `20260804000043`, every history row stores the note contents
-on both sides (`from_note` / `to_note`, `''` for an empty note). NULL in
-those columns occurs **only** in the 3 rows written before that migration —
-the trigger can no longer produce one. The redundancy is a gap detector:
-`to_note` of row N must equal `from_note` of row N+1, and the final
-`to_note` must equal the live cell note. A break means something wrote to a
-cell outside the trigger. Run this whenever that question matters; **zero
-rows returned = intact**:
+The runnable set lives in **`supabase/tests/integrity_checks.sql`** (paste
+into the SQL editor; every check returns **zero rows when healthy**, and each
+carries its own what-a-hit-means comment). It currently holds:
 
-```sql
-with ordered as (
-  select h.cell_id, h.changed_at, h.from_note, h.to_note,
-         lead(h.from_note) over (partition by h.cell_id order by h.changed_at) as next_from
-  from public.os_finish_line_cell_history h
-  where h.from_note is not null   -- pre-2026-08-04 rows never captured notes
-)
-select 'mid-chain break' as kind, cell_id, changed_at, to_note, next_from
-from ordered
-where next_from is not null and to_note is distinct from next_from
-union all
-select 'tip disagrees with live cell', o.cell_id, o.changed_at, o.to_note, coalesce(c.note, '')
-from ordered o
-join public.os_finish_line_cells c on c.id = o.cell_id
-where o.next_from is null and o.to_note is distinct from coalesce(c.note, '');
-```
+1. **The history note chain.** Since migration `20260804000043` every history
+   row stores note contents on both sides (`''` = empty; NULL only in the 3
+   pre-migration rows). `to_note` of row N must equal `from_note` of row N+1
+   and the final `to_note` must equal the live cell note — a break means a
+   write bypassed the trigger.
+2. **The password grant surface.** Any `auth.users` row with a non-null
+   `encrypted_password` — see the boundary below for why this is the control
+   that matters.
 
-Verified clean at migration time (3 rows, all pre-migration nulls, zero
-breaks).
+Companion in the same set: `scripts/probe-password-grant.sh` (anon key only)
+reports whether the platform-level password grant is enabled. All checks
+verified clean on 2026-08-05.
+
+### The password surface, stated as a boundary (2026-08-05)
+
+What is true, not what is meant:
+
+- **Password grant is enabled at the project level** and, per Supabase's
+  documented model, cannot be disabled independently of the email provider —
+  and the email provider must stay on, because `#collab_token` consumption
+  (`verifyOtp`) runs through it. `/auth/v1/token?grant_type=password` is
+  therefore reachable API surface; `scripts/probe-password-grant.sh` reports
+  its state (verbatim on 2026-08-05:
+  `{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}`
+  — enabled).
+- **No user currently has a password** (`encrypted_password` null across
+  `auth.users`; the verification identity's throwaway credential was nulled
+  on 2026-08-04). Detection is check 2 in
+  `supabase/tests/integrity_checks.sql`, and the grant is **inert while that
+  check returns zero rows**.
+- **A collaborator with a live session can set themselves a password**
+  (`updateUser({ password })` against GoTrue directly — the app offers no
+  UI for it). That yields a credential that does not expire, but it grants
+  *authentication only*: membership governs every row, and revoking
+  membership closes access immediately against an already-issued JWT — that
+  was tested live on 2026-08-04, not inferred.
+- **The recovery flow is a live route to a password.** Established
+  2026-08-05, not assumed: `POST /auth/v1/recover` for the retained test
+  identity returned `{}` 200 and the auth log shows the built-in mailer
+  dispatching —
+  `{"event":"mail.send","mail_from":"noreply@mail.app.supabase.io","mail_to":"kucingkuroshiro+asi-selftest@gmail.com","mail_type":"recovery"}`
+  — with no rate-limit response. So recovery is self-service **for the
+  account's own mailbox**: anyone holding the anon key can trigger recovery
+  mail to any known address, which is inbox noise for that person rather
+  than a compromise — the attacker does not receive the mail. The built-in
+  service's sending is configuration, not design, and can change without
+  warning.
+- The app itself never calls any password or recovery endpoint — there is no
+  password UI anywhere — so every route above is reachable only by hitting
+  the API directly.
 
 ### The share read key, confirmed as a boundary
 
