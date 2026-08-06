@@ -15,8 +15,11 @@
  * each item is and when it was asked for. It is not a second home for facts
  * that table owns.
  *
- * requested_on is THE ONLY writable field in the whole process feature.
- * Status BELUM moves nobody; "diminta tanggal X, belum dijawab" moves.
+ * requested_on is editable inline HERE, without opening anything: status
+ * BELUM moves nobody, and "diminta tanggal X, belum dijawab" moves. The rest
+ * of a need's text — item, jenis, status, sumber, pemilik — is edited from
+ * the swimlane's step panel, where the step it belongs to is on screen to
+ * read it against. Nothing on either tab can add or delete a row.
  *
  * A missing os_process_* relation renders the one-line empty state — the
  * migration lands after this view ships (§0), so that is the normal

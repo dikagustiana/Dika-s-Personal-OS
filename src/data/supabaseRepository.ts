@@ -11,6 +11,15 @@ import {
 import { guardTimeBlock } from './timeBlockGuards';
 import { okRows, readAbsence, readFailure, type ReadResult } from './readResult';
 import type { RelationError } from './missingRelation';
+import { isAbsentRelation } from './missingRelation';
+import type {
+  ProcessGateTextWrite,
+  ProcessLaneTextWrite,
+  ProcessNeedTextWrite,
+  ProcessPhaseTextWrite,
+  ProcessStepTextWrite,
+  TextHistoryRow,
+} from '../logic/processTextEdit';
 import type { ProjectTaskWrite, Repository } from './repository';
 import type {
   DailyLog,
@@ -1659,6 +1668,130 @@ class SupabaseRepository implements Repository {
         },
       ),
     );
+  }
+
+  // --- process TEXT writes (structure stays migration-only) -----------------
+  //
+  // Each patch is typed by logic/processTextEdit.ts, which cannot name label,
+  // slot, lane_key, track, entity_code or any id — so the column list below is
+  // the whole writable surface and no caller can widen it. Lanes are keyed by
+  // the composite (entity_code, key) that migration 52 made the PK.
+
+  async updateProcessStepText(id: string, patch: ProcessStepTextWrite): Promise<ProcessStep> {
+    const { data, error } = await this.client
+      .from('os_process_steps')
+      .update({
+        name: patch.name,
+        co: patch.co,
+        risk: patch.risk,
+        control: patch.control,
+        note: patch.note,
+        gate_id: patch.gateId,
+        docs: patch.docs,
+        coa: patch.coa,
+        drivers: patch.drivers,
+      })
+      .eq('id', id)
+      .select(`entity_code, ${PROCESS_STEP_COLUMNS}`)
+      .maybeSingle();
+    if (error) throw new Error(`updateProcessStepText failed: ${error.message}`);
+    if (!data) throw new Error(`Step not found: ${id}`);
+    return rowToProcessStep(data as ProcessStepRow);
+  }
+
+  async updateProcessNeedText(id: string, patch: ProcessNeedTextWrite): Promise<ProcessNeed> {
+    const { data, error } = await this.client
+      .from('os_process_needs')
+      .update({
+        item: patch.item,
+        kind: patch.kind,
+        src: patch.src,
+        owner: patch.owner,
+        status: patch.status,
+        requested_on: patch.requestedOn,
+      })
+      .eq('id', id)
+      .select(PROCESS_NEED_COLUMNS)
+      .maybeSingle();
+    if (error) throw new Error(`updateProcessNeedText failed: ${error.message}`);
+    if (!data) throw new Error(`Need not found: ${id}`);
+    return rowToProcessNeed(data as ProcessNeedRow);
+  }
+
+  async updateProcessGateText(id: string, patch: ProcessGateTextWrite): Promise<ProcessGate> {
+    const { data, error } = await this.client
+      .from('os_process_gates')
+      .update({
+        title: patch.title,
+        sub: patch.sub,
+        owner: patch.owner,
+        unblock: patch.unblock,
+      })
+      .eq('id', id)
+      .select('id, entity_code, type, title, sub, owner, unblock')
+      .maybeSingle();
+    if (error) throw new Error(`updateProcessGateText failed: ${error.message}`);
+    if (!data) throw new Error(`Gate not found: ${id}`);
+    return rowToProcessGate(data as ProcessGateRow);
+  }
+
+  async updateProcessLaneText(
+    entityCode: string,
+    key: string,
+    patch: ProcessLaneTextWrite,
+  ): Promise<ProcessLane> {
+    const { data, error } = await this.client
+      .from('os_process_lanes')
+      .update({ label: patch.label, description: patch.description })
+      .eq('entity_code', entityCode)
+      .eq('key', key)
+      .select('entity_code, key, label, description, ordinal, is_external')
+      .maybeSingle();
+    if (error) throw new Error(`updateProcessLaneText failed: ${error.message}`);
+    if (!data) throw new Error(`Lane not found: ${entityCode}/${key}`);
+    return rowToProcessLane(data as ProcessLaneRow);
+  }
+
+  async updateProcessPhaseText(id: string, patch: ProcessPhaseTextWrite): Promise<ProcessPhase> {
+    const { data, error } = await this.client
+      .from('os_process_phases')
+      .update({ name: patch.name })
+      .eq('id', id)
+      .select('id, entity_code, name, slot_from, slot_to')
+      .maybeSingle();
+    if (error) throw new Error(`updateProcessPhaseText failed: ${error.message}`);
+    if (!data) throw new Error(`Phase not found: ${id}`);
+    const row = data as { id: string; entity_code: string; name: string; slot_from: number; slot_to: number };
+    return {
+      id: row.id,
+      entityCode: row.entity_code,
+      name: row.name,
+      slotFrom: row.slot_from,
+      slotTo: row.slot_to,
+    };
+  }
+
+  /**
+   * The audit append. A MISSING RELATION IS NOT AN ERROR HERE: this ships
+   * before migration 20260806000055, and an edit must not be lost because its
+   * log could not be written. Anything else still throws — a permission or
+   * network failure on the log is worth knowing about, and by then the edit
+   * itself has already been saved.
+   */
+  async appendProcessTextHistory(rows: TextHistoryRow[]): Promise<boolean> {
+    if (rows.length === 0) return true;
+    const { error } = await this.client.from('os_process_text_history').insert(
+      rows.map((row) => ({
+        table_name: row.tableName,
+        row_id: row.rowId,
+        field: row.field,
+        old_value: row.oldValue,
+        new_value: row.newValue,
+      })),
+    );
+    if (!error) return true;
+    if (isAbsentRelation(error)) return false;
+    throw new Error(`appendProcessTextHistory failed: ${error.message}`);
   }
 
   // --- tasks + the project-membership axis (slice 1) ------------------------

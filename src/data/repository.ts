@@ -2,6 +2,14 @@ import type { ResearchRepository } from './researchRepository';
 import type { CellWriteOrigin } from './finishLineGuards';
 import type { ReadResult } from './readResult';
 import type {
+  ProcessGateTextWrite,
+  ProcessLaneTextWrite,
+  ProcessNeedTextWrite,
+  ProcessPhaseTextWrite,
+  ProcessStepTextWrite,
+  TextHistoryRow,
+} from '../logic/processTextEdit';
+import type {
   CellState,
   DailyLog,
   DanglingLink,
@@ -219,6 +227,41 @@ export interface Repository {
   listProcessStepItems(): Promise<ReadResult<ProcessStepItem>>;
   /** null clears the date. Returns the updated need. */
   setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed>;
+
+  /**
+   * =========================================================================
+   * PROCESS TEXT IS EDITABLE FROM THE APP. STRUCTURE STILL IS NOT.
+   * =========================================================================
+   * This supersedes the read-only rule stated by the three PRs that built
+   * this feature: the map is a written artefact and revising a sentence must
+   * not cost a migration. What did NOT change is the other half — every
+   * write type below is defined in logic/processTextEdit.ts and CANNOT NAME
+   * label, slot, lane_key, track, entity_code or any id, so a payload
+   * carrying one does not typecheck. Those decide the diagram's topology and
+   * breaking them is silent.
+   *
+   * The app is now the OWNER of this text; the seed migrations are history.
+   * Every seed section is guarded (`on conflict do nothing` / `where not
+   * exists`), so a re-run cannot overwrite an edit — see the PR for the
+   * measured proof, and for the one hazard that guarding does not cover.
+   */
+  updateProcessStepText(id: string, patch: ProcessStepTextWrite): Promise<ProcessStep>;
+  updateProcessNeedText(id: string, patch: ProcessNeedTextWrite): Promise<ProcessNeed>;
+  updateProcessGateText(id: string, patch: ProcessGateTextWrite): Promise<ProcessGate>;
+  updateProcessLaneText(
+    entityCode: string,
+    key: string,
+    patch: ProcessLaneTextWrite,
+  ): Promise<ProcessLane>;
+  updateProcessPhaseText(id: string, patch: ProcessPhaseTextWrite): Promise<ProcessPhase>;
+
+  /**
+   * Appends the audit rows for one save. NEVER THROWS ON A MISSING RELATION:
+   * the frontend ships before migration 20260806000055, and losing the audit
+   * line is bad while losing the edit because the audit line could not be
+   * written would be worse. Returns false when the log was skipped.
+   */
+  appendProcessTextHistory(rows: TextHistoryRow[]): Promise<boolean>;
 
   /**
    * The reading list beside the process map. Links out only — it references
