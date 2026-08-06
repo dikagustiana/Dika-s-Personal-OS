@@ -39,13 +39,13 @@ describe('requested_on is the only writable field, and only for the owner', () =
 
   it('leaves every other field untouched by the write', async () => {
     const repo = new MockRepository();
-    seedNeeds(repo, [need('n1', { finishLineItemId: 'fl-1', owner: 'PF' })]);
+    seedNeeds(repo, [need('n1', { owner: 'PF', src: 'WMS' })]);
     const after = await repo.setProcessNeedRequestedOn('n1', '2026-08-06');
     expect(after).toMatchObject({
       stepId: 'step-1',
       status: 'BELUM',
-      finishLineItemId: 'fl-1',
       owner: 'PF',
+      src: 'WMS',
     });
   });
 
@@ -67,7 +67,7 @@ describe('requested_on is the only writable field, and only for the owner', () =
 });
 
 describe('every process read is a ReadResult, never a bare array', () => {
-  it('returns {ok} shapes from all five reads', async () => {
+  it('returns {ok} shapes from all six reads', async () => {
     const repo = new MockRepository();
     const results = await Promise.all([
       repo.listProcessLanes(),
@@ -75,6 +75,7 @@ describe('every process read is a ReadResult, never a bare array', () => {
       repo.listProcessSteps(),
       repo.listProcessGates(),
       repo.listProcessNeeds(),
+      repo.listProcessStepItems(),
     ]);
     for (const result of results) {
       expect(Array.isArray(result)).toBe(false);

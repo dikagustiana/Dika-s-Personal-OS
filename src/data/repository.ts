@@ -25,6 +25,7 @@ import type {
   ProcessNeed,
   ProcessPhase,
   ProcessStep,
+  ProcessStepItem,
   Project,
   ProjectMember,
   ProjectTask,
@@ -199,6 +200,13 @@ export interface Repository {
   listProcessSteps(): Promise<ReadResult<ProcessStep>>;
   listProcessGates(): Promise<ReadResult<ProcessGate>>;
   listProcessNeeds(): Promise<ReadResult<ProcessNeed>>;
+  /**
+   * The step → Finish line bridge. Read whole and joined in memory: 45 rows
+   * against 30 steps, needed in both directions (a cell panel asks "which
+   * steps feed this row", a step panel asks "which rows does this feed"),
+   * and a per-row query would be one round trip per open panel.
+   */
+  listProcessStepItems(): Promise<ReadResult<ProcessStepItem>>;
   /** null clears the date. Returns the updated need. */
   setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed>;
 

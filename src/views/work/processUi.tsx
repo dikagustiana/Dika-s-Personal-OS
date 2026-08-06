@@ -1,7 +1,7 @@
 /**
- * Shared presentation for the two SAMB process views, so the swimlane and
- * the register cannot drift apart on chips, tabs or filter buttons — the
- * finishLineUi precedent.
+ * Shared presentation for the SAMB process tabs of the Finish line, so the
+ * swimlane and the register cannot drift apart on chips or filter buttons —
+ * the finishLineUi precedent.
  *
  * Colour semantics (§9.1): ADA = success (data exists — the one correct use
  * of green), SEBAGIAN = escalate (needs input, same amber as the matrix's
@@ -15,7 +15,7 @@
  * lane colour can never be misread as a status.
  */
 import { cn } from '../../lib/utils';
-import { useAppStore, type WorkView } from '../../store/appStore';
+import { useAppStore } from '../../store/appStore';
 import type {
   ProcessGate,
   ProcessNeedKind,
@@ -23,38 +23,6 @@ import type {
   ProcessTrack,
 } from '../../data/types';
 import type { TrackFilter } from '../../logic/process';
-
-// --- tabs between the two views --------------------------------------------
-
-const TABS: Array<{ id: WorkView; label: string }> = [
-  { id: 'proses', label: 'Swimlane' },
-  { id: 'proses-kebutuhan-data', label: 'Kebutuhan data' },
-];
-
-/** The house underline-tab pattern (ResearchArea), navigating the pair. */
-export function ProsesTabs({ active }: { active: WorkView }) {
-  const setWorkView = useAppStore((state) => state.setWorkView);
-  return (
-    <div className="mb-6 flex flex-wrap gap-1 border-b border-border-subtle">
-      {TABS.map((tab) => (
-        <button
-          key={tab.id}
-          type="button"
-          onClick={() => setWorkView(tab.id)}
-          aria-current={active === tab.id ? 'page' : undefined}
-          className={cn(
-            'min-h-11 border-b-2 px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            active === tab.id
-              ? 'border-primary text-foreground'
-              : 'border-transparent text-foreground-muted hover:text-foreground-secondary',
-          )}
-        >
-          {tab.label}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // --- chips ------------------------------------------------------------------
 

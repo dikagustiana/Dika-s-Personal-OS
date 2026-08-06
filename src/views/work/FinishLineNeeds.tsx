@@ -1,7 +1,13 @@
 /**
- * /proses/kebutuhan-data — the register: every data item the SAMB chain
- * needs, joined to its step, with the proportion bar and the per-owner
- * grouping that turns the list into an actual request to send someone.
+ * The Finish line's Kebutuhan data tab (/finish-line/kebutuhan-data): every
+ * data item the SAMB chain needs, joined to its step, with the proportion
+ * bar and the per-owner grouping that turns the list into an actual request
+ * to send someone.
+ *
+ * What this register adds over os_finish_line_accounts — which already holds
+ * the ideal data, its source and its owner for most accounts — is how ready
+ * each item is and when it was asked for. It is not a second home for facts
+ * that table owns.
  *
  * requested_on is THE ONLY writable field in the whole process feature.
  * Status BELUM moves nobody; "diminta tanggal X, belum dijawab" moves.
@@ -29,21 +35,23 @@ import { Checking, CouldNotCheck } from './finishLineUi';
 import {
   NeedKindChip,
   NeedStatusChip,
-  ProsesTabs,
   TrackFilterGroup,
   filterButtonClass,
-} from './prosesUi';
+} from './processUi';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
 const STATUSES: ProcessNeedStatus[] = ['ADA', 'SEBAGIAN', 'BELUM'];
 const KINDS: ProcessNeedKind[] = ['MASTER', 'TRANSAKSI', 'PARAMETER', 'REFERENSI'];
 
-export function ProsesKebutuhanData() {
+export function FinishLineNeeds({
+  /** Step-label links hand off to the swimlane tab, focused on that step. */
+  onOpenStep,
+}: {
+  onOpenStep: (stepLabel: string) => void;
+}) {
   const repository = useAppStore((state) => state.repository);
   const track = useAppStore((state) => state.prosesTrack);
-  const setWorkView = useAppStore((state) => state.setWorkView);
-  const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const { run, isPending } = useMutation();
 
   const [stepsRead, setStepsRead] = useState<ReadResult<ProcessStep>>(unread);
@@ -88,11 +96,6 @@ export function ProsesKebutuhanData() {
   );
   const ownerGroups = useMemo(() => (byOwner ? groupByOwner(rows) : []), [byOwner, rows]);
 
-  const openStep = (stepLabel: string) => {
-    setProsesFocus({ stepLabel });
-    setWorkView('proses');
-  };
-
   const saveRequestedOn = async (id: string, value: string) => {
     const saved = await run('Simpan tanggal diminta', () =>
       repository.setProcessNeedRequestedOn(id, value || null),
@@ -106,17 +109,13 @@ export function ProsesKebutuhanData() {
   };
 
   return (
-    <div className="page-shell">
-      <header className="mb-7 border-b border-border-subtle pb-7">
-        <p className="page-kicker">Work / Proses SAMB</p>
-        <h1 className="page-title">Kebutuhan data</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
-          Apa yang harus ada supaya rantai ini bisa dijalankan — bukan apa yang dihasilkan tiap
-          step. Kelompokkan per pemilik untuk mendapat daftar permintaan data.
-        </p>
-      </header>
-
-      <ProsesTabs active="proses-kebutuhan-data" />
+    <>
+      {/* This tab's description, under the tab bar. No <h1> — the area owns
+          the only one on the page. */}
+      <p className="mb-6 max-w-2xl text-sm leading-6 text-foreground-muted">
+        Apa yang harus ada supaya rantai ini bisa dijalankan — bukan apa yang dihasilkan tiap
+        step. Kelompokkan per pemilik untuk mendapat daftar permintaan data.
+      </p>
 
       {!loaded ? (
         <Checking label="Kebutuhan data" />
@@ -261,7 +260,7 @@ export function ProsesKebutuhanData() {
                             key={row.need.id}
                             row={row}
                             isPending={isPending}
-                            onOpenStep={openStep}
+                            onOpenStep={onOpenStep}
                             onSaveRequestedOn={saveRequestedOn}
                           />
                         ))}
@@ -274,7 +273,7 @@ export function ProsesKebutuhanData() {
                           key={row.need.id}
                           row={row}
                           isPending={isPending}
-                          onOpenStep={openStep}
+                          onOpenStep={onOpenStep}
                           onSaveRequestedOn={saveRequestedOn}
                         />
                       ))}
@@ -286,7 +285,7 @@ export function ProsesKebutuhanData() {
           </section>
         </>
       )}
-    </div>
+    </>
   );
 }
 

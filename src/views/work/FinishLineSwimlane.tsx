@@ -1,8 +1,9 @@
 /**
- * /proses — the SAMB operational swimlane. Read-only: no add/remove/move
- * step, no lane edit, no drag — the structure changes often and is revised
- * OUTSIDE the app. The one writable field anywhere in the feature is a
- * need's requested_on, edited in the detail panel.
+ * The Finish line's Swimlane tab (/finish-line/swimlane): the SAMB
+ * operational chain. Read-only — no add/remove/move step, no lane edit, no
+ * drag; the structure changes often and is revised OUTSIDE the app. The one
+ * writable field anywhere in the feature is a need's requested_on, edited in
+ * the detail panel.
  *
  * THE SILENT FAILURE THIS FILE GUARDS AGAINST (§6.6): if measurement fails,
  * nothing throws — the arrows just vanish and the swimlane degrades into a
@@ -34,6 +35,7 @@ import type {
   ProcessNeed,
   ProcessPhase,
   ProcessStep,
+  ProcessStepItem,
 } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import { cn } from '../../lib/utils';
@@ -46,7 +48,11 @@ import {
   processStats,
   visibleSteps,
 } from '../../logic/process';
-import { buildProcessModel, finishLineRowsForStep } from '../../logic/processModel';
+import {
+  buildProcessModel,
+  finishLineRowsForStep,
+  stepLabelsForItem,
+} from '../../logic/processModel';
 import {
   BOX_W,
   GAP_W,
@@ -62,11 +68,10 @@ import {
   GateChip,
   NeedKindChip,
   NeedStatusChip,
-  ProsesTabs,
   TrackChip,
   TrackFilterGroup,
   filterButtonClass,
-} from './prosesUi';
+} from './processUi';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
@@ -86,13 +91,25 @@ const ATTACH_COLUMNS: Array<{ id: AttachColumn; label: string }> = [
 const ZOOM_MIN = 0.22;
 const ZOOM_MAX = 1.5;
 
-export function Proses() {
+export function FinishLineSwimlane({
+  /**
+   * §2's pre-filter: a Finish line row id, arriving from a cell panel. The
+   * steps feeding that row are HIGHLIGHTED and the rest dimmed — never
+   * removed. Dropping them would cut the arrows and the diagram would stop
+   * being a flow, which is the one thing this view exists to show.
+   */
+  itemFilter,
+  onClearItemFilter,
+  onOpenMatrix,
+}: {
+  itemFilter?: string;
+  onClearItemFilter: () => void;
+  onOpenMatrix: (itemId: string) => void;
+}) {
   const repository = useAppStore((state) => state.repository);
   const track = useAppStore((state) => state.prosesTrack);
   const prosesFocus = useAppStore((state) => state.prosesFocus);
   const setProsesFocus = useAppStore((state) => state.setProsesFocus);
-  const setWorkView = useAppStore((state) => state.setWorkView);
-  const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const { run, isPending } = useMutation();
 
   const [lanesRead, setLanesRead] = useState<ReadResult<ProcessLane>>(unread);
@@ -100,6 +117,7 @@ export function Proses() {
   const [stepsRead, setStepsRead] = useState<ReadResult<ProcessStep>>(unread);
   const [gatesRead, setGatesRead] = useState<ReadResult<ProcessGate>>(unread);
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
+  const [stepItemsRead, setStepItemsRead] = useState<ReadResult<ProcessStepItem>>(unread);
   const [itemsRead, setItemsRead] = useState<ReadResult<FinishLineItem>>(unread);
   const [loaded, setLoaded] = useState(false);
 
@@ -116,12 +134,13 @@ export function Proses() {
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [lanes, phases, steps, gates, needs, items] = await Promise.all([
+    const [lanes, phases, steps, gates, needs, stepItems, items] = await Promise.all([
       repository.listProcessLanes(),
       repository.listProcessPhases(),
       repository.listProcessSteps(),
       repository.listProcessGates(),
       repository.listProcessNeeds(),
+      repository.listProcessStepItems(),
       repository.listFinishLineItems(),
     ]);
     setLanesRead(lanes);
@@ -129,6 +148,7 @@ export function Proses() {
     setStepsRead(steps);
     setGatesRead(gates);
     setNeedsRead(needs);
+    setStepItemsRead(stepItems);
     setItemsRead(items);
     setLoaded(true);
   }, [repository]);
@@ -145,13 +165,15 @@ export function Proses() {
         steps: stepsRead,
         gates: gatesRead,
         needs: needsRead,
+        stepItems: stepItemsRead,
       }),
-    [lanesRead, phasesRead, stepsRead, gatesRead, needsRead],
+    [lanesRead, phasesRead, stepsRead, gatesRead, needsRead, stepItemsRead],
   );
 
   const steps = model.kind === 'ready' ? model.steps : [];
   const needs = model.kind === 'ready' ? model.needs : [];
   const gates = model.kind === 'ready' ? model.gates : [];
+  const stepItems = useMemo(() => (model.kind === 'ready' ? model.stepItems : []), [model]);
   const lanes = useMemo(
     () =>
       model.kind === 'ready' ? [...model.lanes].sort((a, b) => a.ordinal - b.ordinal) : [],
@@ -173,6 +195,19 @@ export function Proses() {
     }
     return grouped;
   }, [needs]);
+
+  // The pre-filter (§2). Highlighting is a RENDER decision only: `shown`
+  // above is untouched, so the arrow set, the cell grouping and the stats
+  // line are all identical with and without a filter — only the boxes not
+  // feeding this row are dimmed.
+  const highlighted = useMemo(
+    () => (itemFilter ? stepLabelsForItem(itemFilter, stepItems, steps) : null),
+    [itemFilter, stepItems, steps],
+  );
+  const filteredItem = useMemo(
+    () => (itemFilter ? rowsOf(itemsRead).find((item) => item.id === itemFilter) : undefined),
+    [itemFilter, itemsRead],
+  );
 
   // §6.5's tripwire: a duplicated slot inside one walk means the seed is
   // broken and the order would be a guess — refuse to draw arrows, loudly.
@@ -318,22 +353,35 @@ export function Proses() {
     );
   };
 
-  const openFinishLineItem = (itemId: string) => {
-    setFinishLineFocus({ itemId });
-    setWorkView('finish-line');
-  };
-
   const gridTemplateColumns = `${LABEL_W}px repeat(${highestSlot}, ${BOX_W}px ${GAP_W}px)`;
 
   return (
-    <div className="page-shell">
-      <header className="mb-7 border-b border-border-subtle pb-7">
-        <p className="page-kicker">Work / Proses SAMB</p>
-        <h1 className="page-title">Swimlane proses operasional</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">{SCOPE_SUBTITLE}</p>
-      </header>
+    <>
+      {/* meta.scope from the seed, as this tab's description under the tab
+          bar. There is no <h1> here — FinishLineArea owns the only one. */}
+      <p className="mb-6 max-w-2xl text-sm leading-6 text-foreground-muted">{SCOPE_SUBTITLE}</p>
 
-      <ProsesTabs active="proses" />
+      {itemFilter && (
+        <div className="mb-4 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2">
+          <span className="text-xs leading-5 text-foreground">
+            Disorot: step yang menyuapi{' '}
+            <span className="font-semibold">{filteredItem?.item ?? 'baris Finish line ini'}</span>
+            {highlighted && (
+              <span className="tabular-nums text-foreground-muted">
+                {' '}
+                · {highlighted.size} dari {steps.length} step
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={onClearItemFilter}
+            className="ml-auto rounded-sm text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Lepas sorotan
+          </button>
+        </div>
+      )}
 
       {!loaded ? (
         <Checking label="Proses SAMB" />
@@ -554,6 +602,7 @@ export function Proses() {
                       attach={attach}
                       showCol={showCol}
                       onlyGap={onlyGap}
+                      highlighted={highlighted}
                       selectedLabel={selectedLabel}
                       onSelect={(label) =>
                         setSelectedLabel((current) => (current === label ? null : label))
@@ -575,19 +624,19 @@ export function Proses() {
                 gate={selectedStep.gateId ? gatesById.get(selectedStep.gateId) : undefined}
                 finishLineRows={finishLineRowsForStep(
                   selectedStep.id,
-                  needs,
+                  stepItems,
                   rowsOf(itemsRead),
                 )}
                 isPending={isPending}
                 onSaveRequestedOn={saveRequestedOn}
-                onOpenFinishLineItem={openFinishLineItem}
+                onOpenFinishLineItem={onOpenMatrix}
                 onClose={() => setSelectedLabel(null)}
               />
             )}
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -604,6 +653,7 @@ function LaneRow({
   attach,
   showCol,
   onlyGap,
+  highlighted,
   selectedLabel,
   onSelect,
 }: {
@@ -617,6 +667,8 @@ function LaneRow({
   attach: boolean;
   showCol: Record<AttachColumn, boolean>;
   onlyGap: boolean;
+  /** null = no pre-filter. A set = these labels stay lit, the rest dim. */
+  highlighted: ReadonlySet<string> | null;
   selectedLabel: string | null;
   onSelect: (label: string) => void;
 }) {
@@ -679,7 +731,9 @@ function LaneRow({
               needs={needsByStep.get(step.id) ?? []}
               attach={attach}
               showCol={showCol}
-              dim={onlyGap && !step.gateId}
+              // Two independent reasons to recede, and either is enough:
+              // the gap spotlight, and the row pre-filter.
+              dim={(onlyGap && !step.gateId) || (highlighted !== null && !highlighted.has(step.label))}
               selected={selectedLabel === step.label}
               onSelect={() => onSelect(step.label)}
             />

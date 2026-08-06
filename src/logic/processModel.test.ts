@@ -1,22 +1,33 @@
 /**
- * §10.9 / §10.10 at the testable layer: the process views render exactly
- * what these models say, so "42P01 renders the ordinary empty state" and
- * "the closing block does not render at all without mapped needs" are
- * asserted here — by FORCING the failure through readFailure with the real
- * Postgres code, not by assuming it.
+ * The testable half of §10.9 / §10.12 and the whole of the bridge: "42P01
+ * renders the ordinary empty state" is asserted by FORCING the failure
+ * through readFailure with the real Postgres code, and the step → Finish
+ * line mapping is asserted against the migration itself, so the app-side
+ * copy and the SQL cannot drift apart unnoticed.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { okRows, readFailure, readThrew } from '../data/readResult';
-import type { FinishLineItem, ProcessNeed, ProcessStep } from '../data/types';
+import type { FinishLineItem, ProcessNeed, ProcessStep, ProcessStepItem } from '../data/types';
 import {
   buildProcessModel,
-  closingNeedsForItem,
+  closingConditionsForItem,
   finishLineRowsForStep,
   groupByOwner,
   registerRows,
+  stepLabelsForItem,
+  stepsForItem,
   summarizeNeeds,
 } from './processModel';
-import { fixtureGates, fixtureLanes, fixtureNeeds, fixturePhases, fixtureSteps } from './process/seedFixture';
+import {
+  STEP_ITEM_MAP,
+  fixtureGates,
+  fixtureLanes,
+  fixtureNeeds,
+  fixturePhases,
+  fixtureStepItems,
+  fixtureSteps,
+} from './process/seedFixture';
 
 const ready = () => ({
   lanes: okRows(fixtureLanes()),
@@ -24,38 +35,110 @@ const ready = () => ({
   steps: okRows(fixtureSteps()),
   gates: okRows(fixtureGates()),
   needs: okRows(fixtureNeeds()),
+  stepItems: okRows(fixtureStepItems()),
 });
 
 const ALL_STATUS = { ADA: true, SEBAGIAN: true, BELUM: true };
 const ALL_KIND = { MASTER: true, TRANSAKSI: true, PARAMETER: true, REFERENSI: true };
 
+const SALES_GENERAL_TRADE = '634e675f-4681-4307-b831-6cad1e7d80fa';
+const STORING_COST = '10b151a5-5c45-454c-a13b-ffbc786ec645';
+
 describe('§10.9 a missing os_process_* relation is the ordinary empty state', () => {
   it('folds a forced 42P01 on any read into kind empty — never a crash, never a warning', () => {
     const missing = readFailure('listProcessSteps', { code: '42P01' });
     expect(buildProcessModel({ ...ready(), steps: missing })).toEqual({ kind: 'empty' });
-    expect(buildProcessModel({ ...ready(), lanes: readFailure('listProcessLanes', { code: '42P01' }) })).toEqual({
-      kind: 'empty',
-    });
     expect(
-      buildProcessModel({ ...ready(), needs: readFailure('listProcessNeeds', { code: 'PGRST205', message: 'Could not find the table' }) }),
+      buildProcessModel({ ...ready(), lanes: readFailure('listProcessLanes', { code: '42P01' }) }),
+    ).toEqual({ kind: 'empty' });
+    expect(
+      buildProcessModel({
+        ...ready(),
+        stepItems: readFailure('listProcessStepItems', { code: '42P01' }),
+      }),
+    ).toEqual({ kind: 'empty' });
+    expect(
+      buildProcessModel({
+        ...ready(),
+        needs: readFailure('listProcessNeeds', {
+          code: 'PGRST205',
+          message: 'Could not find the table',
+        }),
+      }),
     ).toEqual({ kind: 'empty' });
   });
 
   it('keeps a real failure loud: a network error is failed, not empty', () => {
-    const model = buildProcessModel({ ...ready(), steps: readThrew('listProcessSteps', new Error('network down')) });
+    const model = buildProcessModel({
+      ...ready(),
+      steps: readThrew('listProcessSteps', new Error('network down')),
+    });
     expect(model.kind).toBe('failed');
     expect(model.kind === 'failed' && model.detail).toContain('network down');
   });
 
   it('treats a present-but-unseeded database as empty too', () => {
-    const model = buildProcessModel({ ...ready(), steps: okRows<ProcessStep>([]) });
-    expect(model).toEqual({ kind: 'empty' });
+    expect(buildProcessModel({ ...ready(), steps: okRows<ProcessStep>([]) })).toEqual({
+      kind: 'empty',
+    });
   });
 
-  it('is ready with the full seed', () => {
+  it('is ready with the full seed, bridge included', () => {
     const model = buildProcessModel(ready());
     expect(model.kind).toBe('ready');
     expect(model.kind === 'ready' && model.steps).toHaveLength(30);
+    expect(model.kind === 'ready' && model.stepItems).toHaveLength(45);
+  });
+});
+
+describe('§4 the bridge is 45 pairs over 17 rows, and the SQL says the same', () => {
+  it('carries 45 edges across 17 distinct Finish line rows', () => {
+    const edges = fixtureStepItems();
+    expect(edges).toHaveLength(45);
+    expect(new Set(edges.map((edge) => edge.itemId)).size).toBe(17);
+    expect(new Set(edges.map((edge) => `${edge.stepId}|${edge.itemId}`)).size).toBe(45);
+  });
+
+  it('references only step labels that exist in the seed', () => {
+    const labels = new Set(fixtureSteps().map((step) => step.label));
+    for (const edge of fixtureStepItems()) expect(labels.has(edge.stepId)).toBe(true);
+  });
+
+  it('leaves steps 4, 11, 12, 18b, 22 and 26 feeding no row — recorded, not forgotten', () => {
+    const fed = new Set(fixtureStepItems().map((edge) => edge.stepId));
+    const unfed = fixtureSteps()
+      .map((step) => step.label)
+      .filter((label) => !fed.has(label));
+    expect(unfed).toEqual(['4', '11', '12', '18b', '22', '26']);
+  });
+
+  it('matches migration 20260806000051 pair for pair — the anti-drift tripwire', () => {
+    // Parses section 6's VALUES rows straight out of the migration. If the SQL
+    // and this fixture are edited apart, this fails instead of the app quietly
+    // showing a mapping the database does not have.
+    const sql = readFileSync(
+      new URL('../../supabase/migrations/20260806000051_samb_process_seed.sql', import.meta.url),
+      'utf8',
+    );
+    const section = sql.slice(sql.indexOf('insert into public.os_process_step_items'));
+    const fromSql = [...section.matchAll(/^ {2}\('([^']+)', '([0-9a-f-]{36})'\),?$/gm)].map(
+      ([, label, itemId]) => `${label}|${itemId}`,
+    );
+    expect(fromSql).toHaveLength(45);
+    expect([...fromSql].sort()).toEqual(
+      fixtureStepItems()
+        .map((edge) => `${edge.stepId}|${edge.itemId}`)
+        .sort(),
+    );
+  });
+
+  it('never maps the two Margin-layering twins — derived metrics with no accounts', () => {
+    const mapped = new Set(STEP_ITEM_MAP.map((entry) => entry.itemId));
+    expect(mapped.has('0a948b6d-e7c3-4482-a4d2-207f8d2cadff')).toBe(false);
+    expect(mapped.has('965853f6-abc8-4de5-bd4b-4bd5d7506700')).toBe(false);
+    expect(STEP_ITEM_MAP.every((entry) => entry.section !== 'Margin layering & cost-to-serve')).toBe(
+      true,
+    );
   });
 });
 
@@ -94,8 +177,7 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
     const all = summarizeNeeds(needs, steps, 'ALL');
     expect(all.total).toBe(118);
     expect(all.ada + all.sebagian + all.belum).toBe(118);
-    const trade = summarizeNeeds(needs, steps, 'TRADE');
-    expect(trade.total).toBeLessThan(118);
+    expect(summarizeNeeds(needs, steps, 'TRADE').total).toBeLessThan(118);
   });
 
   it('groups per owner sorted by BELUM count first — the request-composing order', () => {
@@ -115,65 +197,105 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
   });
 });
 
-describe('§8.1 the closing block renders nothing without mapped needs', () => {
+describe('§5 the closing-conditions block, derived through the bridge', () => {
   const steps = fixtureSteps();
+  const needs = fixtureNeeds();
+  const stepItems = fixtureStepItems();
 
-  const mapped = (over: Partial<ProcessNeed>): ProcessNeed => ({
-    id: 'n1',
-    stepId: '2',
-    item: 'Contoh data',
-    kind: 'MASTER',
-    status: 'BELUM',
-    ...over,
+  it('returns null for a row no step feeds — that is what hides the block', () => {
+    expect(closingConditionsForItem('not-mapped', stepItems, needs, steps)).toBeNull();
+    // A real Finish line row that is deliberately unmapped: the Margin
+    // layering twin of Storing cost.
+    expect(
+      closingConditionsForItem('0a948b6d-e7c3-4482-a4d2-207f8d2cadff', stepItems, needs, steps),
+    ).toBeNull();
   });
 
-  it('returns no group when no need maps to the item — the hidden-block case', () => {
-    expect(closingNeedsForItem('item-1', fixtureNeeds(), steps)).toEqual([]);
-  });
-
-  it('groups mapped needs BELUM → SEBAGIAN → ADA and resolves step labels', () => {
-    const needs = [
-      mapped({ id: 'n1', status: 'ADA', finishLineItemId: 'item-1', stepId: '2' }),
-      mapped({ id: 'n2', status: 'BELUM', finishLineItemId: 'item-1', stepId: '18a' }),
-      mapped({ id: 'n3', status: 'SEBAGIAN', finishLineItemId: 'item-1', stepId: '10' }),
-      mapped({ id: 'n4', status: 'BELUM', finishLineItemId: 'other-item', stepId: '2' }),
-    ];
-    const groups = closingNeedsForItem('item-1', needs, steps);
-    expect(groups.map((group) => group.status)).toEqual(['BELUM', 'SEBAGIAN', 'ADA']);
-    expect(groups[0].rows[0].stepLabel).toBe('18a');
-    expect(groups.flatMap((group) => group.rows)).toHaveLength(3);
-  });
-
-  it('omits empty status groups instead of rendering headers over nothing', () => {
-    const groups = closingNeedsForItem(
-      'item-1',
-      [mapped({ status: 'ADA', finishLineItemId: 'item-1' })],
-      steps,
+  it('collects every need of every feeding step, grouped BELUM → SEBAGIAN → ADA', () => {
+    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, stepItems, needs, steps);
+    expect(closing).not.toBeNull();
+    if (!closing) return;
+    expect(closing.stepCount).toBe(4);
+    const expected = needs.filter((need) => ['2', '10', '18a', '19'].includes(need.stepId));
+    expect(closing.groups.flatMap((group) => group.rows)).toHaveLength(expected.length);
+    expect(closing.counts.ADA + closing.counts.SEBAGIAN + closing.counts.BELUM).toBe(
+      expected.length,
     );
-    expect(groups.map((group) => group.status)).toEqual(['ADA']);
+    // Order is the fixed severity order, and empty statuses are omitted
+    // rather than rendered as headers over nothing.
+    const rank = { BELUM: 0, SEBAGIAN: 1, ADA: 2 };
+    const order = closing.groups.map((group) => group.status);
+    expect(order).toEqual([...order].sort((a, b) => rank[a] - rank[b]));
+    expect(closing.groups.every((group) => group.rows.length > 0)).toBe(true);
+  });
+
+  it('carries the step label on every row so each need is traceable back', () => {
+    const closing = closingConditionsForItem(STORING_COST, stepItems, needs, steps);
+    expect(closing?.stepCount).toBe(6);
+    const labels = new Set(
+      closing?.groups.flatMap((group) => group.rows.map((row) => row.stepLabel)),
+    );
+    expect([...labels].sort()).toEqual(['13', '14', '15a', '6a', '8', '9']);
+  });
+
+  it('counts a step once even though it feeds several rows', () => {
+    // Step 9 feeds COGS — General Trade, Storing cost, Pallet utilisation,
+    // Pallet positions used and Inventories. Its needs appear under each,
+    // and each row counts it as exactly one feeding step.
+    const rowsFedBy9 = stepItems.filter((edge) => edge.stepId === '9');
+    expect(rowsFedBy9).toHaveLength(5);
+    for (const edge of rowsFedBy9) {
+      const closing = closingConditionsForItem(edge.itemId, stepItems, needs, steps);
+      expect(closing?.stepCount).toBe(stepsForItem(edge.itemId, stepItems, steps).length);
+    }
+  });
+
+  it('still returns a value when feeding steps carry no needs', () => {
+    const bare: ProcessNeed[] = [];
+    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, stepItems, bare, steps);
+    expect(closing).toMatchObject({ stepCount: 4, groups: [] });
+    expect(closing?.counts).toEqual({ ADA: 0, SEBAGIAN: 0, BELUM: 0 });
   });
 });
 
-describe('§8.2 a step lists the Finish line rows it feeds, deduped', () => {
+describe('§2 the pre-filter highlights the feeding steps and nothing else', () => {
+  const steps = fixtureSteps();
+  const stepItems = fixtureStepItems();
+
+  it('lights 4 of the 30 steps for Sales — General Trade, leaving 26 dimmed', () => {
+    const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
+    expect([...lit].sort()).toEqual(['10', '18a', '19', '2']);
+    expect(steps.length - lit.size).toBe(26);
+  });
+
+  it('lights nothing for a row outside the bridge, so no step is falsely implicated', () => {
+    expect(stepLabelsForItem('not-mapped', stepItems, steps).size).toBe(0);
+  });
+});
+
+describe('a step lists the Finish line rows it feeds, deduped and in matrix order', () => {
   const items: FinishLineItem[] = [
     { id: 'fl-1', item: 'Baris A', kind: 'metric', order: 2 },
     { id: 'fl-2', item: 'Baris B', kind: 'metric', order: 1 },
   ];
+  const edges: ProcessStepItem[] = [
+    { stepId: '9', itemId: 'fl-1' },
+    { stepId: '9', itemId: 'fl-2' },
+    { stepId: '10', itemId: 'fl-1' },
+  ];
 
-  it('dedupes repeated targets and sorts by row order', () => {
-    const needs: ProcessNeed[] = [
-      { id: 'n1', stepId: '9', item: 'x', kind: 'MASTER', status: 'ADA', finishLineItemId: 'fl-1' },
-      { id: 'n2', stepId: '9', item: 'y', kind: 'MASTER', status: 'ADA', finishLineItemId: 'fl-1' },
-      { id: 'n3', stepId: '9', item: 'z', kind: 'MASTER', status: 'ADA', finishLineItemId: 'fl-2' },
-      { id: 'n4', stepId: '10', item: 'w', kind: 'MASTER', status: 'ADA', finishLineItemId: 'fl-1' },
-    ];
-    expect(finishLineRowsForStep('9', needs, items).map((item) => item.id)).toEqual([
+  it('orders by the row order, not by edge order', () => {
+    expect(finishLineRowsForStep('9', edges, items).map((item) => item.id)).toEqual([
       'fl-2',
       'fl-1',
     ]);
   });
 
-  it('returns nothing for a step whose needs are all unmapped', () => {
-    expect(finishLineRowsForStep('4', fixtureNeeds(), items)).toEqual([]);
+  it('drops an edge whose row is not in the loaded items instead of showing a broken link', () => {
+    expect(finishLineRowsForStep('9', [{ stepId: '9', itemId: 'ghost' }], items)).toEqual([]);
+  });
+
+  it('returns nothing for a step that feeds no row', () => {
+    expect(finishLineRowsForStep('4', fixtureStepItems(), items)).toEqual([]);
   });
 });

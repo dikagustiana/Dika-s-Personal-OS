@@ -42,6 +42,7 @@ import type {
   ProcessNeedStatus,
   ProcessPhase,
   ProcessStep,
+  ProcessStepItem,
   ProcessTrack,
   IeltsError,
   IeltsErrorSkill,
@@ -1477,6 +1478,19 @@ class SupabaseRepository implements Repository {
     return okRows((data as ProcessNeedRow[]).map(rowToProcessNeed));
   }
 
+  async listProcessStepItems(): Promise<ReadResult<ProcessStepItem>> {
+    const { data, error } = await this.client
+      .from('os_process_step_items')
+      .select('step_id, item_id');
+    if (error) return readFailure('listProcessStepItems', error);
+    return okRows(
+      (data as { step_id: string; item_id: string }[]).map((row) => ({
+        stepId: row.step_id,
+        itemId: row.item_id,
+      })),
+    );
+  }
+
   async setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed> {
     const { data, error } = await this.client
       .from('os_process_needs')
@@ -1920,12 +1934,10 @@ interface ProcessNeedRow {
   src: string | null;
   owner: string | null;
   status: ProcessNeedStatus;
-  finish_line_item_id: string | null;
   requested_on: string | null;
 }
 
-const PROCESS_NEED_COLUMNS =
-  'id, step_id, item, kind, src, owner, status, finish_line_item_id, requested_on';
+const PROCESS_NEED_COLUMNS = 'id, step_id, item, kind, src, owner, status, requested_on';
 
 function rowToProcessNeed(row: ProcessNeedRow): ProcessNeed {
   const need: ProcessNeed = {
@@ -1937,7 +1949,6 @@ function rowToProcessNeed(row: ProcessNeedRow): ProcessNeed {
   };
   if (row.src) need.src = row.src;
   if (row.owner) need.owner = row.owner;
-  if (row.finish_line_item_id) need.finishLineItemId = row.finish_line_item_id;
   if (row.requested_on) need.requestedOn = row.requested_on;
   return need;
 }
