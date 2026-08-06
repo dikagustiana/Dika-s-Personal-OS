@@ -13,10 +13,16 @@
  * §6.1 grid constants — deliberately constants, not design tokens: they are
  * measurement geometry, shared verbatim by the view's grid template and the
  * geometry tests.
+ *
+ * GAP_W was 54 when the handoff badge was a 54px-wide text capsule that had
+ * to fit inside a gutter. The badge is now an 11px diamond (the word moved to
+ * the legend and the hover title), so the gutter no longer carries text and
+ * narrows to 40 — which takes ~280px off the full canvas width and brings
+ * neighbouring steps close enough to read as a chain.
  */
 export const LABEL_W = 168;
 export const BOX_W = 204;
-export const GAP_W = 54;
+export const GAP_W = 40;
 
 export interface BoxRect {
   x: number;
@@ -63,7 +69,15 @@ function fanOffset(index: number, count: number, h: number): number {
   return (index - (count - 1) / 2) * Math.min(7, (h - 14) / count);
 }
 
-/** Capsules collide when BOTH axes are within range; separation must clear one. */
+/**
+ * Capsules collide when BOTH axes are within range; separation must clear one.
+ *
+ * The clearances predate the marker shrinking from a 54×16 capsule to an
+ * 11px diamond and are KEPT at the old values on purpose: 22/18 around an
+ * 11px glyph guarantees daylight between any two markers, not merely
+ * non-overlap. Do not lower them to "fit more in" — the whole point of the
+ * anti-stack is that two handoffs near each other stay two events.
+ */
 const CAPSULE_X_CLEARANCE = 22;
 const CAPSULE_Y_CLEARANCE = 18;
 const CAPSULE_MAX_SHIFTS = 8;
