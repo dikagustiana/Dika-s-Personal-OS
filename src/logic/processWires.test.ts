@@ -12,7 +12,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ProcessStep } from '../data/types';
 import { deriveEdges, groupCells, handoffs, visibleSteps, type TrackFilter } from './process';
-import { fixtureLanes, fixtureSteps } from './process/seedFixture';
+import { fixtureLanes, fixtureStepItems, fixtureSteps } from './process/seedFixture';
+import { stepLabelsForItem } from './processModel';
 import {
   BOX_W,
   GAP_W,
@@ -205,5 +206,51 @@ describe('§10.8 arrows land on box edges, in every mode', () => {
       expect(rects.has(fromLabel)).toBe(true);
       expect(rects.has(toLabel)).toBe(true);
     }
+  });
+});
+
+describe('§2 the ?item pre-filter dims, it never filters — arrows survive it', () => {
+  const SALES_GENERAL_TRADE = '634e675f-4681-4307-b831-6cad1e7d80fa';
+  const stepItems = fixtureStepItems();
+
+  // The view derives `shown` from visibleSteps(steps, track) and passes
+  // `highlighted` down as a styling prop only. This pins that separation: if
+  // anyone ever narrows the render to the highlighted set, the box count and
+  // the wire count both drop here, and the diagram would lose arrows without
+  // throwing anything.
+  it('lights 4 of 30 steps and still lays out all 30 boxes', () => {
+    const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
+    expect([...lit].sort()).toEqual(['10', '18a', '19', '2']);
+    expect(steps.length - lit.size).toBe(26);
+    expect(buildRects('ALL', compact).size).toBe(30);
+  });
+
+  it('leaves every wire and all 12 capsules intact under the highlight', () => {
+    const rects = buildRects('ALL', compact);
+    const plain = computeWires(toWireEdges('ALL'), rects);
+    const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
+
+    // Highlighting cannot remove a box, so the same rect map — and therefore
+    // the same wire set — is what the highlighted render draws.
+    const highlightedRects = buildRects('ALL', compact);
+    for (const label of lit) expect(highlightedRects.has(label)).toBe(true);
+    const underHighlight = computeWires(toWireEdges('ALL'), highlightedRects);
+
+    expect(underHighlight.map((wire) => wire.key)).toEqual(plain.map((wire) => wire.key));
+    expect(underHighlight.filter((wire) => wire.capsule)).toHaveLength(12);
+  });
+
+  // The counterfactual: what the diagram would look like if the highlight DID
+  // filter. Not a behaviour we ship — it is here so the test above is not
+  // trivially true.
+  it('would lose boxes and arrows if the highlight ever became a filter', () => {
+    const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
+    const litOnly = new Map(
+      [...buildRects('ALL', compact)].filter(([label]) => lit.has(label)),
+    );
+    expect(litOnly.size).toBe(4);
+    expect(computeWires(toWireEdges('ALL'), litOnly).length).toBeLessThan(
+      computeWires(toWireEdges('ALL'), buildRects('ALL', compact)).length,
+    );
   });
 });

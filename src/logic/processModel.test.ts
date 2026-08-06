@@ -6,8 +6,8 @@
  * copy and the SQL cannot drift apart unnoticed.
  */
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import { okRows, readFailure, readThrew } from '../data/readResult';
+import { describe, expect, it, vi } from 'vitest';
+import { okRows, readFailure, readThrew, rowsOf } from '../data/readResult';
 import type { FinishLineItem, ProcessNeed, ProcessStep, ProcessStepItem } from '../data/types';
 import {
   buildProcessModel,
@@ -88,6 +88,58 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
     expect(model.kind).toBe('ready');
     expect(model.kind === 'ready' && model.steps).toHaveLength(30);
     expect(model.kind === 'ready' && model.stepItems).toHaveLength(45);
+  });
+
+  // The tests above force 42P01 one read at a time. THIS is the actual live
+  // state on 6 August: the migration has never run, so all six relations are
+  // missing at once and every process read fails together. The Swimlane and
+  // Kebutuhan data tabs must both fold to the ordinary empty state, and
+  // nothing may reach the console — a warning here is the difference between
+  // "not deployed yet" and "the app is broken".
+  const allSixMissing = () => ({
+    lanes: readFailure('listProcessLanes', { code: '42P01' }),
+    phases: readFailure('listProcessPhases', { code: '42P01' }),
+    steps: readFailure('listProcessSteps', { code: '42P01' }),
+    gates: readFailure('listProcessGates', { code: '42P01' }),
+    needs: readFailure('listProcessNeeds', { code: '42P01' }),
+    stepItems: readFailure('listProcessStepItems', { code: '42P01' }),
+  });
+
+  it('folds all six missing relations at once into empty, not failed', () => {
+    expect(buildProcessModel(allSixMissing())).toEqual({ kind: 'empty' });
+  });
+
+  it('says nothing to the console while every relation is missing', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      buildProcessModel(allSixMissing());
+      expect(error).not.toHaveBeenCalled();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      error.mockRestore();
+      warn.mockRestore();
+    }
+  });
+
+  // The Matrix tab reads os_finish_line_*, which is applied and populated. Its
+  // data path shares no read with the process tables, so a total process
+  // outage must leave it fully rendered rather than degrading all three tabs
+  // together.
+  it('leaves the Matrix tab untouched: closing conditions go quiet, nothing else', () => {
+    // FinishLine.tsx reaches the process tables through exactly one call —
+    // closingConditionsForItem, fed by rowsOf() over the three process reads.
+    // rowsOf() turns each failure into [], so the block returns null, which is
+    // what hides it. Every other cell on the Matrix reads os_finish_line_*.
+    const missing = allSixMissing();
+    expect(
+      closingConditionsForItem(
+        SALES_GENERAL_TRADE,
+        rowsOf(missing.stepItems),
+        rowsOf(missing.needs),
+        rowsOf(missing.steps),
+      ),
+    ).toBeNull();
   });
 });
 
