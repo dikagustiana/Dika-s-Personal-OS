@@ -1,43 +1,79 @@
 /**
- * SAMB operational process — pure derivations for the swimlane.
+ * Operational process — pure derivations for the swimlane, per entity.
  *
  * THE ARROWS ARE DERIVED, NEVER STORED. An edge list in the seed would go
- * stale the first time a step moved; instead the flow is recomputed from two
- * path walks (TRADE and LP), so convergence (two arrows into put-away),
+ * stale the first time a step moved; instead the flow is recomputed from one
+ * path walk per BRANCH track, so convergence (two arrows into put-away),
  * divergence (POD forking per track) and the handoff count all fall out of
  * the data. Within one walk two steps can never share a slot — the seed
  * guarantees it, and duplicateChainSlots() is the tripwire: when it reports
  * anything the seed is broken and the view must refuse to draw arrows rather
  * than guess an order.
+ *
+ * SINCE MIGRATION 52 THE TRACK VOCABULARY IS DATA (os_process_tracks), so
+ * every derivation here takes the entity's ProcessTrackDef[] instead of
+ * assuming TRADE/LP: SAMB walks TRADE and LP, ARBI walks FORWARD and
+ * REVERSE, and the one is_shared track per entity (KEDUANYA in both) joins
+ * every walk. Callers pass ONE entity's steps and ONE entity's tracks —
+ * mixing entities here would dedupe edges across chains that merely share
+ * label text.
  */
 import type {
   ProcessGate,
   ProcessNeed,
   ProcessPhase,
   ProcessStep,
+  ProcessTrackDef,
 } from '../data/types';
 
-/** The jalur filter. ALL shows both walks; KEDUANYA steps belong to both. */
-export type TrackFilter = 'ALL' | 'TRADE' | 'LP';
+/**
+ * The jalur filter: 'ALL', or one branch track CODE of the entity in view.
+ * An open string because the codes live in os_process_tracks now.
+ */
+export type TrackFilter = string;
 
-export const TRACK_FILTERS: TrackFilter[] = ['ALL', 'TRADE', 'LP'];
+export const ALL_TRACKS: TrackFilter = 'ALL';
 
-export function stepVisible(step: ProcessStep, filter: TrackFilter): boolean {
-  return filter === 'ALL' || step.track === 'KEDUANYA' || step.track === filter;
+/** Branch tracks — the filter buttons and the walk roots — by ordinal. */
+export function branchTracks(tracks: ProcessTrackDef[]): ProcessTrackDef[] {
+  return tracks
+    .filter((track) => !track.isShared)
+    .sort((a, b) => a.ordinal - b.ordinal);
 }
 
-export function visibleSteps(steps: ProcessStep[], filter: TrackFilter): ProcessStep[] {
-  return steps.filter((step) => stepVisible(step, filter));
+/** The shared-track codes: steps on these belong to every walk. */
+export function sharedTrackCodes(tracks: ProcessTrackDef[]): Set<string> {
+  return new Set(tracks.filter((track) => track.isShared).map((track) => track.code));
+}
+
+export function stepVisible(
+  step: ProcessStep,
+  filter: TrackFilter,
+  shared: ReadonlySet<string>,
+): boolean {
+  return filter === ALL_TRACKS || shared.has(step.track) || step.track === filter;
+}
+
+export function visibleSteps(
+  steps: ProcessStep[],
+  filter: TrackFilter,
+  shared: ReadonlySet<string>,
+): ProcessStep[] {
+  return steps.filter((step) => stepVisible(step, filter, shared));
 }
 
 export function maxSlot(steps: ProcessStep[]): number {
   return steps.reduce((highest, step) => Math.max(highest, step.slot), 0);
 }
 
-/** One walk: every step on the track (or shared), ascending by slot. */
-export function chainFor(steps: ProcessStep[], track: 'TRADE' | 'LP'): ProcessStep[] {
+/** One walk: every step on the branch track (or shared), ascending by slot. */
+export function chainFor(
+  steps: ProcessStep[],
+  track: string,
+  shared: ReadonlySet<string>,
+): ProcessStep[] {
   return steps
-    .filter((step) => step.track === track || step.track === 'KEDUANYA')
+    .filter((step) => step.track === track || shared.has(step.track))
     .sort((a, b) => a.slot - b.slot);
 }
 
@@ -47,12 +83,14 @@ export function chainFor(steps: ProcessStep[], track: 'TRADE' | 'LP'): ProcessSt
  */
 export function duplicateChainSlots(
   steps: ProcessStep[],
-): Array<{ track: 'TRADE' | 'LP'; slot: number }> {
-  const problems: Array<{ track: 'TRADE' | 'LP'; slot: number }> = [];
-  for (const track of ['TRADE', 'LP'] as const) {
+  tracks: ProcessTrackDef[],
+): Array<{ track: string; slot: number }> {
+  const shared = sharedTrackCodes(tracks);
+  const problems: Array<{ track: string; slot: number }> = [];
+  for (const branch of branchTracks(tracks)) {
     const seen = new Set<number>();
-    for (const step of chainFor(steps, track)) {
-      if (seen.has(step.slot)) problems.push({ track, slot: step.slot });
+    for (const step of chainFor(steps, branch.code, shared)) {
+      if (seen.has(step.slot)) problems.push({ track: branch.code, slot: step.slot });
       seen.add(step.slot);
     }
   }
@@ -62,20 +100,27 @@ export function duplicateChainSlots(
 export interface ProcessEdge {
   from: ProcessStep;
   to: ProcessStep;
-  /** True when the edge crosses lanes — a handoff, drawn heavy + labelled. */
+  /** True when the edge crosses lanes — a handoff, drawn heavy + marked. */
   cross: boolean;
 }
 
 /**
  * Consecutive pairs of each active walk, deduped by (from.label, to.label) —
- * the shared spine (e.g. DO → picking) appears in both walks but is one
- * arrow. Identity is the label because the label IS the step's identity.
+ * the shared spine (e.g. DO → picking) appears in every walk but is one
+ * arrow. Identity is the label because the label IS the step's identity
+ * within its entity — which is why this function must only ever see one
+ * entity's steps.
  */
-export function deriveEdges(steps: ProcessStep[], filter: TrackFilter): ProcessEdge[] {
+export function deriveEdges(
+  steps: ProcessStep[],
+  filter: TrackFilter,
+  tracks: ProcessTrackDef[],
+): ProcessEdge[] {
+  const shared = sharedTrackCodes(tracks);
   const edges = new Map<string, ProcessEdge>();
-  for (const track of ['TRADE', 'LP'] as const) {
-    if (filter !== 'ALL' && filter !== track) continue;
-    const chain = chainFor(steps, track);
+  for (const branch of branchTracks(tracks)) {
+    if (filter !== ALL_TRACKS && filter !== branch.code) continue;
+    const chain = chainFor(steps, branch.code, shared);
     for (let i = 1; i < chain.length; i += 1) {
       const from = chain[i - 1];
       const to = chain[i];
@@ -100,7 +145,9 @@ export function cellKey(laneKey: string, slot: number): string {
 /**
  * Boxes grouped into cells by (lane, slot). Two steps in one cell is a
  * parallel branch rendered stacked — never a duplicate. Stack order is by
- * label so 6a stands above 6b regardless of read order.
+ * label so 6a stands above 6b regardless of read order. An entity with no
+ * parallel branches (ARBI) simply never produces a group of two — the
+ * stacking path stays live and renders nothing stacked.
  */
 export function groupCells(steps: ProcessStep[]): Map<string, ProcessStep[]> {
   const cells = new Map<string, ProcessStep[]>();
@@ -117,10 +164,11 @@ export function groupCells(steps: ProcessStep[]): Map<string, ProcessStep[]> {
 }
 
 /**
- * Phases must tile slot 1..highestSlot exactly once — no gap, no overlap.
- * Not enforceable in the table (each row only knows its own range), so this
- * is the check, asserted over the seed in tests and used by the view to
- * refuse a broken ribbon.
+ * Phases must tile slot 1..highestSlot exactly once — no gap, no overlap —
+ * PER ENTITY: callers pass one entity's phases against that entity's highest
+ * slot. Not enforceable in the table (each row only knows its own range), so
+ * this is the check, asserted over both seeds in tests and used by the view
+ * to refuse a broken ribbon.
  */
 export function phaseCoverageProblems(phases: ProcessPhase[], highestSlot: number): string[] {
   const problems: string[] = [];
@@ -153,8 +201,9 @@ export function unknownGateRefs(steps: ProcessStep[], gates: ProcessGate[]): str
 }
 
 /**
- * Gates no step references. G03, G07 and G09 land here BY DESIGN — they keep
- * the numbering aligned with the blocker register outside the app.
+ * Gates no step references. SAMB's G03/G07/G09 and ARBI's B12 land here BY
+ * DESIGN — they keep the numbering aligned with the blocker registers
+ * outside the app.
  */
 export function unusedGates(steps: ProcessStep[], gates: ProcessGate[]): string[] {
   const used = new Set(steps.map((step) => step.gateId).filter(Boolean));
@@ -174,20 +223,23 @@ export interface ProcessStats {
 
 /**
  * The toolbar line. Need counts FOLLOW THE JALUR FILTER — the register for
- * one track must not quote the global totals.
+ * one track must not quote the global totals. Needs may be passed unscoped:
+ * the visible-step id set does the entity and track scoping in one pass.
  */
 export function processStats(
   steps: ProcessStep[],
   needs: ProcessNeed[],
   filter: TrackFilter,
+  tracks: ProcessTrackDef[],
 ): ProcessStats {
-  const shown = visibleSteps(steps, filter);
+  const shared = sharedTrackCodes(tracks);
+  const shown = visibleSteps(steps, filter, shared);
   const visibleIds = new Set(shown.map((step) => step.id));
   const scoped = needs.filter((need) => visibleIds.has(need.stepId));
   return {
     visible: shown.length,
     total: steps.length,
-    handoffCount: handoffs(deriveEdges(steps, filter)).length,
+    handoffCount: handoffs(deriveEdges(steps, filter, tracks)).length,
     needCount: scoped.length,
     needBelum: scoped.filter((need) => need.status === 'BELUM').length,
   };

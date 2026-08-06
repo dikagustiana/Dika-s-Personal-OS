@@ -1,0 +1,1906 @@
+{
+ "meta": {
+  "entity": "ARBI",
+  "brand": "ALADDIN",
+  "version": "0.1",
+  "scope": "Rantai B2C ARBI: setup master & harga → pengadaan → inbound & penyimpanan → order marketplace → outbound → pengiriman kurir → retur → settlement & kas. Jalur retur masuk lewat pintu inbound sebagai ASN Return. Seam ke jalur LP SAMB belum ditetapkan — lihat B04."
+ },
+ "lanes": [
+  {
+   "key": "MARKETPLACE",
+   "label": "MARKETPLACE",
+   "description": "Enam platform — sumber order & pemegang dana",
+   "ordinal": 1,
+   "is_external": true
+  },
+  {
+   "key": "CHANNEL",
+   "label": "CHANNEL",
+   "description": "Master, harga, sync stok, status",
+   "ordinal": 2,
+   "is_external": false
+  },
+  {
+   "key": "PURCHASING",
+   "label": "PURCHASING",
+   "description": "Rencana & order ke principal",
+   "ordinal": 3,
+   "is_external": false
+  },
+  {
+   "key": "WAREHOUSE",
+   "label": "WAREHOUSE",
+   "description": "Terima, simpan, pick, pack, dispatch",
+   "ordinal": 4,
+   "is_external": false
+  },
+  {
+   "key": "KURIR",
+   "label": "KURIR",
+   "description": "Last-mile pihak ketiga",
+   "ordinal": 5,
+   "is_external": true
+  },
+  {
+   "key": "FINANCE",
+   "label": "FINANCE",
+   "description": "Settlement, klaim, pajak, rekon",
+   "ordinal": 6,
+   "is_external": false
+  }
+ ],
+ "tracks": [
+  {
+   "code": "FORWARD",
+   "label": "FORWARD",
+   "ordinal": 1,
+   "is_shared": false
+  },
+  {
+   "code": "REVERSE",
+   "label": "REVERSE",
+   "ordinal": 2,
+   "is_shared": false
+  },
+  {
+   "code": "KEDUANYA",
+   "label": "BERSAMA",
+   "ordinal": 3,
+   "is_shared": true
+  }
+ ],
+ "phases": [
+  {
+   "name": "SETUP & MASTER",
+   "slot_from": 1,
+   "slot_to": 2
+  },
+  {
+   "name": "PENGADAAN",
+   "slot_from": 3,
+   "slot_to": 5
+  },
+  {
+   "name": "INBOUND & PENYIMPANAN",
+   "slot_from": 6,
+   "slot_to": 9
+  },
+  {
+   "name": "ORDER & OUTBOUND",
+   "slot_from": 10,
+   "slot_to": 14
+  },
+  {
+   "name": "PENGIRIMAN",
+   "slot_from": 15,
+   "slot_to": 17
+  },
+  {
+   "name": "RETUR",
+   "slot_from": 18,
+   "slot_to": 19
+  },
+  {
+   "name": "SETTLEMENT & KAS",
+   "slot_from": 20,
+   "slot_to": 23
+  }
+ ],
+ "gates": [
+  {
+   "id": "B01",
+   "type": "DATA",
+   "title": "Dimensi & berat per satuan (pieces)",
+   "owner": "Commercial / Purchasing",
+   "sub": "Blocker #1 versi B2C",
+   "unblock": "GT butuh isi per karton. B2C butuh dimensi dan berat SATUAN karena pick-nya per pieces dan ongkirnya per paket. Sumbernya sama — spec dan price list principal — jadi satu permintaan bisa menutup keduanya."
+  },
+  {
+   "id": "B02",
+   "type": "DECISION",
+   "title": "Sumber pembelian ARBI — principal langsung vs beli dari SAMB",
+   "owner": "Kamu + FAT",
+   "sub": "Menentukan ada tidaknya eliminasi",
+   "unblock": "Kalau beli dari SAMB, COGS ARBI intercompany dan unrealized profit atas stok yang belum terjual harus dieliminasi. Kalau langsung ke principal, tidak ada eliminasi di jalur pembelian."
+  },
+  {
+   "id": "B03",
+   "type": "DATA",
+   "title": "Stok hidup di lima titik tanpa sumber kebenaran",
+   "owner": "IT + Channel",
+   "sub": "Blocker baru — jalur B2C",
+   "unblock": "Tetapkan satu sistem sebagai sumber kebenaran, jadwalkan rekonsiliasi lima titik, dan simpan log kegagalan sync. Tanpa log, selisih hanya bisa disamakan, tidak bisa dijelaskan."
+  },
+  {
+   "id": "B04",
+   "type": "DECISION",
+   "title": "Gudang B2C — FC ARBI sendiri vs titipan di gudang SAMB",
+   "owner": "Kamu + Warehouse",
+   "sub": "Menentukan seam ke file GT/LP",
+   "unblock": "Kalau di gudang SAMB, ARBI adalah klien LP afiliasi di file itu dan G13/G14 berlaku dari sisi sebaliknya. Kalau FC sendiri, dua file independen kecuali first-mile. Ini menentukan arsitektur, bukan detail."
+  },
+  {
+   "id": "B05",
+   "type": "DECISION",
+   "title": "Aturan & wewenang disposisi karantina",
+   "owner": "Kamu + Warehouse",
+   "sub": "Terbuka",
+   "unblock": "Tetapkan batas umur karantina, pemilik keputusan disposisi, dan dasar penilaian barang layak jual. Tanpa ini stok karantina bernilai buku penuh tanpa batas waktu."
+  },
+  {
+   "id": "B06",
+   "type": "DECISION",
+   "title": "Driver cost-to-serve — order count per priority tier",
+   "owner": "Kamu",
+   "sub": "Menajamkan driver order-count e-commerce",
+   "unblock": "Order count telanjang merata-ratakan tier yang dapat picker dedicated dengan tier yang masuk wave normal. Pilih order count per tier, dan perlakukan mix tier sebagai variabel yang bergerak mengikuti jam order per platform."
+  },
+  {
+   "id": "B07",
+   "type": "DECISION",
+   "title": "Titik pengakuan revenue — shipment closed vs delivered",
+   "owner": "Kamu + FAT",
+   "sub": "Terbuka",
+   "unblock": "Tiga peristiwa di tiga waktu: uang masuk platform, barang dikirim, barang diterima. Tetapkan satu, tertulis, dan terapkan konsisten termasuk untuk order yang hilang di kurir."
+  },
+  {
+   "id": "B08",
+   "type": "DECISION",
+   "title": "Metode target order count",
+   "owner": "Kamu",
+   "sub": "Terbuka",
+   "unblock": "Ditetapkan di step 3 dan dipakai sebagai denominator kapasitas di hilir. Denominatornya pick-hour, bukan CBM — kapasitas orang, bukan kapasitas ruang."
+  },
+  {
+   "id": "B09",
+   "type": "DECISION",
+   "title": "Perlakuan promo & subsidi ongkir",
+   "owner": "Kamu + FAT",
+   "sub": "Sejajar dengan scope Discount to Distributor di GT",
+   "unblock": "Tetapkan apakah masuk pengurang revenue atau biaya komersial, dan pisahkan porsi yang ditanggung sendiri dari porsi platform sejak penetapan program."
+  },
+  {
+   "id": "B10",
+   "type": "DATA",
+   "title": "Rincian potongan settlement per order",
+   "owner": "Finance + Channel",
+   "sub": "Pengganti blok piutang GT",
+   "unblock": "Minta rincian potongan per order per jenis dari tiap platform. Tanpa itu potongan tidak bisa diuji ke skema yang diperjanjikan, dan B11 tidak punya dasar."
+  },
+  {
+   "id": "B11",
+   "type": "DECISION",
+   "title": "Dasar DPP PPN — GOV vs net payout",
+   "owner": "Tax + FAT",
+   "sub": "Bergantung pada B10",
+   "unblock": "Tetapkan tertulis dan konsisten antar platform. Selisih kedua dasar itu sebesar seluruh potongan platform."
+  },
+  {
+   "id": "B12",
+   "type": "DATA",
+   "title": "Arti tipe ASN \"PR\" dan istilah \"ISD\"",
+   "owner": "Purchasing + IT",
+   "sub": "Belum dikonfirmasi — jangan diasumsikan",
+   "unblock": "PR bisa Purchase Requisition atau Purchase Return, dan akuntansinya beda. ISD di aturan priority tier juga belum diketahui artinya. Dua-duanya cukup satu konfirmasi ke pemilik prosesnya."
+  }
+ ],
+ "steps": [
+  {
+   "label": "1",
+   "slot": 1,
+   "lane_key": "CHANNEL",
+   "co": "Marketplace ops",
+   "track": "FORWARD",
+   "name": "Setup SKU master, bundle & mapping kurir",
+   "risk": "SKU bundle aktif di platform tanpa definisi komponen sehingga stok bundle dan stok komponennya terhitung dua kali. Mapping kurir tidak divalidasi ke batas dimensi dan berat kurir sehingga paket ditolak saat handover.",
+   "control": "Definisi komponen bundle disetujui sebelum SKU bundle diaktifkan di platform; mapping kurir divalidasi terhadap batas dimensi dan berat masing-masing kurir.",
+   "note": "Blocker #1 di sini lebih dalam daripada di jalur GT. GT butuh isi per karton; B2C butuh dimensi dan berat per SATUAN karena pick-nya per pieces dan ongkirnya dihitung per paket. Ini master data baru, bukan turunan dari isi per karton.",
+   "gate_id": "B01",
+   "docs": [
+    "SKU master di OMS",
+    "Definisi SKU bundle → komponen",
+    "Mapping SKU per platform",
+    "Mapping SKU ↔ kurir"
+   ],
+   "coa": [],
+   "drivers": [
+    "Dimensi & berat per satuan — LAHIR DI SINI",
+    "Isi per karton per SKU"
+   ],
+   "needs": [
+    {
+     "item": "Dimensi satuan P × L × T per SKU",
+     "kind": "MASTER",
+     "src": "Spec principal",
+     "owner": "Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Berat satuan per SKU",
+     "kind": "MASTER",
+     "src": "Spec principal",
+     "owner": "Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Isi per karton per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing / Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Definisi bundle → komponen SKU",
+     "kind": "MASTER",
+     "src": "OMS",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Mapping SKU per platform",
+     "kind": "MASTER",
+     "src": "OMS / Jubelio",
+     "owner": "Channel",
+     "status": "ADA"
+    },
+    {
+     "item": "Mapping SKU ↔ kurir yang diizinkan",
+     "kind": "MASTER",
+     "src": "OMS",
+     "owner": "Channel",
+     "status": "ADA"
+    }
+   ]
+  },
+  {
+   "label": "2",
+   "slot": 2,
+   "lane_key": "CHANNEL",
+   "co": "Marketplace ops",
+   "track": "FORWARD",
+   "name": "Harga jual & program promo per platform",
+   "risk": "Program promo dijalankan tanpa perhitungan dampak ke margin per SKU. Subsidi ongkir ditanggung sendiri tetapi tidak pernah diukur per order sehingga hilang di dalam potongan settlement.",
+   "control": "Setiap program punya perhitungan dampak margin sebelum diaktifkan; porsi yang ditanggung sendiri dipisah dari porsi platform sejak penetapan program, bukan direkonstruksi dari laporan settlement.",
+   "note": "Harga tayang bukan harga yang diterima. Selisihnya lahir di sini sebagai kebijakan, dan baru terlihat angkanya di step 20. Kalau perlakuannya tidak ditetapkan sekarang, rekonsiliasi settlement nanti tidak punya pembanding.",
+   "gate_id": "B09",
+   "docs": [
+    "Price list per platform",
+    "Kalender promo & campaign platform",
+    "Skema subsidi ongkir"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Revenue — bruto sebelum potongan"
+    },
+    {
+     "code": "8.1.xx",
+     "label": "Selling & Marketing — biaya program, kalau ditetapkan sebagai biaya"
+    }
+   ],
+   "drivers": [
+    "GOV vs net revenue per platform",
+    "Porsi promo & subsidi yang ditanggung sendiri"
+   ],
+   "needs": [
+    {
+     "item": "Harga jual per SKU per platform",
+     "kind": "MASTER",
+     "src": "OMS",
+     "owner": "Channel",
+     "status": "ADA"
+    },
+    {
+     "item": "Skema promo & pihak yang menanggung",
+     "kind": "REFERENSI",
+     "src": "Perjanjian platform",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Porsi subsidi ongkir ditanggung sendiri vs platform",
+     "kind": "PARAMETER",
+     "src": "Perjanjian platform",
+     "owner": "Channel + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Dampak margin per SKU per program",
+     "kind": "PARAMETER",
+     "src": "Turunan",
+     "owner": "PF",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "3",
+   "slot": 3,
+   "lane_key": "CHANNEL",
+   "co": "Demand planning",
+   "track": "FORWARD",
+   "name": "Demand plan & forecast per platform",
+   "risk": "Lonjakan campaign pada tanggal kembar tidak diantisipasi sehingga order prioritas menumpuk dan picker dedicated tidak cukup. Overstock mengunci kas pada SKU slow moving yang tidak punya jalur keluar selain diskon.",
+   "control": "Forecast per platform ditinjau bulanan dengan tracking error; rencana headcount picker disandingkan ke kalender campaign sebelum periode berjalan.",
+   "note": "Denominator kapasitas di B2C adalah kapasitas ORANG (pick-hour), bukan kapasitas RUANG (CBM). Ini pembeda dari jalur GT yang perlu dipegang konsisten sampai ke alokasi biaya.",
+   "gate_id": "B08",
+   "docs": [
+    "Forecast per SKU per platform",
+    "Historis order OMS",
+    "Kalender campaign platform"
+   ],
+   "coa": [],
+   "drivers": [
+    "Target order count per tier — denominator kapasitas",
+    "Kapasitas normal pick-hour (PSAK 14)"
+   ],
+   "needs": [
+    {
+     "item": "Historis order per SKU per platform per bulan",
+     "kind": "TRANSAKSI",
+     "src": "OMS",
+     "owner": "Channel + IT",
+     "status": "ADA"
+    },
+    {
+     "item": "Kalender campaign & tanggal kembar per platform",
+     "kind": "REFERENSI",
+     "src": "Platform",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Target order count per periode",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kapasitas normal pick-hour per hari",
+     "kind": "PARAMETER",
+     "src": "Time study",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Lead time principal per SKU",
+     "kind": "MASTER",
+     "src": "Kesepakatan principal",
+     "owner": "Purchasing",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "4",
+   "slot": 4,
+   "lane_key": "PURCHASING",
+   "co": "",
+   "track": "FORWARD",
+   "name": "Terbit PO ke principal & buat ASN",
+   "risk": "PO terbit di luar batas otorisasi; ASN tidak dibuat sehingga inbound tidak bisa diverifikasi sistem dan penerimaan jatuh ke pencatatan manual.",
+   "control": "ASN wajib dibuat sebelum kedatangan dijadwalkan; harga terkunci ke price list aktif; three-way match PO – penerimaan – invoice principal.",
+   "note": "ASN punya tiga tipe di Flux: PO, PR, Return. Tipe PR belum dikonfirmasi Purchase Requisition atau Purchase Return — akuntansinya beda dan tidak diasumsikan. Lihat B12.",
+   "gate_id": "B02",
+   "docs": [
+    "PO",
+    "ASN di Flux — tipe PO / PR / Return",
+    "Price list principal",
+    "Konfirmasi trading term"
+   ],
+   "coa": [],
+   "drivers": [
+    "Isi per karton per SKU"
+   ],
+   "needs": [
+    {
+     "item": "Price list principal aktif per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing",
+     "status": "ADA"
+    },
+    {
+     "item": "Isi per karton per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing",
+     "status": "BELUM"
+    },
+    {
+     "item": "Trading term & skema discount per principal",
+     "kind": "REFERENSI",
+     "src": "Kontrak principal",
+     "owner": "Purchasing",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Matriks otorisasi PO",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "Management",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Sumber pembelian — principal langsung vs beli dari SAMB",
+     "kind": "PARAMETER",
+     "src": "Keputusan internal",
+     "owner": "Kamu + FAT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "5",
+   "slot": 5,
+   "lane_key": "PURCHASING",
+   "co": "",
+   "track": "FORWARD",
+   "name": "Konfirmasi kedatangan & slot bongkar",
+   "risk": "Truk datang setelah cut-off 15:00 sehingga bongkar bergeser ke hari berikutnya. Barang sudah di lokasi tetapi belum jadi stok yang bisa dijual, dan ASN menggantung tanpa yang memantau.",
+   "control": "Slot booking bongkar dikonfirmasi ke kapasitas gudang sebelum jadwal dikunci; ASN yang belum closed dimonitor harian terhadap SLA.",
+   "note": "Cut-off 15:00 adalah kebijakan yang sudah ditetapkan, jadi berstatus PARAMETER ADA — bukan data yang perlu dicari. Konsekuensinya operasional: barang yang datang jam 16:00 baru bisa dijual H+1, dan itu masuk ke lead time efektif, bukan lead time principal.",
+   "gate_id": null,
+   "docs": [
+    "Konfirmasi order principal",
+    "Jadwal slot bongkar",
+    "Monitoring ASN open"
+   ],
+   "coa": [],
+   "drivers": [
+    "Rencana volume inbound per hari"
+   ],
+   "needs": [
+    {
+     "item": "Cut-off inbound 15:00",
+     "kind": "PARAMETER",
+     "src": "Kebijakan operasional",
+     "owner": "Warehouse",
+     "status": "ADA"
+    },
+    {
+     "item": "Jadwal slot bongkar harian",
+     "kind": "TRANSAKSI",
+     "src": "Belum ada sistem",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Occupancy gudang harian",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Daftar ASN open melewati SLA",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    }
+   ]
+  },
+  {
+   "label": "6",
+   "slot": 6,
+   "lane_key": "WAREHOUSE",
+   "co": "Inbound",
+   "track": "FORWARD",
+   "name": "Inbound & good received",
+   "risk": "Qty fisik berbeda dari ASN; kerusakan saat bongkar tidak dicatat sehingga muncul belakangan sebagai selisih cycle count tanpa sebab yang bisa ditelusuri.",
+   "control": "Check inbound document dan ASN, lalu physical inspection dan product counting sebelum truk principal keluar; selisih dituangkan dalam berita acara dua pihak.",
+   "note": "Kontrol penerimaannya sudah berjalan dan terdokumentasi. Yang belum ada bukan kontrolnya, tapi pencatatan jam kerja bongkarnya — dan tanpa itu Pool Receiving tidak punya dasar pembagian.",
+   "gate_id": null,
+   "docs": [
+    "ASN",
+    "SJ principal",
+    "Hasil physical inspection & product counting",
+    "Berita acara selisih"
+   ],
+   "coa": [
+    {
+     "code": "5.2.xx",
+     "label": "Inventory / COGS — Dr Inventory"
+    },
+    {
+     "code": "Neraca",
+     "label": "GR/IR clearing"
+    }
+   ],
+   "drivers": [
+    "Volume inbound per kategori → Pool Receiving & Put-Away"
+   ],
+   "needs": [
+    {
+     "item": "Qty terima per SKU per ASN",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse Inbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Hasil physical inspection & product counting",
+     "kind": "TRANSAKSI",
+     "src": "Dokumen inbound",
+     "owner": "Warehouse Inbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Berita acara selisih terima",
+     "kind": "TRANSAKSI",
+     "src": "Form manual",
+     "owner": "Warehouse Inbound",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Jam kerja tenaga bongkar",
+     "kind": "TRANSAKSI",
+     "src": "Absensi / borongan",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Harga beli per SKU",
+     "kind": "TRANSAKSI",
+     "src": "Invoice principal",
+     "owner": "FAT",
+     "status": "ADA"
+    }
+   ]
+  },
+  {
+   "label": "7",
+   "slot": 7,
+   "lane_key": "WAREHOUSE",
+   "co": "Inbound",
+   "track": "FORWARD",
+   "name": "Putaway & ASN closed",
+   "risk": "ASN ditutup sebelum seluruh baris naik ke rak atau pick face. Stok langsung muncul di OMS dan Jubelio lalu ditayangkan platform, padahal fisiknya belum bisa dipick — order masuk atas stok yang belum siap.",
+   "control": "Scan lokasi wajib saat putaway; ASN hanya boleh ditutup setelah seluruh baris ter-putaway, bukan setelah barang turun dari truk.",
+   "note": "Titik paling sensitif di seluruh inbound. ASN closed adalah pemicu sync stok ke OMS dan Jubelio — begitu ditutup, enam platform langsung menawarkan barangnya. Kalau penutupan mendahului kesiapan fisik, akibatnya bukan salah saji persediaan, tapi oversell.",
+   "gate_id": null,
+   "docs": [
+    "Task putaway Flux",
+    "Peta rak & pick face",
+    "ASN closed",
+    "Sync stok Flux → ERP → OMS → Jubelio → platform"
+   ],
+   "coa": [
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.2.02",
+     "label": "Storing — Rental"
+    }
+   ],
+   "drivers": [
+    "Pallet position & pick face terisi → basis pallet-day",
+    "Volume inbound → Pool Receiving & Put-Away"
+   ],
+   "needs": [
+    {
+     "item": "Lokasi rak / pick face per SKU",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "ADA"
+    },
+    {
+     "item": "Dimensi karton P × L × T per SKU",
+     "kind": "MASTER",
+     "src": "Spec principal",
+     "owner": "Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Max tumpuk aktual per SKU",
+     "kind": "MASTER",
+     "src": "Observasi gudang",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tinggi rak berguna per zona",
+     "kind": "MASTER",
+     "src": "Ukur gudang",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Pallet position tersedia per zona",
+     "kind": "MASTER",
+     "src": "Layout gudang",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Waktu antara ASN closed dan barang siap di pick face",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse + IT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "8",
+   "slot": 8,
+   "lane_key": "WAREHOUSE",
+   "co": "Storage",
+   "track": "KEDUANYA",
+   "name": "Storage",
+   "risk": "Kalau stok ARBI secara fisik duduk di gudang SAMB tanpa penanda pemilik, kedua entitas tidak akan pernah bisa melakukan opname masing-masing dan selisihnya akan selalu ada tanpa bisa dijelaskan.",
+   "control": "Kalau gudang bersama: penanda pemilik wajib di level lot dan lokasi, dan opname dijalankan per pemilik, bukan per lokasi fisik.",
+   "note": "CBM tetap unit yang benar untuk penyimpanan — space × time. Yang salah adalah memakai CBM untuk fulfillment. Dua sisi ini tidak boleh dicampur dalam satu file, dan di B2C perbedaannya jauh lebih tajam daripada di GT.",
+   "gate_id": "B04",
+   "docs": [
+    "Stock report Flux",
+    "Occupancy report",
+    "Aging & slow-moving report"
+   ],
+   "coa": [
+    {
+     "code": "6.2.02",
+     "label": "Storing — Rental"
+    },
+    {
+     "code": "6.2.03",
+     "label": "Storing — Utilities"
+    },
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.2.06",
+     "label": "Storing — Security"
+    },
+    {
+     "code": "6.2.07",
+     "label": "Storing — Insurance"
+    },
+    {
+     "code": "6.2.08",
+     "label": "Storing — Depreciation"
+    }
+   ],
+   "drivers": [
+    "CBM × inventory days (space × time) → Pool Storage & Housekeeping",
+    "Pallet-day rate"
+   ],
+   "needs": [
+    {
+     "item": "Stok awal & akhir per SKU per periode — qty dan nilai",
+     "kind": "TRANSAKSI",
+     "src": "Flux / ERP",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "CBM tersimpan per SKU per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari dimensi karton",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Inventory days per SKU / kategori",
+     "kind": "PARAMETER",
+     "src": "Turunan — 2 jalur, belum dipilih",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Biaya sewa gudang per periode",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Headcount & pembagian waktu per activity pool",
+     "kind": "MASTER",
+     "src": "HR + time study",
+     "owner": "HR + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Status kepemilikan gudang — FC sendiri vs titipan di gudang SAMB",
+     "kind": "PARAMETER",
+     "src": "Keputusan internal",
+     "owner": "Kamu + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Aging stok per SKU",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    }
+   ]
+  },
+  {
+   "label": "9",
+   "slot": 9,
+   "lane_key": "WAREHOUSE",
+   "co": "Storage",
+   "track": "KEDUANYA",
+   "name": "Inventory management — cycle count, replenishment, karantina",
+   "risk": "Stok karantina menumpuk tanpa keputusan disposisi sehingga nilai bukunya tetap penuh padahal sudah tidak layak jual. Replenishment ke pick face tidak jalan sehingga pick gagal padahal stok ada di bulk.",
+   "control": "Cycle count berjadwal dengan toleransi tertulis dan penelusuran selisih di atas ambang; karantina punya batas umur dan pemilik keputusan disposisi yang jelas.",
+   "note": "Ini juga pintu masuk jalur retur. Barang retur yang layak jual kembali ke pick face lewat replenishment; yang tidak layak masuk karantina. Jadi kualitas keputusan disposisi di sini yang menentukan berapa banyak retur yang berakhir jadi kerugian — bukan tingkat returnya sendiri.",
+   "gate_id": "B05",
+   "docs": [
+    "Cycle count sheet",
+    "Task replenishment ke pick face",
+    "Register quarantine — damage / expired",
+    "Berita acara disposisi"
+   ],
+   "coa": [
+    {
+     "code": "5.2.xx",
+     "label": "COGS — write-off & penyisihan"
+    },
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "Baris cycle count",
+    "Volume replenishment ke pick face"
+   ],
+   "needs": [
+    {
+     "item": "Hasil cycle count & selisih per periode",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Min–max pick face per SKU",
+     "kind": "PARAMETER",
+     "src": "Kebijakan operasional",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Register karantina — damage, expired, sebab",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Aturan & wewenang disposisi karantina",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "Kamu + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Nilai & umur stok karantina",
+     "kind": "TRANSAKSI",
+     "src": "Turunan",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tanggal expired per lot",
+     "kind": "MASTER",
+     "src": "Flux",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    }
+   ]
+  },
+  {
+   "label": "10",
+   "slot": 10,
+   "lane_key": "MARKETPLACE",
+   "co": "Pembeli & platform",
+   "track": "FORWARD",
+   "name": "Order masuk dari marketplace",
+   "risk": "Order masuk atas stok yang sudah tidak sinkron sehingga terjadi oversell dan pembatalan. Order dari SKU yang belum ter-mapping tidak turun ke OMS dan hilang tanpa ada yang tahu.",
+   "control": "Sync stok terjadwal dengan buffer per platform; order gagal mapping masuk exception queue yang dimonitor harian, bukan menunggu keluhan pembeli.",
+   "note": "Uang sudah masuk ke platform di titik ini, bukan ke kita. Ini pembeda struktural terbesar dari jalur GT: di GT piutang lahir setelah barang diterima; di B2C kas ada di tangan pihak ketiga sebelum barang bergerak.",
+   "gate_id": null,
+   "docs": [
+    "Order di enam platform",
+    "Jubelio sebagai agregator",
+    "Flowing order & update stock ke OMS"
+   ],
+   "coa": [],
+   "drivers": [
+    "Order count per platform per tier"
+   ],
+   "needs": [
+    {
+     "item": "Order header & line per platform",
+     "kind": "TRANSAKSI",
+     "src": "OMS",
+     "owner": "Channel + IT",
+     "status": "ADA"
+    },
+    {
+     "item": "Jam order per order",
+     "kind": "TRANSAKSI",
+     "src": "OMS",
+     "owner": "Channel + IT",
+     "status": "ADA"
+    },
+    {
+     "item": "Platform asal order",
+     "kind": "TRANSAKSI",
+     "src": "OMS",
+     "owner": "Channel + IT",
+     "status": "ADA"
+    },
+    {
+     "item": "Status pembayaran dari platform",
+     "kind": "TRANSAKSI",
+     "src": "Platform / Jubelio",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Order gagal mapping SKU",
+     "kind": "TRANSAKSI",
+     "src": "OMS exception",
+     "owner": "Channel + IT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "11",
+   "slot": 11,
+   "lane_key": "CHANNEL",
+   "co": "Marketplace ops + IT",
+   "track": "KEDUANYA",
+   "name": "Rekonsiliasi stok antar sistem",
+   "risk": "Stok hidup di lima tempat: Flux, ERP, OMS, Jubelio, dan tayangan platform. Tidak ada satu pun yang otomatis menjadi sumber kebenaran. Kalau divergen, oversell menurunkan rating toko dan understock menghilangkan penjualan yang tidak bisa diambil kembali.",
+   "control": "Rekonsiliasi lima titik stok berjadwal dengan satu sistem ditetapkan sebagai sumber kebenaran; selisih di atas ambang wajib ditelusuri ke log sync sebelum disamakan.",
+   "note": "Di jalur GT stok hanya ada di dua tempat dan divergensinya urusan akuntansi. Di sini divergensi stok langsung jadi risiko komersial — oversell menurunkan rating, rating menurunkan traffic, dan traffic tidak bisa dibeli kembali dengan koreksi jurnal. Kontrol ini revenue protection, bukan hygiene.",
+   "gate_id": "B03",
+   "docs": [
+    "Stock report Flux",
+    "Stok ERP",
+    "Stok OMS",
+    "Stok Jubelio",
+    "Stok tayang per platform"
+   ],
+   "coa": [],
+   "drivers": [
+    "Selisih stok antar sistem per SKU"
+   ],
+   "needs": [
+    {
+     "item": "Snapshot stok per sistem pada waktu yang sama",
+     "kind": "TRANSAKSI",
+     "src": "Lima sistem",
+     "owner": "IT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Log sync & kegagalan sync",
+     "kind": "TRANSAKSI",
+     "src": "Middleware",
+     "owner": "IT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Buffer stok per platform",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "Channel",
+     "status": "BELUM"
+    },
+    {
+     "item": "Sistem yang ditetapkan sebagai sumber kebenaran",
+     "kind": "PARAMETER",
+     "src": "Keputusan internal",
+     "owner": "Kamu + IT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "12",
+   "slot": 12,
+   "lane_key": "WAREHOUSE",
+   "co": "Outbound",
+   "track": "FORWARD",
+   "name": "Order management & strategi wave picking",
+   "risk": "Tier ditentukan oleh platform dan jam order — dua variabel di luar kendali kita. Kalau mix tier bergeser ke prioritas tinggi, kebutuhan picker dedicated naik tanpa peringatan dan biaya per order naik tanpa terlihat di angka rata-rata.",
+   "control": "Tier di-assign otomatis dari aturan platform dan jam order, bukan penilaian manual; beban per tier dimonitor harian terhadap kapasitas dedicated yang tersedia.",
+   "note": "INI DRIVER YANG BENAR UNTUK B2C. Prioritas tinggi mendapat picker dan packer dedicated; prioritas rendah masuk wave normal. Jadi biaya picking per order tidak seragam, dan order count telanjang akan merata-ratakan yang justru tidak boleh dirata-ratakan. Yang dibutuhkan order count PER TIER — dan mix tiernya adalah variabel, bukan konstanta.",
+   "gate_id": "B06",
+   "docs": [
+    "Order pool OMS",
+    "Aturan priority tier P0 / P1 / P2",
+    "Mapping wave label",
+    "Print wave picking label"
+   ],
+   "coa": [
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "Order count per priority tier → Pool Picking & Packing",
+    "Jumlah wave per hari"
+   ],
+   "needs": [
+    {
+     "item": "Jam cut-off per platform per tier",
+     "kind": "PARAMETER",
+     "src": "Aturan internal — sudah ditetapkan",
+     "owner": "Channel",
+     "status": "ADA"
+    },
+    {
+     "item": "Priority tier per order",
+     "kind": "TRANSAKSI",
+     "src": "OMS",
+     "owner": "Channel + IT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Jumlah order per tier per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan OMS",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Headcount dedicated picker & packer vs wave normal",
+     "kind": "MASTER",
+     "src": "HR + Warehouse",
+     "owner": "HR + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jam kerja picker & packer per tier",
+     "kind": "TRANSAKSI",
+     "src": "Absensi",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "13",
+   "slot": 13,
+   "lane_key": "WAREHOUSE",
+   "co": "Outbound",
+   "track": "FORWARD",
+   "name": "Picking",
+   "risk": "Salah SKU pada order satuan langsung menjadi keluhan dan retur. Berbeda dari GT, tidak ada kunjungan berikutnya untuk mengoreksi — koreksinya berupa retur berbiaya penuh plus penurunan rating.",
+   "control": "Scan validation code di lokasi rak dan scan product code per baris pick — dua verifikasi, bukan satu.",
+   "note": "Kontrolnya sudah lebih kuat dari jalur GT: lokasi dan produk keduanya di-scan. Yang belum ada bukan kontrolnya, tapi pemanenan datanya jadi angka biaya.",
+   "gate_id": null,
+   "docs": [
+    "Scan wave picking label",
+    "Scan validation code di lokasi rak",
+    "Scan product code",
+    "Bawa ke staging location"
+   ],
+   "coa": [
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "Baris pick per wave",
+    "Order count per tier → Pool Picking & Packing"
+   ],
+   "needs": [
+    {
+     "item": "Baris pick per order",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Scan log validasi lokasi & produk",
+     "kind": "TRANSAKSI",
+     "src": "Flux",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Jumlah baris pick per periode per tier",
+     "kind": "TRANSAKSI",
+     "src": "Turunan Flux",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jam kerja picker per periode",
+     "kind": "TRANSAKSI",
+     "src": "Absensi",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "14",
+   "slot": 14,
+   "lane_key": "WAREHOUSE",
+   "co": "Outbound",
+   "track": "FORWARD",
+   "name": "Checking & packing",
+   "risk": "Barcode kemasan di-scan tetapi konsumsinya tidak dipanen jadi data biaya, sehingga biaya kemasan hanya bisa dilihat sebagai total dan tidak bisa dibebankan ke order, SKU, atau platform yang membuatnya mahal.",
+   "control": "Scan barcode kemasan per order; rekaman webcam start dan stop per proses packing sebagai bukti kondisi barang saat keluar.",
+   "note": "Rekaman webcam adalah control artifact untuk sengketa klaim marketplace, dan sengketa klaim adalah salah satu tempat margin B2C bocor. Tapi retensinya belum ditetapkan — kalau lebih pendek dari jendela klaim platform, kontrolnya ada tapi tidak bisa dipakai. Lihat step 21.",
+   "gate_id": null,
+   "docs": [
+    "Scan wave picking label",
+    "Scan product code",
+    "Rekaman webcam start & stop",
+    "Scan barcode carton box / polymailer",
+    "Print & tempel shipping label"
+   ],
+   "coa": [
+    {
+     "code": "6.2.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.2.10",
+     "label": "Storing — material packing"
+    }
+   ],
+   "drivers": [
+    "Order count per tier → Pool Picking & Packing",
+    "Konsumsi material packing per order"
+   ],
+   "needs": [
+    {
+     "item": "Konsumsi material packing per order",
+     "kind": "TRANSAKSI",
+     "src": "Scan barcode kemasan",
+     "owner": "Warehouse + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Biaya per jenis kemasan",
+     "kind": "MASTER",
+     "src": "Pembelian kemasan",
+     "owner": "Purchasing",
+     "status": "BELUM"
+    },
+    {
+     "item": "Rekaman webcam per order",
+     "kind": "TRANSAKSI",
+     "src": "Sistem rekaman",
+     "owner": "Warehouse + IT",
+     "status": "ADA"
+    },
+    {
+     "item": "Retensi & aturan akses rekaman",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "Kamu + IT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "15",
+   "slot": 15,
+   "lane_key": "WAREHOUSE",
+   "co": "Outbound",
+   "track": "FORWARD",
+   "name": "Dispatch & manifest",
+   "risk": "Paket ditimbang tetapi beratnya tidak direkonsiliasi dengan berat yang ditagih kurir, sehingga kelebihan tagihan ongkir tidak pernah tertangkap padahal datanya ada.",
+   "control": "Penimbangan per paket sebelum manifest; berat dan dimensi manifest direkonsiliasi terhadap tagihan kurir setiap periode.",
+   "note": "Di sini B2C justru lebih baik dari GT. Berat aktual per paket DITIMBANG dan tercatat, sementara berat per SJ di jalur GT masih belum ada. Artinya untuk B2C pertanyaan tonase versus volume bisa diuji dengan data, bukan diasumsikan.",
+   "gate_id": null,
+   "docs": [
+    "Penimbangan paket",
+    "Scan invoice / order number di shipping label",
+    "Sorting paket per kurir",
+    "Manifest per kurir",
+    "Print manifest"
+   ],
+   "coa": [
+    {
+     "code": "7.2.04",
+     "label": "Distribution — Delivery: ongkir kurir"
+    }
+   ],
+   "drivers": [
+    "Berat aktual per paket",
+    "Jumlah paket per kurir per hari"
+   ],
+   "needs": [
+    {
+     "item": "Berat aktual per paket",
+     "kind": "TRANSAKSI",
+     "src": "Timbangan di dispatch",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Dimensi paket terkirim",
+     "kind": "TRANSAKSI",
+     "src": "Dispatch",
+     "owner": "Warehouse Outbound",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Tarif kurir per zona per berat",
+     "kind": "MASTER",
+     "src": "Perjanjian kurir",
+     "owner": "Channel + Finance",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Tagihan kurir per periode per paket",
+     "kind": "TRANSAKSI",
+     "src": "Invoice kurir",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Porsi ongkir ditanggung sendiri",
+     "kind": "PARAMETER",
+     "src": "Skema platform",
+     "owner": "Channel + FAT",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "16",
+   "slot": 16,
+   "lane_key": "KURIR",
+   "co": "Pihak ketiga",
+   "track": "FORWARD",
+   "name": "Handover ke kurir",
+   "risk": "Paket masuk manifest tetapi tidak diambil kurir. Status di platform sudah berjalan sementara barang masih di gudang, dan selisih hitung tidak diselesaikan sebelum manifest ditutup.",
+   "control": "Dispatcher dan kurir menghitung ulang dan mencocokkan ke manifest, keduanya menandatangani sebelum manifest ditutup; paket yang tercatat tetapi tidak terangkut direkonsiliasi harian.",
+   "note": "Titik pindah tanggung jawab. Setelah manifest ditutup, kehilangan paket menjadi klaim ke kurir — dan kemampuan menagih klaim itu bergantung pada manifest bertanda tangan ini plus rekaman packing dari step 14.",
+   "gate_id": null,
+   "docs": [
+    "Manifest bertanda tangan dispatcher & kurir",
+    "Closed manifest",
+    "Bukti serah paket"
+   ],
+   "coa": [
+    {
+     "code": "7.2.04",
+     "label": "Distribution — Delivery"
+    }
+   ],
+   "drivers": [
+    "Jumlah paket per kurir per hari"
+   ],
+   "needs": [
+    {
+     "item": "Manifest closed bertanda tangan dua pihak",
+     "kind": "TRANSAKSI",
+     "src": "Manifest fisik",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Selisih hitung dispatcher vs kurir",
+     "kind": "TRANSAKSI",
+     "src": "Manifest",
+     "owner": "Warehouse Outbound",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "SLA pickup per kurir",
+     "kind": "REFERENSI",
+     "src": "Perjanjian kurir",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Paket masuk manifest tapi tidak terangkut",
+     "kind": "TRANSAKSI",
+     "src": "Rekonsiliasi manifest",
+     "owner": "Warehouse + Channel",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "17",
+   "slot": 17,
+   "lane_key": "CHANNEL",
+   "co": "Marketplace ops",
+   "track": "FORWARD",
+   "name": "Shipment order closed & status delivered",
+   "risk": "Revenue diakui saat shipment ditutup padahal risiko baru berpindah saat barang diterima. Paket yang hilang di kurir sudah tercatat sebagai penjualan dan koreksinya jatuh di periode berikutnya.",
+   "control": "Pengakuan revenue disandarkan pada satu titik yang ditetapkan dan diterapkan konsisten; order yang belum delivered melewati SLA ditinjau sebelum tutup buku.",
+   "note": "Pembeda tegas dari jalur GT. Di GT, POD bertanda tangan customer adalah cut-off yang jelas. Di B2C ada tiga peristiwa di tiga waktu berbeda — uang masuk ke platform, barang dikirim, barang diterima — penyerahannya dilakukan kurir, dan bukti terimanya milik kurir. Hanya satu yang boleh jadi titik pengakuan.",
+   "gate_id": "B07",
+   "docs": [
+    "Shipment order closed di OMS",
+    "Tracking kurir",
+    "Update status ke platform",
+    "POD digital kurir"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Revenue — trigger pengakuan"
+    },
+    {
+     "code": "5.2.xx",
+     "label": "COGS — trigger pengakuan"
+    }
+   ],
+   "drivers": [
+    "Order delivered per periode"
+   ],
+   "needs": [
+    {
+     "item": "Status delivered per order dari kurir",
+     "kind": "TRANSAKSI",
+     "src": "API kurir / platform",
+     "owner": "Channel + IT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Tanggal kirim dan tanggal delivered per order",
+     "kind": "TRANSAKSI",
+     "src": "Tracking",
+     "owner": "Channel + IT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Titik pengakuan revenue yang ditetapkan",
+     "kind": "PARAMETER",
+     "src": "Kebijakan akuntansi",
+     "owner": "Kamu + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tanggal cut-off pengakuan per periode",
+     "kind": "PARAMETER",
+     "src": "Kalender close",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Order tidak delivered melewati SLA",
+     "kind": "TRANSAKSI",
+     "src": "Tracking",
+     "owner": "Channel",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "18",
+   "slot": 18,
+   "lane_key": "MARKETPLACE",
+   "co": "Pembeli & platform",
+   "track": "REVERSE",
+   "name": "Retur dari pembeli & ASN Return",
+   "risk": "Retur masuk tanpa referensi order asal sehingga tidak bisa diatribusikan ke platform, SKU, atau penyebab. Tingkat retur per platform tidak pernah diukur sehingga platform yang returnya mahal tidak terlihat dan tetap diperlakukan sama seperti yang murah.",
+   "control": "Retur hanya diterima dengan referensi order asal; alasan retur wajib berkode dan bukan teks bebas, supaya bisa diagregasi per platform dan per SKU.",
+   "note": "Retur masuk lewat pintu yang sama dengan pembelian, sebagai ASN Return di Flux. Jadi jalur fisiknya tidak terpisah dan tidak perlu lane sendiri. Yang butuh perlakuan terpisah adalah keputusan layak jual — dan itu ada di step 9, bukan di sini.",
+   "gate_id": null,
+   "docs": [
+    "Pengajuan retur di platform",
+    "Persetujuan retur",
+    "Resi retur",
+    "ASN Return di Flux"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Sales return — pengurang revenue"
+    },
+    {
+     "code": "Neraca",
+     "label": "Kewajiban pengembalian dana"
+    }
+   ],
+   "drivers": [
+    "Tingkat retur per platform per SKU",
+    "Volume retur masuk"
+   ],
+   "needs": [
+    {
+     "item": "Pengajuan & alasan retur per order",
+     "kind": "TRANSAKSI",
+     "src": "Platform / OMS",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Kode alasan retur yang terstandar",
+     "kind": "MASTER",
+     "src": "Kebijakan internal",
+     "owner": "Channel",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tingkat retur per platform per SKU",
+     "kind": "TRANSAKSI",
+     "src": "Turunan OMS",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Biaya ongkir retur & pihak yang menanggung",
+     "kind": "PARAMETER",
+     "src": "Perjanjian platform",
+     "owner": "Channel + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jendela waktu retur per platform",
+     "kind": "REFERENSI",
+     "src": "Perjanjian platform",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    }
+   ]
+  },
+  {
+   "label": "19",
+   "slot": 19,
+   "lane_key": "WAREHOUSE",
+   "co": "Inbound",
+   "track": "REVERSE",
+   "name": "Terima retur & disposisi",
+   "risk": "Barang retur dimasukkan kembali ke pick face tanpa inspeksi sehingga dikirim ulang lalu diretur lagi — biaya fulfillment terbayar dua kali untuk satu penjualan yang tidak pernah jadi. Write-off diputuskan tanpa dasar penilaian sehingga persediaan overstated.",
+   "control": "Setiap barang retur diinspeksi dan didisposisi dengan berita acara sebelum masuk kembali ke stok; barang tanpa keputusan disposisi tidak boleh berada di pick face.",
+   "note": "Konvergensi jalur retur ke jalur normal terjadi di sini: barang layak jual kembali ke step 9 lewat replenishment dan mulai lagi dari sana. Yang tidak layak berhenti di karantina dan menunggu keputusan disposisi.",
+   "gate_id": "B05",
+   "docs": [
+    "ASN Return",
+    "Inspeksi kondisi barang retur",
+    "Berita acara disposisi — layak jual / karantina / write-off"
+   ],
+   "coa": [
+    {
+     "code": "5.2.xx",
+     "label": "COGS — write-off barang tidak layak jual"
+    },
+    {
+     "code": "Neraca",
+     "label": "Inventory — masuk kembali barang layak jual"
+    }
+   ],
+   "drivers": [
+    "Volume retur",
+    "Baris inspeksi retur"
+   ],
+   "needs": [
+    {
+     "item": "Hasil inspeksi kondisi per barang retur",
+     "kind": "TRANSAKSI",
+     "src": "Form inspeksi",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Keputusan disposisi per barang retur",
+     "kind": "TRANSAKSI",
+     "src": "Berita acara",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Nilai pemulihan barang layak jual",
+     "kind": "PARAMETER",
+     "src": "Kebijakan penilaian",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jam kerja penanganan retur",
+     "kind": "TRANSAKSI",
+     "src": "Absensi",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "20",
+   "slot": 20,
+   "lane_key": "FINANCE",
+   "co": "AR + Channel",
+   "track": "KEDUANYA",
+   "name": "Rekonsiliasi settlement platform",
+   "risk": "Potongan platform diterima apa adanya tanpa diuji ke skema yang diperjanjikan. Selisih GOV terhadap payout tidak direkonsiliasi per order sehingga potongan yang salah tidak pernah tertangkap, dan jendela sengketanya lewat sebelum selisihnya diketahui.",
+   "control": "Rekonsiliasi GOV → potongan → payout per order per platform setiap periode; selisih di atas ambang diajukan sengketa di dalam jendela waktu platform, bukan setelah tutup buku.",
+   "note": "INI PENGGANTI SELURUH BLOK PIUTANG DI JALUR GT. Tidak ada tukar faktur, tidak ada dunning, tidak ada aging dalam bentuk yang sama. Yang ada: pihak lawan memegang uang kita, memotong sendiri, lalu mengirim rekapnya. Posisi kita bukan penagih tetapi pemeriksa — dan kalau tidak diperiksa per order, tidak ada cara mengetahui potongannya benar. Umur payout menggantikan weeks of credit di rumus rotations.",
+   "gate_id": "B10",
+   "docs": [
+    "Laporan settlement per platform",
+    "Statement payout",
+    "Rincian potongan — komisi, admin fee, subsidi ongkir, promo funding",
+    "Rekening koran"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Revenue — bruto"
+    },
+    {
+     "code": "8.1.xx",
+     "label": "Selling & Marketing — komisi & admin fee platform"
+    },
+    {
+     "code": "Neraca",
+     "label": "Piutang platform — dana tertahan"
+    },
+    {
+     "code": "Neraca",
+     "label": "Kas / bank"
+    }
+   ],
+   "drivers": [
+    "GOV vs net payout per platform",
+    "Potongan per order per jenis"
+   ],
+   "needs": [
+    {
+     "item": "Laporan settlement per platform per periode",
+     "kind": "TRANSAKSI",
+     "src": "Platform",
+     "owner": "Finance AR",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Rincian potongan per order per jenis",
+     "kind": "TRANSAKSI",
+     "src": "Platform",
+     "owner": "Finance AR + Channel",
+     "status": "BELUM"
+    },
+    {
+     "item": "Skema komisi & admin fee per platform",
+     "kind": "MASTER",
+     "src": "Perjanjian platform",
+     "owner": "Channel",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Umur payout per platform",
+     "kind": "PARAMETER",
+     "src": "Perjanjian platform",
+     "owner": "Finance",
+     "status": "BELUM"
+    },
+    {
+     "item": "Rekonsiliasi GOV → potongan → payout per order",
+     "kind": "TRANSAKSI",
+     "src": "Kertas kerja rekon",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Saldo dana tertahan per platform per tanggal",
+     "kind": "TRANSAKSI",
+     "src": "Dashboard platform",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "21",
+   "slot": 21,
+   "lane_key": "FINANCE",
+   "co": "AR + Channel",
+   "track": "KEDUANYA",
+   "name": "Sengketa klaim & kompensasi",
+   "risk": "Klaim tidak diajukan di dalam jendela waktu sehingga kerugian menjadi final. Bukti pendukungnya ada di rekaman webcam tetapi sudah terhapus karena retensinya lebih pendek dari jendela klaim.",
+   "control": "Register klaim dengan tanggal jatuh tempo jendela per platform dan kurir; retensi rekaman packing ditetapkan lebih panjang dari jendela klaim terlama.",
+   "note": "Dua kontrol yang sudah berjalan di operasi — rekaman webcam di step 14 dan manifest bertanda tangan di step 16 — nilainya baru keluar di sini. Kalau retensi dan registernya tidak diatur, dua kontrol itu ada tetapi tidak bisa dipakai, dan biaya membangunnya sudah keluar.",
+   "gate_id": null,
+   "docs": [
+    "Pengajuan klaim ke platform & kurir",
+    "Bukti rekaman packing",
+    "Manifest bertanda tangan",
+    "Putusan klaim & kompensasi"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Kompensasi diterima"
+    },
+    {
+     "code": "8.1.xx",
+     "label": "Kerugian klaim tidak terpulihkan"
+    }
+   ],
+   "drivers": [
+    "Jumlah klaim per platform & kurir",
+    "Nilai klaim vs nilai pemulihan"
+   ],
+   "needs": [
+    {
+     "item": "Register klaim & statusnya",
+     "kind": "TRANSAKSI",
+     "src": "Belum ada sistem",
+     "owner": "Finance AR + Channel",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jendela waktu klaim per platform & kurir",
+     "kind": "REFERENSI",
+     "src": "Perjanjian",
+     "owner": "Channel",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tingkat keberhasilan klaim",
+     "kind": "TRANSAKSI",
+     "src": "Turunan register",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Bukti pendukung per klaim",
+     "kind": "TRANSAKSI",
+     "src": "Rekaman & manifest",
+     "owner": "Warehouse + Channel",
+     "status": "SEBAGIAN"
+    }
+   ]
+  },
+  {
+   "label": "22",
+   "slot": 22,
+   "lane_key": "FINANCE",
+   "co": "Tax",
+   "track": "FORWARD",
+   "name": "Faktur pajak & PPN",
+   "risk": "Faktur pajak atas penjualan ritel diperlakukan tidak konsisten antar platform. DPP disandarkan ke GOV atau ke net payout tanpa dasar yang ditetapkan, sehingga rekonsiliasi PPN terhadap revenue tidak pernah tutup.",
+   "control": "Perlakuan PPN ditetapkan tertulis dan diterapkan konsisten di semua platform; rekonsiliasi rekap penjualan terhadap faktur pajak dilakukan bulanan.",
+   "note": "Pertanyaannya bukan teknis pelaporan, tapi angka mana yang jadi dasar. GOV dan net payout berbeda sebesar seluruh potongan platform — dan potongan itu sendiri belum bisa dirinci per order. Jadi B11 bergantung pada B10.",
+   "gate_id": "B11",
+   "docs": [
+    "Faktur pajak / e-Faktur",
+    "Rekap penjualan per platform",
+    "Dokumen PPN keluaran"
+   ],
+   "coa": [
+    {
+     "code": "4.2.xx",
+     "label": "Revenue"
+    },
+    {
+     "code": "Neraca",
+     "label": "PPN keluaran"
+    }
+   ],
+   "drivers": [
+    "Jumlah transaksi per periode"
+   ],
+   "needs": [
+    {
+     "item": "Rekap penjualan per periode per platform",
+     "kind": "TRANSAKSI",
+     "src": "OMS / ERP",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Perlakuan PPN atas transaksi marketplace",
+     "kind": "PARAMETER",
+     "src": "Kebijakan pajak",
+     "owner": "Tax + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Dasar DPP — GOV vs net payout",
+     "kind": "PARAMETER",
+     "src": "Keputusan internal",
+     "owner": "Tax + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Identitas pembeli untuk faktur",
+     "kind": "TRANSAKSI",
+     "src": "Platform",
+     "owner": "Tax",
+     "status": "BELUM"
+    }
+   ]
+  },
+  {
+   "label": "23",
+   "slot": 23,
+   "lane_key": "FINANCE",
+   "co": "Accounting + PF",
+   "track": "KEDUANYA",
+   "name": "Rekon kas, GL & intercompany",
+   "risk": "Kalau ARBI membeli dari SAMB, markupnya menjadi unrealized profit atas stok ARBI yang belum terjual dan harus dieliminasi — scope-nya hanya stok yang berasal dari pembelian afiliasi, bukan seluruh persediaan ARBI. Kalau gudang atau armada SAMB dipakai, biayanya harus punya dasar arm's length dan bukti manfaat.",
+   "control": "Pre-recon setiap line item ke akun TB-nya sebelum masuk matrix; transaksi afiliasi diberi nomor dokumen referensi di kedua sisi sehingga IS bisa dicocokkan per dokumen, bukan per total.",
+   "note": "Seam ke file jalur GT/LP. Kalau gudangnya SAMB, ARBI adalah klien LP berstatus afiliasi di file itu — dan G13/G14 di sana berlaku dari sisi sebaliknya: yang di sana carve-out COS–LP, di sini biaya jasa yang dibayar. Satu pengukuran, dua entitas, dan angkanya harus sama.",
+   "gate_id": "B02",
+   "docs": [
+    "Rekening koran",
+    "WP rekonsiliasi",
+    "Posting GL → TB ARBI",
+    "Matrix intercompany"
+   ],
+   "coa": [
+    {
+     "code": "Neraca",
+     "label": "Kas / bank"
+    },
+    {
+     "code": "Elim",
+     "label": "Eliminasi revenue ↔ biaya at cost"
+    },
+    {
+     "code": "Elim",
+     "label": "Eliminasi unrealized profit atas markup"
+    }
+   ],
+   "drivers": [
+    "Selisih Per BS vs Control per akun"
+   ],
+   "needs": [
+    {
+     "item": "Mapping COA T.G.FF.DDDD untuk ARBI",
+     "kind": "MASTER",
+     "src": "Kertas kerja mapping",
+     "owner": "PF + FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Rekonsiliasi Per BS vs Control per akun",
+     "kind": "TRANSAKSI",
+     "src": "Kertas kerja rekon",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Daftar transaksi afiliasi + nomor dokumen referensi",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Sisa inventory unsold dari pembelian afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "GL — perlu filter scope",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tarif jasa dari SAMB kalau gudang atau armada dipakai",
+     "kind": "PARAMETER",
+     "src": "Perjanjian intercompany",
+     "owner": "Kamu + FAT",
+     "status": "BELUM"
+    }
+   ]
+  }
+ ],
+ "step_items": [
+  {
+   "item_id": "d664376d-e4a3-45fa-a0fa-c844f14851ed",
+   "item": "Sales — B2C",
+   "step_label": "2"
+  },
+  {
+   "item_id": "d664376d-e4a3-45fa-a0fa-c844f14851ed",
+   "item": "Sales — B2C",
+   "step_label": "10"
+  },
+  {
+   "item_id": "d664376d-e4a3-45fa-a0fa-c844f14851ed",
+   "item": "Sales — B2C",
+   "step_label": "17"
+  },
+  {
+   "item_id": "d664376d-e4a3-45fa-a0fa-c844f14851ed",
+   "item": "Sales — B2C",
+   "step_label": "20"
+  },
+  {
+   "item_id": "6e599653-470e-4e6a-b73c-f1f308cf4717",
+   "item": "COGS — B2C",
+   "step_label": "6"
+  },
+  {
+   "item_id": "6e599653-470e-4e6a-b73c-f1f308cf4717",
+   "item": "COGS — B2C",
+   "step_label": "7"
+  },
+  {
+   "item_id": "6e599653-470e-4e6a-b73c-f1f308cf4717",
+   "item": "COGS — B2C",
+   "step_label": "9"
+  },
+  {
+   "item_id": "768beb21-1151-4a1f-924a-c1c3f5001348",
+   "item": "COGS — Logistic provider",
+   "step_label": "8"
+  },
+  {
+   "item_id": "768beb21-1151-4a1f-924a-c1c3f5001348",
+   "item": "COGS — Logistic provider",
+   "step_label": "15"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "6"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "7"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "8"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "9"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "13"
+  },
+  {
+   "item_id": "10b151a5-5c45-454c-a13b-ffbc786ec645",
+   "item": "Storing cost",
+   "step_label": "14"
+  },
+  {
+   "item_id": "7d040e4a-7bf4-425a-b171-a46245d8158c",
+   "item": "Distribution cost",
+   "step_label": "15"
+  },
+  {
+   "item_id": "7d040e4a-7bf4-425a-b171-a46245d8158c",
+   "item": "Distribution cost",
+   "step_label": "16"
+  },
+  {
+   "item_id": "7d040e4a-7bf4-425a-b171-a46245d8158c",
+   "item": "Distribution cost",
+   "step_label": "17"
+  },
+  {
+   "item_id": "390d42f8-4add-4f23-b59f-1c8aed3bc5e1",
+   "item": "Commercials and support",
+   "step_label": "20"
+  },
+  {
+   "item_id": "390d42f8-4add-4f23-b59f-1c8aed3bc5e1",
+   "item": "Commercials and support",
+   "step_label": "21"
+  },
+  {
+   "item_id": "390d42f8-4add-4f23-b59f-1c8aed3bc5e1",
+   "item": "Commercials and support",
+   "step_label": "22"
+  },
+  {
+   "item_id": "5af36fdd-bc29-4372-9d5a-cd77afda0dfb",
+   "item": "Trade receivable",
+   "step_label": "20"
+  },
+  {
+   "item_id": "5af36fdd-bc29-4372-9d5a-cd77afda0dfb",
+   "item": "Trade receivable",
+   "step_label": "23"
+  },
+  {
+   "item_id": "873b8990-305d-426b-b43d-9effc2398957",
+   "item": "Inventories",
+   "step_label": "7"
+  },
+  {
+   "item_id": "873b8990-305d-426b-b43d-9effc2398957",
+   "item": "Inventories",
+   "step_label": "9"
+  },
+  {
+   "item_id": "873b8990-305d-426b-b43d-9effc2398957",
+   "item": "Inventories",
+   "step_label": "19"
+  },
+  {
+   "item_id": "39eac155-d88e-4536-a42f-f5d4c3698cea",
+   "item": "Trade payable",
+   "step_label": "4"
+  },
+  {
+   "item_id": "39eac155-d88e-4536-a42f-f5d4c3698cea",
+   "item": "Trade payable",
+   "step_label": "6"
+  },
+  {
+   "item_id": "eeabd2b2-85af-4d86-8940-d7191203592b",
+   "item": "Volume delivered",
+   "step_label": "15"
+  },
+  {
+   "item_id": "eeabd2b2-85af-4d86-8940-d7191203592b",
+   "item": "Volume delivered",
+   "step_label": "16"
+  },
+  {
+   "item_id": "d0199bc1-d9e9-4b24-9d6c-b3ebead0cb60",
+   "item": "Pallet positions used",
+   "step_label": "8"
+  },
+  {
+   "item_id": "d0199bc1-d9e9-4b24-9d6c-b3ebead0cb60",
+   "item": "Pallet positions used",
+   "step_label": "9"
+  },
+  {
+   "item_id": "d5b2d207-b46d-4761-b5d4-b2eb16969c57",
+   "item": "DSO",
+   "step_label": "20"
+  },
+  {
+   "item_id": "d5b2d207-b46d-4761-b5d4-b2eb16969c57",
+   "item": "DSO",
+   "step_label": "23"
+  },
+  {
+   "item_id": "0314cc30-2faf-4bba-ad81-d879f9fbffa9",
+   "item": "DIO",
+   "step_label": "9"
+  },
+  {
+   "item_id": "a3c6b28b-ccfd-46ea-88f1-916abebdc1cd",
+   "item": "DPO",
+   "step_label": "4"
+  },
+  {
+   "item_id": "cd4eeebe-31dc-428b-9188-27b3c034d2fc",
+   "item": "Cash & equivalents",
+   "step_label": "23"
+  }
+ ]
+}

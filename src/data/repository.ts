@@ -26,6 +26,7 @@ import type {
   ProcessPhase,
   ProcessStep,
   ProcessStepItem,
+  ProcessTrackDef,
   Project,
   ProjectMember,
   ProjectTask,
@@ -182,7 +183,8 @@ export interface Repository {
 
   /**
    * =========================================================================
-   * SAMB OPERATIONAL PROCESS — swimlane structure + the data-needs register.
+   * OPERATIONAL PROCESS (PER ENTITY) — swimlane structure + the data-needs
+   * register.
    * =========================================================================
    * Every read returns ReadResult for the same reason the finish-line reads
    * do: the frontend ships before migration 20260806000050 is applied, and a
@@ -195,6 +197,13 @@ export interface Repository {
    * no delete, no structure editor, and nothing here may ever write a
    * Finish line cell state.
    */
+  /**
+   * The per-entity track vocabulary (os_process_tracks, migration 52).
+   * missing-relation from THIS read while steps carry rows is how the views
+   * recognise the pre-entity schema (§4.6): render SAMB as before, plus one
+   * visible line saying multi-entity is not active yet.
+   */
+  listProcessTracks(): Promise<ReadResult<ProcessTrackDef>>;
   listProcessLanes(): Promise<ReadResult<ProcessLane>>;
   listProcessPhases(): Promise<ReadResult<ProcessPhase>>;
   listProcessSteps(): Promise<ReadResult<ProcessStep>>;

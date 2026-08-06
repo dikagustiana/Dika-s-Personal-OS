@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { mockRepository } from '../data/mockRepository';
 import type { Repository } from '../data/repository';
-import type { TrackFilter } from '../logic/process';
-import { finishLineRouteFromLocation } from '../views/work/finishLineRoute';
+import { DEFAULT_PROCESS_ENTITY, finishLineRouteFromLocation } from '../views/work/finishLineRoute';
 
 // Repository selection: the store boots with the in-memory mock so a bare
 // clone (no credentials) always runs. When VITE_SUPABASE_URL and
@@ -110,12 +109,18 @@ interface AppState {
   finishLineFocus: FinishLineFocus | null;
   prosesFocus: ProsesFocus | null;
   /**
-   * The jalur filter (Semua / Trade / LP), SHARED between the swimlane and
-   * the register — §7 requires the two views to agree on which track is in
-   * view. In the store for that reason only; not persisted, like every other
-   * piece of view state.
+   * WHICH ENTITY'S CHAIN the two process tabs show — ONE state, shared by
+   * both tabs on purpose: if they could differ, someone could read the ARBI
+   * swimlane beside the SAMB register without noticing and conclude the
+   * wrong owners owe the wrong data. That is a truth risk with zero payoff
+   * (the tabs cannot be seen at once; comparing two entities is two browser
+   * tabs via ?entity=). The JALUR filter is deliberately NOT here any more:
+   * it is per-tab local state — on the swimlane it decides shape, on the
+   * register it silently narrows the request list, and a filter travelling
+   * between those two jobs is how rows go missing without a trace. This
+   * corrects the first process brief, which had the two tabs share it.
    */
-  prosesTrack: TrackFilter;
+  prosesEntity: string;
   setRepository: (repository: Repository) => void;
   setViewer: (viewer: Viewer) => void;
   setWorkspace: (workspace: Workspace) => void;
@@ -124,7 +129,7 @@ interface AppState {
   setProjectFocus: (focus: ProjectFocus | null) => void;
   setFinishLineFocus: (focus: FinishLineFocus | null) => void;
   setProsesFocus: (focus: ProsesFocus | null) => void;
-  setProsesTrack: (track: TrackFilter) => void;
+  setProsesEntity: (entity: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -139,7 +144,9 @@ export const useAppStore = create<AppState>((set) => ({
   projectFocus: null,
   finishLineFocus: null,
   prosesFocus: null,
-  prosesTrack: 'ALL',
+  // Like workView below: read the address at boot so a bookmarked
+  // ?entity=ARBI renders as ARBI on the first frame.
+  prosesEntity: finishLineRouteFromLocation()?.entity ?? DEFAULT_PROCESS_ENTITY,
   setRepository: (repository) => set({ repository }),
   setViewer: (viewer) => set({ viewer }),
   setWorkspace: (workspace) => set({ workspace }),
@@ -148,5 +155,5 @@ export const useAppStore = create<AppState>((set) => ({
   setProjectFocus: (projectFocus) => set({ projectFocus }),
   setFinishLineFocus: (finishLineFocus) => set({ finishLineFocus }),
   setProsesFocus: (prosesFocus) => set({ prosesFocus }),
-  setProsesTrack: (prosesTrack) => set({ prosesTrack }),
+  setProsesEntity: (prosesEntity) => set({ prosesEntity }),
 }));

@@ -10,6 +10,7 @@ import {
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
 import { okRows, readAbsence, readFailure, type ReadResult } from './readResult';
+import type { RelationError } from './missingRelation';
 import type { ProjectTaskWrite, Repository } from './repository';
 import type {
   DailyLog,
@@ -44,6 +45,7 @@ import type {
   ProcessStep,
   ProcessStepItem,
   ProcessTrack,
+  ProcessTrackDef,
   IeltsError,
   IeltsErrorSkill,
   IeltsResult,
@@ -210,6 +212,17 @@ export function createSupabaseRepository(appKey: string): Repository {
     auth: { persistSession: false },
     global: { headers: { 'x-app-key': appKey } },
   });
+  return new SupabaseRepository(client);
+}
+
+/**
+ * The same repository over an injected client — the seam
+ * createSupabaseResearchRepository already establishes. Exists so the
+ * PostgREST-error paths (the §4.6 42703 fallback above all) are testable
+ * against a scripted client; production construction stays
+ * createSupabaseRepository.
+ */
+export function createSupabaseRepositoryForClient(client: SupabaseClient): Repository {
   return new SupabaseRepository(client);
 }
 
@@ -1417,7 +1430,7 @@ class SupabaseRepository implements Repository {
     }
   }
 
-  // --- SAMB operational process ---------------------------------------------
+  // --- operational process (per entity) --------------------------------------
   //
   // Every read is a ReadResult: migrations 20260806000050/51 land AFTER this
   // frontend ships, so a missing os_process_* relation is the expected
@@ -1431,29 +1444,119 @@ class SupabaseRepository implements Repository {
   // readAbsence and not readFailure. readFailure's predicate also swallows a
   // renamed column (42703) and an unresolvable embed (PGRST200) as "not
   // deployed yet", which would render a WRONG QUERY as an ordinary empty
-  // state: no error, no console line, just zero. These six tables are a
-  // diagram plus a register, and a diagram that silently loses its register
-  // looks finished. Only 42P01 and PGRST205 — the relation genuinely is not
+  // state: no error, no console line, just zero. These tables are a diagram
+  // plus a register, and a diagram that silently loses its register looks
+  // finished. Only 42P01 and PGRST205 — the relation genuinely is not
   // there — fold to the empty state; everything else surfaces.
+  //
+  // THE ONE DELIBERATE 42703 EXCEPTION (§4.6 of the entity brief): this
+  // frontend ships before migration 20260806000052 adds entity_code, and the
+  // process tables EXIST AND ARE POPULATED with SAMB. A select naming
+  // entity_code therefore fails with 42703 — which readAbsence rightly
+  // surfaces as a failure everywhere else, and which HERE, for exactly these
+  // four reads, means "the multi-entity migration has not been applied yet".
+  // legacyEntityRead retries once with the pre-52 column list and tags every
+  // row SAMB (the backfill value 52 will write), so the swimlane renders
+  // SAMB exactly as before. The views learn the mode from listProcessTracks
+  // returning missing-relation while steps carry rows, and say so in one
+  // visible line. Once 52 is applied this branch is dead code; it must not
+  // widen — any OTHER 42703 (a typo'd column, a half-applied 52) retries
+  // with the legacy list, fails again with a DIFFERENT missing column, and
+  // surfaces as the failure it is.
+
+  /**
+   * Runs the entity-aware select; on exactly undefined_column (42703) —
+   * the pre-52 schema — retries the legacy select and tags rows with the
+   * backfill entity. Never catches anything else.
+   */
+  private async legacyEntityRead<Row>(
+    label: string,
+    entityAware: () => PromiseLike<{ data: unknown; error: RelationError | null }>,
+    legacy: () => PromiseLike<{ data: unknown; error: RelationError | null }>,
+  ): Promise<ReadResult<Row & { entity_code: string }>> {
+    const first = await entityAware();
+    if (!first.error) {
+      return okRows(first.data as (Row & { entity_code: string })[]);
+    }
+    if (first.error.code !== '42703') return readAbsence(label, first.error);
+    const retry = await legacy();
+    if (retry.error) return readAbsence(label, retry.error);
+    return okRows(
+      (retry.data as Row[]).map((row) => ({ ...row, entity_code: 'SAMB' })),
+    );
+  }
+
+  async listProcessTracks(): Promise<ReadResult<ProcessTrackDef>> {
+    // No legacy retry here: the table simply does not exist before 52, and
+    // that absence (42P01/PGRST205 → missing-relation) is exactly the signal
+    // the views use to recognise the pre-entity state.
+    const { data, error } = await this.client
+      .from('os_process_tracks')
+      .select('entity_code, code, label, ordinal, is_shared')
+      .order('ordinal', { ascending: true });
+    if (error) return readAbsence('listProcessTracks', error);
+    return okRows(
+      (
+        data as {
+          entity_code: string;
+          code: string;
+          label: string;
+          ordinal: number;
+          is_shared: boolean;
+        }[]
+      ).map((row) => ({
+        entityCode: row.entity_code,
+        code: row.code,
+        label: row.label,
+        ordinal: row.ordinal,
+        isShared: row.is_shared,
+      })),
+    );
+  }
 
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
-    const { data, error } = await this.client
-      .from('os_process_lanes')
-      .select('key, label, description, ordinal, is_external')
-      .order('ordinal', { ascending: true });
-    if (error) return readAbsence('listProcessLanes', error);
-    return okRows((data as ProcessLaneRow[]).map(rowToProcessLane));
+    const result = await this.legacyEntityRead<Omit<ProcessLaneRow, 'entity_code'>>(
+      'listProcessLanes',
+      () =>
+        this.client
+          .from('os_process_lanes')
+          .select('entity_code, key, label, description, ordinal, is_external')
+          .order('ordinal', { ascending: true }),
+      () =>
+        this.client
+          .from('os_process_lanes')
+          .select('key, label, description, ordinal, is_external')
+          .order('ordinal', { ascending: true }),
+    );
+    if (!result.ok) return result;
+    return okRows(result.rows.map(rowToProcessLane));
   }
 
   async listProcessPhases(): Promise<ReadResult<ProcessPhase>> {
-    const { data, error } = await this.client
-      .from('os_process_phases')
-      .select('id, name, slot_from, slot_to')
-      .order('slot_from', { ascending: true });
-    if (error) return readAbsence('listProcessPhases', error);
+    interface PhaseRow {
+      id: string;
+      name: string;
+      slot_from: number;
+      slot_to: number;
+    }
+    const result = await this.legacyEntityRead<PhaseRow>(
+      'listProcessPhases',
+      () =>
+        this.client
+          .from('os_process_phases')
+          .select('id, entity_code, name, slot_from, slot_to')
+          .order('slot_from', { ascending: true }),
+      () =>
+        this.client
+          .from('os_process_phases')
+          .select('id, name, slot_from, slot_to')
+          .order('slot_from', { ascending: true }),
+    );
+    if (!result.ok) return result;
     return okRows(
-      (data as { id: string; name: string; slot_from: number; slot_to: number }[]).map((row) => ({
+      result.rows.map((row) => ({
         id: row.id,
+        entityCode: row.entity_code,
         name: row.name,
         slotFrom: row.slot_from,
         slotTo: row.slot_to,
@@ -1462,21 +1565,39 @@ class SupabaseRepository implements Repository {
   }
 
   async listProcessSteps(): Promise<ReadResult<ProcessStep>> {
-    const { data, error } = await this.client
-      .from('os_process_steps')
-      .select(PROCESS_STEP_COLUMNS)
-      .order('slot', { ascending: true });
-    if (error) return readAbsence('listProcessSteps', error);
-    return okRows((data as ProcessStepRow[]).map(rowToProcessStep));
+    const result = await this.legacyEntityRead<Omit<ProcessStepRow, 'entity_code'>>(
+      'listProcessSteps',
+      () =>
+        this.client
+          .from('os_process_steps')
+          .select(`entity_code, ${PROCESS_STEP_COLUMNS}`)
+          .order('slot', { ascending: true }),
+      () =>
+        this.client
+          .from('os_process_steps')
+          .select(PROCESS_STEP_COLUMNS)
+          .order('slot', { ascending: true }),
+    );
+    if (!result.ok) return result;
+    return okRows(result.rows.map(rowToProcessStep));
   }
 
   async listProcessGates(): Promise<ReadResult<ProcessGate>> {
-    const { data, error } = await this.client
-      .from('os_process_gates')
-      .select('id, type, title, sub, owner, unblock')
-      .order('id', { ascending: true });
-    if (error) return readAbsence('listProcessGates', error);
-    return okRows((data as ProcessGateRow[]).map(rowToProcessGate));
+    const result = await this.legacyEntityRead<Omit<ProcessGateRow, 'entity_code'>>(
+      'listProcessGates',
+      () =>
+        this.client
+          .from('os_process_gates')
+          .select('id, entity_code, type, title, sub, owner, unblock')
+          .order('id', { ascending: true }),
+      () =>
+        this.client
+          .from('os_process_gates')
+          .select('id, type, title, sub, owner, unblock')
+          .order('id', { ascending: true }),
+    );
+    if (!result.ok) return result;
+    return okRows(result.rows.map(rowToProcessGate));
   }
 
   async listProcessNeeds(): Promise<ReadResult<ProcessNeed>> {
@@ -1858,6 +1979,7 @@ function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
 // --- SAMB operational process rows -----------------------------------------
 
 interface ProcessLaneRow {
+  entity_code: string;
   key: string;
   label: string;
   description: string | null;
@@ -1867,6 +1989,7 @@ interface ProcessLaneRow {
 
 function rowToProcessLane(row: ProcessLaneRow): ProcessLane {
   const lane: ProcessLane = {
+    entityCode: row.entity_code,
     key: row.key,
     label: row.label,
     ordinal: row.ordinal,
@@ -1878,6 +2001,7 @@ function rowToProcessLane(row: ProcessLaneRow): ProcessLane {
 
 interface ProcessStepRow {
   id: string;
+  entity_code: string;
   label: string;
   slot: number;
   lane_key: string;
@@ -1899,6 +2023,7 @@ const PROCESS_STEP_COLUMNS =
 function rowToProcessStep(row: ProcessStepRow): ProcessStep {
   const step: ProcessStep = {
     id: row.id,
+    entityCode: row.entity_code,
     label: row.label,
     slot: row.slot,
     laneKey: row.lane_key,
@@ -1920,6 +2045,7 @@ function rowToProcessStep(row: ProcessStepRow): ProcessStep {
 
 interface ProcessGateRow {
   id: string;
+  entity_code: string | null;
   type: ProcessGateType;
   title: string;
   sub: string | null;
@@ -1929,6 +2055,7 @@ interface ProcessGateRow {
 
 function rowToProcessGate(row: ProcessGateRow): ProcessGate {
   const gate: ProcessGate = { id: row.id, type: row.type, title: row.title };
+  if (row.entity_code) gate.entityCode = row.entity_code;
   if (row.sub) gate.sub = row.sub;
   if (row.owner) gate.owner = row.owner;
   if (row.unblock) gate.unblock = row.unblock;

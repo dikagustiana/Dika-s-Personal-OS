@@ -16,6 +16,14 @@
 
 export type FinishLineTab = 'matrix' | 'swimlane' | 'kebutuhan-data';
 
+/**
+ * The entity a bare process URL means. A named constant rather than scattered
+ * literals so "the default chain" is one decision; comparisons against it are
+ * about DEFAULTNESS, never about SAMB-the-entity — the views themselves carry
+ * no per-entity branches.
+ */
+export const DEFAULT_PROCESS_ENTITY = 'SAMB';
+
 export interface FinishLineRoute {
   tab: FinishLineTab;
   /**
@@ -25,10 +33,20 @@ export interface FinishLineRoute {
    * tabs is worse than losing it.
    */
   item?: string;
+  /**
+   * Which entity's chain the two process tabs show (?entity=ARBI). Absent
+   * means DEFAULT_PROCESS_ENTITY, so a bare /finish-line/swimlane bookmark
+   * keeps meaning the SAMB chain. Never carried by the matrix tab — the
+   * matrix IS every entity at once, and an entity context that survived into
+   * it would imply a filter that does not exist.
+   */
+  entity?: string;
 }
 
 const BASE = '/finish-line';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Entity codes as os_finish_line_entities stores them: short upper tokens. */
+const ENTITY = /^[A-Z][A-Z0-9]{1,11}$/;
 
 /**
  * null means "this URL is not the Finish line", which is what tells the app
@@ -42,17 +60,33 @@ export function parseFinishLineRoute(pathname: string, search: string): FinishLi
   const segment = path === BASE ? '' : path.slice(BASE.length + 1);
   if (segment === '') return { tab: 'matrix' };
   if (segment !== 'swimlane' && segment !== 'kebutuhan-data') return null;
-  if (segment === 'kebutuhan-data') return { tab: 'kebutuhan-data' };
-  const item = new URLSearchParams(search).get('item') ?? '';
-  return UUID.test(item) ? { tab: 'swimlane', item } : { tab: 'swimlane' };
+  const params = new URLSearchParams(search);
+  // A junk entity is dropped like a junk item: filtering on garbage would
+  // render a confident empty chain for an entity that never existed.
+  const entityParam = params.get('entity') ?? '';
+  const entity = ENTITY.test(entityParam) ? entityParam : undefined;
+  if (segment === 'kebutuhan-data') {
+    return entity ? { tab: 'kebutuhan-data', entity } : { tab: 'kebutuhan-data' };
+  }
+  const item = params.get('item') ?? '';
+  const route: FinishLineRoute = { tab: 'swimlane' };
+  if (UUID.test(item)) route.item = item;
+  if (entity) route.entity = entity;
+  return route;
 }
 
 export function finishLineHref(route: FinishLineRoute): string {
   if (route.tab === 'matrix') return BASE;
-  if (route.tab === 'kebutuhan-data') return `${BASE}/kebutuhan-data`;
-  return route.item
-    ? `${BASE}/swimlane?item=${encodeURIComponent(route.item)}`
-    : `${BASE}/swimlane`;
+  const params = new URLSearchParams();
+  // The default entity stays OUT of the address: a bare URL and an
+  // ?entity=SAMB URL are the same claim, and only one of them should exist.
+  if (route.entity && route.entity !== DEFAULT_PROCESS_ENTITY) {
+    params.set('entity', route.entity);
+  }
+  if (route.tab === 'swimlane' && route.item) params.set('item', route.item);
+  const query = params.toString();
+  const path = route.tab === 'kebutuhan-data' ? `${BASE}/kebutuhan-data` : `${BASE}/swimlane`;
+  return query ? `${path}?${query}` : path;
 }
 
 /** The browser-facing wrapper. Safe to call where there is no window. */

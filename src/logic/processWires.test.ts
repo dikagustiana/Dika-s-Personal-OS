@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ProcessStep } from '../data/types';
 import { deriveEdges, groupCells, handoffs, visibleSteps, type TrackFilter } from './process';
-import { fixtureLanes, fixtureStepItems, fixtureSteps } from './process/seedFixture';
+import { fixtureLanes, fixtureStepItems, fixtureSteps, fixtureTracks } from './process/seedFixture';
 import { stepLabelsForItem } from './processModel';
 import {
   BOX_W,
@@ -25,6 +25,8 @@ import {
 } from './processWires';
 
 const steps = fixtureSteps();
+const tracks = fixtureTracks();
+const shared = new Set(['KEDUANYA']);
 const laneRow = new Map(
   fixtureLanes()
     .sort((a, b) => a.ordinal - b.ordinal)
@@ -45,7 +47,7 @@ function buildRects(
   filter: TrackFilter,
   heightOf: (step: ProcessStep) => number,
 ): Map<string, BoxRect> {
-  const shown = visibleSteps(steps, filter);
+  const shown = visibleSteps(steps, filter, shared);
   const rowHeight =
     CELL_PAD * 2 +
     STACK_GAP +
@@ -63,7 +65,7 @@ function buildRects(
 }
 
 function toWireEdges(filter: TrackFilter): WireEdge[] {
-  return deriveEdges(steps, filter).map((edge) => ({
+  return deriveEdges(steps, filter, tracks).map((edge) => ({
     fromLabel: edge.from.label,
     toLabel: edge.to.label,
     cross: edge.cross,
@@ -78,7 +80,7 @@ const tall = (step: ProcessStep) =>
 describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack', () => {
   it('produces exactly 12 capsules in Semua — one per handoff', () => {
     const wires = computeWires(toWireEdges('ALL'), buildRects('ALL', compact));
-    expect(handoffs(deriveEdges(steps, 'ALL'))).toHaveLength(12);
+    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(12);
     expect(wires.filter((wire) => wire.capsule)).toHaveLength(12);
   });
 
