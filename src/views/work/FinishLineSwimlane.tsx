@@ -52,6 +52,7 @@ import {
   buildProcessModel,
   finishLineRowsForStep,
   stepLabelsForItem,
+  type EmptyCause,
 } from '../../logic/processModel';
 import {
   BOX_W,
@@ -78,6 +79,16 @@ const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 
 /** §4: meta.scope is not seeded — it is this view's subtitle, hardcoded. */
 const SCOPE_SUBTITLE =
   'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.';
+
+/**
+ * Two causes, two sentences — never one. See EmptyCause in processModel.ts:
+ * a table that is not there and a table that is there and empty are different
+ * facts, and for one August afternoon they were different people's problems.
+ */
+const CANVAS_EMPTY: Record<EmptyCause, string> = {
+  absent: 'Kanvas belum bisa digambar — tabel os_process_* belum ada di database.',
+  unseeded: 'Tabel os_process_steps ada dan terbaca, tapi nol baris — seed-nya belum masuk.',
+};
 
 type AttachColumn = 'docs' | 'coa' | 'drivers' | 'needs';
 
@@ -387,10 +398,7 @@ export function FinishLineSwimlane({
         <Checking label="Proses SAMB" />
       ) : model.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow
-            label="Swimlane"
-            clause="Kanvas belum bisa digambar — migration proses belum diterapkan."
-          />
+          <EmptyRow label="Swimlane" clause={CANVAS_EMPTY[model.cause]} />
         </div>
       ) : model.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">

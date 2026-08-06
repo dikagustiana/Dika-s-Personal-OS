@@ -47,16 +47,16 @@ const STORING_COST = '10b151a5-5c45-454c-a13b-ffbc786ec645';
 describe('§10.9 a missing os_process_* relation is the ordinary empty state', () => {
   it('folds a forced 42P01 on any read into kind empty — never a crash, never a warning', () => {
     const missing = readFailure('listProcessSteps', { code: '42P01' });
-    expect(buildProcessModel({ ...ready(), steps: missing })).toEqual({ kind: 'empty' });
+    expect(buildProcessModel({ ...ready(), steps: missing })).toEqual({ kind: 'empty', cause: 'absent' });
     expect(
       buildProcessModel({ ...ready(), lanes: readFailure('listProcessLanes', { code: '42P01' }) }),
-    ).toEqual({ kind: 'empty' });
+    ).toEqual({ kind: 'empty', cause: 'absent' });
     expect(
       buildProcessModel({
         ...ready(),
         stepItems: readFailure('listProcessStepItems', { code: '42P01' }),
       }),
-    ).toEqual({ kind: 'empty' });
+    ).toEqual({ kind: 'empty', cause: 'absent' });
     expect(
       buildProcessModel({
         ...ready(),
@@ -65,7 +65,7 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
           message: 'Could not find the table',
         }),
       }),
-    ).toEqual({ kind: 'empty' });
+    ).toEqual({ kind: 'empty', cause: 'absent' });
   });
 
   it('keeps a real failure loud: a network error is failed, not empty', () => {
@@ -80,6 +80,8 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
   it('treats a present-but-unseeded database as empty too', () => {
     expect(buildProcessModel({ ...ready(), steps: okRows<ProcessStep>([]) })).toEqual({
       kind: 'empty',
+      // Present and empty is NOT the pre-migration state; see EmptyCause.
+      cause: 'unseeded',
     });
   });
 
@@ -106,7 +108,7 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
   });
 
   it('folds all six missing relations at once into empty, not failed', () => {
-    expect(buildProcessModel(allSixMissing())).toEqual({ kind: 'empty' });
+    expect(buildProcessModel(allSixMissing())).toEqual({ kind: 'empty', cause: 'absent' });
   });
 
   it('says nothing to the console while every relation is missing', () => {

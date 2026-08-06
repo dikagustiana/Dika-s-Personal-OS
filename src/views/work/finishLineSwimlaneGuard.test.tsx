@@ -36,7 +36,7 @@ import { useAppStore } from '../../store/appStore';
 import { FinishLineSwimlane } from './FinishLineSwimlane';
 
 const WARNING = 'Alur tidak dapat digambar — pengukuran kanvas gagal, panah tidak ditampilkan.';
-const EMPTY = 'Kanvas belum bisa digambar — migration proses belum diterapkan.';
+const EMPTY = 'Kanvas belum bisa digambar — tabel os_process_* belum ada di database.';
 
 /** The seven reads FinishLineSwimlane issues, all healthy. */
 function seededRepository(): Repository {
