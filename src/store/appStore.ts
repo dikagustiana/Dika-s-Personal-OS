@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { mockRepository } from '../data/mockRepository';
 import type { Repository } from '../data/repository';
+import type { TrackFilter } from '../logic/process';
 
 // Repository selection: the store boots with the in-memory mock so a bare
 // clone (no credentials) always runs. When VITE_SUPABASE_URL and
@@ -21,6 +22,11 @@ export type WorkView =
   | 'week'
   | 'projects'
   | 'finish-line'
+  // The SAMB process pair: the swimlane and its data-needs register. Two nav
+  // entries in the Finish line group — they serve the same goal, defining
+  // the finish line and the distance to it — connected by underline tabs.
+  | 'proses'
+  | 'proses-kebutuhan-data'
   | 'monthly-close'
   | 'escalations';
 export type GrowthView =
@@ -73,6 +79,16 @@ export interface FinishLineFocus {
 }
 
 /**
+ * One-shot handoff into the swimlane: "open Proses, scrolled to THIS step,
+ * with its detail panel open". Set by the register's step-label links and by
+ * the Finish line cell panel's closing-conditions block; consumed and
+ * cleared by Proses on arrival. The label is the step's human identity.
+ */
+export interface ProsesFocus {
+  stepLabel: string;
+}
+
+/**
  * Who is using the app this session. `owner` is the passphrase path — the
  * default, and the only value the owner flow ever sets. `contributor` is a
  * magic-link session scoped to its entity codes; the gate sets it after
@@ -92,6 +108,14 @@ interface AppState {
   growthView: GrowthView;
   projectFocus: ProjectFocus | null;
   finishLineFocus: FinishLineFocus | null;
+  prosesFocus: ProsesFocus | null;
+  /**
+   * The jalur filter (Semua / Trade / LP), SHARED between the swimlane and
+   * the register — §7 requires the two views to agree on which track is in
+   * view. In the store for that reason only; not persisted, like every other
+   * piece of view state.
+   */
+  prosesTrack: TrackFilter;
   setRepository: (repository: Repository) => void;
   setViewer: (viewer: Viewer) => void;
   setWorkspace: (workspace: Workspace) => void;
@@ -99,6 +123,8 @@ interface AppState {
   setGrowthView: (view: GrowthView) => void;
   setProjectFocus: (focus: ProjectFocus | null) => void;
   setFinishLineFocus: (focus: FinishLineFocus | null) => void;
+  setProsesFocus: (focus: ProsesFocus | null) => void;
+  setProsesTrack: (track: TrackFilter) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -109,6 +135,8 @@ export const useAppStore = create<AppState>((set) => ({
   growthView: 'dashboard',
   projectFocus: null,
   finishLineFocus: null,
+  prosesFocus: null,
+  prosesTrack: 'ALL',
   setRepository: (repository) => set({ repository }),
   setViewer: (viewer) => set({ viewer }),
   setWorkspace: (workspace) => set({ workspace }),
@@ -116,4 +144,6 @@ export const useAppStore = create<AppState>((set) => ({
   setGrowthView: (growthView) => set({ growthView }),
   setProjectFocus: (projectFocus) => set({ projectFocus }),
   setFinishLineFocus: (finishLineFocus) => set({ finishLineFocus }),
+  setProsesFocus: (prosesFocus) => set({ prosesFocus }),
+  setProsesTrack: (prosesTrack) => set({ prosesTrack }),
 }));
