@@ -20,6 +20,7 @@
  * and SAMB showing Trade/LP while ARBI shows Forward/Reverse is data, not a
  * branch.
  */
+import type { ReactNode } from 'react';
 import { cn } from '../../lib/utils';
 import type {
   ProcessGate,
@@ -178,14 +179,25 @@ export function EntityScopeRow({
   value,
   onChange,
   scope,
+  trailing,
 }: {
   entities: string[];
   value: string;
   onChange: (code: string) => void;
   scope?: string;
+  /**
+   * Lighter-weight controls that ride in this row rather than claiming one of
+   * their own — today the Referensi toggle. The rule this exists to keep: a
+   * collapsed block must not push the process map down to announce itself, so
+   * anything that is closed by default belongs HERE and not between the rows.
+   */
+  trailing?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-2">
+    <div
+      data-scope-row
+      className="mb-6 flex flex-wrap items-start gap-x-4 gap-y-2"
+    >
       <div className="flex items-center gap-1" role="group" aria-label="Pilih entitas">
         <span className="surface-label mr-1">Entitas</span>
         {entities.map((code) => (
@@ -200,6 +212,7 @@ export function EntityScopeRow({
           </button>
         ))}
       </div>
+      {trailing}
       {scope && (
         <p className="min-w-0 max-w-2xl flex-1 basis-full text-sm leading-6 text-foreground-muted lg:basis-auto">
           {scope}

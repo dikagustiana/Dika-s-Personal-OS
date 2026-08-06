@@ -22,7 +22,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../data/repository';
 import { okRows, readAbsence, type ReadResult } from '../../data/readResult';
-import type { FinishLineItem, ProcessTrackDef } from '../../data/types';
+import type { FinishLineItem, ProcessReference, ProcessTrackDef } from '../../data/types';
 import {
   arbiGates,
   arbiLanes,
@@ -57,6 +57,7 @@ function bothEntitiesRepository(): Repository {
     listProcessNeeds: async () => okRows([...fixtureNeeds(), ...arbiNeeds()]),
     listProcessStepItems: async () => okRows([...fixtureStepItems(), ...arbiStepItems()]),
     listProcessTracks: async () => okRows([...fixtureTracks(), ...arbiTracks()]),
+    listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
@@ -78,6 +79,7 @@ function pre52Repository(): Repository {
         code: 'PGRST205',
         message: "Could not find the table 'public.os_process_tracks' in the schema cache",
       }) as ReadResult<ProcessTrackDef>,
+    listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }

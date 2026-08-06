@@ -22,7 +22,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../data/repository';
 import { okRows } from '../../data/readResult';
-import type { FinishLineItem } from '../../data/types';
+import type { FinishLineItem, ProcessReference } from '../../data/types';
 import {
   fixtureGates,
   fixtureLanes,
@@ -53,6 +53,7 @@ function seededRepository(): Repository {
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
     listProcessTracks: async () => okRows(fixtureTracks()),
+    listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }

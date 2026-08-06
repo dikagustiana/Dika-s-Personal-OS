@@ -36,6 +36,7 @@ import type {
   ProcessLane,
   ProcessNeed,
   ProcessPhase,
+  ProcessReference,
   ProcessStep,
   ProcessStepItem,
   ProcessTrackDef,
@@ -816,6 +817,13 @@ export class MockRepository implements Repository {
   private readonly processGates: ProcessGate[] = [];
   private readonly processNeeds = new Map<string, ProcessNeed>();
   private readonly processStepItems: ProcessStepItem[] = [];
+
+  /** Starts empty, like the live table before migration 20260806000054. */
+  private readonly processReferences: ProcessReference[] = [];
+
+  async listProcessReferences(): Promise<ReadResult<ProcessReference>> {
+    return okRows(clone([...this.processReferences].sort((a, b) => a.sortOrder - b.sortOrder)));
+  }
 
   async listProcessTracks(): Promise<ReadResult<ProcessTrackDef>> {
     return okRows(clone([...this.processTracks].sort((a, b) => a.ordinal - b.ordinal)));

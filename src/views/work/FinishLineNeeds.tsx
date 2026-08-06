@@ -30,6 +30,7 @@ import type {
   ProcessNeed,
   ProcessNeedKind,
   ProcessNeedStatus,
+  ProcessReference,
   ProcessStep,
   ProcessTrackDef,
 } from '../../data/types';
@@ -58,6 +59,11 @@ import {
   filterButtonClass,
 } from './processUi';
 import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
+import {
+  ReferencesPanel,
+  ReferencesToggle,
+  referencesState,
+} from './ProcessReferences';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
@@ -98,6 +104,8 @@ export function FinishLineNeeds({
   const [stepsRead, setStepsRead] = useState<ReadResult<ProcessStep>>(unread);
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
   const [tracksRead, setTracksRead] = useState<ReadResult<ProcessTrackDef>>(unread);
+  const [referencesRead, setReferencesRead] = useState<ReadResult<ProcessReference>>(unread);
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const [statusOn, setStatusOn] = useState<Record<ProcessNeedStatus, boolean>>({
@@ -114,14 +122,16 @@ export function FinishLineNeeds({
   const [byOwner, setByOwner] = useState(false);
 
   const load = useCallback(async () => {
-    const [steps, needs, tracks] = await Promise.all([
+    const [steps, needs, tracks, references] = await Promise.all([
       repository.listProcessSteps(),
       repository.listProcessNeeds(),
       repository.listProcessTracks(),
+      repository.listProcessReferences(),
     ]);
     setStepsRead(steps);
     setNeedsRead(needs);
     setTracksRead(tracks);
+    setReferencesRead(references);
     setLoaded(true);
   }, [repository]);
 
@@ -186,6 +196,10 @@ export function FinishLineNeeds({
     );
   };
 
+  // Absent table (pre-migration 42P01) or zero rows → the block does not
+  // render at all. A real failure still shows, inline in the scope row.
+  const references = referencesState(referencesRead);
+
   return (
     <>
       {/* Entity + this tab's description. No <h1> — the area owns the only
@@ -197,7 +211,15 @@ export function FinishLineNeeds({
         value={entity}
         onChange={setEntity}
         scope="Apa yang harus ada supaya rantai ini bisa dijalankan — bukan apa yang dihasilkan tiap step. Kelompokkan per pemilik untuk mendapat daftar permintaan data."
+        trailing={
+          <ReferencesToggle
+            state={references}
+            open={referencesOpen}
+            onToggle={() => setReferencesOpen((current) => !current)}
+          />
+        }
       />
+      <ReferencesPanel state={references} open={referencesOpen} />
 
       {!loaded ? (
         <Checking label="Kebutuhan data" />

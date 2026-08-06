@@ -58,6 +58,7 @@ import type {
   ProcessNeed,
   ProcessNeedStatus,
   ProcessPhase,
+  ProcessReference,
   ProcessStep,
   ProcessStepItem,
   ProcessTrackDef,
@@ -93,6 +94,11 @@ import {
 } from '../../logic/processWires';
 import { useAppStore } from '../../store/appStore';
 import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
+import {
+  ReferencesPanel,
+  ReferencesToggle,
+  referencesState,
+} from './ProcessReferences';
 import { Checking, CouldNotCheck } from './finishLineUi';
 import {
   EntityScopeRow,
@@ -203,6 +209,8 @@ export function FinishLineSwimlane({
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
   const [stepItemsRead, setStepItemsRead] = useState<ReadResult<ProcessStepItem>>(unread);
   const [tracksRead, setTracksRead] = useState<ReadResult<ProcessTrackDef>>(unread);
+  const [referencesRead, setReferencesRead] = useState<ReadResult<ProcessReference>>(unread);
+  const [referencesOpen, setReferencesOpen] = useState(false);
   const [itemsRead, setItemsRead] = useState<ReadResult<FinishLineItem>>(unread);
   const [loaded, setLoaded] = useState(false);
 
@@ -220,7 +228,8 @@ export function FinishLineSwimlane({
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [lanes, phases, steps, gates, needs, stepItems, tracks, items] = await Promise.all([
+    const [lanes, phases, steps, gates, needs, stepItems, tracks, references, items] =
+      await Promise.all([
       repository.listProcessLanes(),
       repository.listProcessPhases(),
       repository.listProcessSteps(),
@@ -228,6 +237,7 @@ export function FinishLineSwimlane({
       repository.listProcessNeeds(),
       repository.listProcessStepItems(),
       repository.listProcessTracks(),
+      repository.listProcessReferences(),
       repository.listFinishLineItems(),
     ]);
     setLanesRead(lanes);
@@ -237,6 +247,7 @@ export function FinishLineSwimlane({
     setNeedsRead(needs);
     setStepItemsRead(stepItems);
     setTracksRead(tracks);
+    setReferencesRead(references);
     setItemsRead(items);
     setLoaded(true);
   }, [repository]);
@@ -555,6 +566,10 @@ export function FinishLineSwimlane({
 
   const gridTemplateColumns = `${LABEL_W}px repeat(${highestSlot}, ${BOX_W}px ${GAP_W}px)`;
 
+  // Absent table (pre-migration 42P01) or zero rows → the block does not
+  // render at all. A real failure still shows, inline in the scope row.
+  const references = referencesState(referencesRead);
+
   return (
     <>
       {/* Entity + scope: which chain is in view. There is no <h1> here —
@@ -566,7 +581,15 @@ export function FinishLineSwimlane({
         value={entity}
         onChange={setEntity}
         scope={SCOPE_SUBTITLES[entity]}
+        trailing={
+          <ReferencesToggle
+            state={references}
+            open={referencesOpen}
+            onToggle={() => setReferencesOpen((current) => !current)}
+          />
+        }
       />
+      <ReferencesPanel state={references} open={referencesOpen} />
 
       {itemFilter && (
         <div className="mb-4 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2">

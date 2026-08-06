@@ -973,3 +973,22 @@ export interface ProcessStepItem {
   stepId: string;
   itemId: string;
 }
+
+/**
+ * An outbound link to the methodology writing, shown as a collapsed block on
+ * the process tabs.
+ *
+ * REFERENCES NOTHING. There is no step, need, gate, phase or Finish line id
+ * here and no bridge table anywhere — these are references, not annotations.
+ * Group-level too: no entityCode, so the block does not follow the entity
+ * picker. `url` is required; an unwritten article is an absent row, never a
+ * row that does nothing when clicked. `note` is one line — the prose lives on
+ * the site.
+ */
+export interface ProcessReference {
+  id: string;
+  title: string;
+  url: string;
+  note?: string;
+  sortOrder: number;
+}

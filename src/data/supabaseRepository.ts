@@ -42,6 +42,7 @@ import type {
   ProcessNeedKind,
   ProcessNeedStatus,
   ProcessPhase,
+  ProcessReference,
   ProcessStep,
   ProcessStepItem,
   ProcessTrack,
@@ -1631,6 +1632,33 @@ class SupabaseRepository implements Repository {
     if (error) throw new Error(`setProcessNeedRequestedOn failed: ${error.message}`);
     if (!data) throw new Error(`Need not found: ${id}`);
     return rowToProcessNeed(data as ProcessNeedRow);
+  }
+
+  /**
+   * The reading list. readAbsence like every process read, and the view maps
+   * missing-relation to "render nothing" — the pre-apply state for migration
+   * 20260806000054 is simply a page without the block.
+   */
+  async listProcessReferences(): Promise<ReadResult<ProcessReference>> {
+    const { data, error } = await this.client
+      .from('os_process_references')
+      .select('id, title, url, note, sort_order')
+      .order('sort_order', { ascending: true });
+    if (error) return readAbsence('listProcessReferences', error);
+    return okRows(
+      (data as { id: string; title: string; url: string; note: string | null; sort_order: number }[]).map(
+        (row) => {
+          const reference: ProcessReference = {
+            id: row.id,
+            title: row.title,
+            url: row.url,
+            sortOrder: row.sort_order,
+          };
+          if (row.note) reference.note = row.note;
+          return reference;
+        },
+      ),
+    );
   }
 
   // --- tasks + the project-membership axis (slice 1) ------------------------

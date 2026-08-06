@@ -24,6 +24,7 @@ import type {
   ProcessLane,
   ProcessNeed,
   ProcessPhase,
+  ProcessReference,
   ProcessStep,
   ProcessStepItem,
   ProcessTrackDef,
@@ -218,6 +219,14 @@ export interface Repository {
   listProcessStepItems(): Promise<ReadResult<ProcessStepItem>>;
   /** null clears the date. Returns the updated need. */
   setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed>;
+
+  /**
+   * The reading list beside the process map. Links out only — it references
+   * no process row and no Finish line row. A missing relation renders as
+   * NOTHING AT ALL (not an empty state, not a message): nobody needs telling
+   * that a reading list is empty.
+   */
+  listProcessReferences(): Promise<ReadResult<ProcessReference>>;
 
   /**
    * =========================================================================
