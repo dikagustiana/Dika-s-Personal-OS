@@ -1,0 +1,1937 @@
+{
+ "lanes": [
+  {
+   "key": "KLIEN",
+   "label": "KLIEN LP",
+   "ordinal": 1,
+   "is_external": true
+  },
+  {
+   "key": "PURCHASING",
+   "label": "PURCHASING",
+   "ordinal": 2,
+   "is_external": false
+  },
+  {
+   "key": "WAREHOUSE",
+   "label": "WAREHOUSE",
+   "ordinal": 3,
+   "is_external": false
+  },
+  {
+   "key": "SALES",
+   "label": "SALES",
+   "ordinal": 4,
+   "is_external": false
+  },
+  {
+   "key": "FLEET",
+   "label": "FLEET",
+   "ordinal": 5,
+   "is_external": false
+  },
+  {
+   "key": "FINANCE",
+   "label": "FINANCE",
+   "ordinal": 6,
+   "is_external": false
+  }
+ ],
+ "lane_desc": {
+  "KLIEN": "Klien jasa LP — pihak ketiga",
+  "PURCHASING": "Rencana & order ke principal",
+  "WAREHOUSE": "Terima, simpan, siapkan, muat",
+  "SALES": "Permintaan customer & janji kirim",
+  "FLEET": "Angkut & serah terima",
+  "FINANCE": "Tagih, tarik, rekon"
+ },
+ "phases": [
+  {
+   "name": "SETUP & PENGADAAN",
+   "a": 1,
+   "b": 3
+  },
+  {
+   "name": "INTAKE — TERPISAH",
+   "a": 4,
+   "b": 5
+  },
+  {
+   "name": "PENYIMPANAN",
+   "a": 6,
+   "b": 7
+  },
+  {
+   "name": "ORDER & OUTBOUND",
+   "a": 8,
+   "b": 12
+  },
+  {
+   "name": "PENGIRIMAN",
+   "a": 13,
+   "b": 15
+  },
+  {
+   "name": "PENAGIHAN",
+   "a": 16,
+   "b": 18
+  },
+  {
+   "name": "KAS & ELIMINASI",
+   "a": 19,
+   "b": 21
+  }
+ ],
+ "gates": [
+  {
+   "id": "G01",
+   "type": "DATA",
+   "title": "Isi per karton per SKU",
+   "owner": "Commercial / Purchasing",
+   "sub": "Standing blocker #1",
+   "unblock": "Datanya melewati Purchasing tiap kali PO dibuat (step 2). Minta formal, eskalasi kalau menggantung."
+  },
+  {
+   "id": "G02",
+   "type": "DATA",
+   "title": "Product master / dimensi karton belum siap",
+   "owner": "Commercial / Warehouse",
+   "sub": "Standing blocker #2",
+   "unblock": "Sementara pakai closing value (IDR) per principal sebagai driver interim."
+  },
+  {
+   "id": "G03",
+   "type": "OOS",
+   "title": "Split B2B / B2C ASI",
+   "owner": "ASI — di luar scope SAMB",
+   "sub": "Standing blocker #3",
+   "unblock": "Bukan rantai operasional SAMB. Dicantumkan agar penomoran blocker tetap konsisten."
+  },
+  {
+   "id": "G04",
+   "type": "DATA",
+   "title": "Eliminasi intercompany nunggu rekonsiliasi TB",
+   "owner": "Accounting subsidiary",
+   "sub": "Standing blocker #4",
+   "unblock": "Enforce pre-recon per line item di step 19 sebelum submission masuk matrix."
+  },
+  {
+   "id": "G05",
+   "type": "DECISION",
+   "title": "Driver COGS LP Fulfillment",
+   "owner": "Kamu",
+   "sub": "Standing blocker #5",
+   "unblock": "Pilih satu: pallet position (step 6) · CBM stored (step 7) · pick line count (step 10). Ketiganya sudah lahir di rantai."
+  },
+  {
+   "id": "G06",
+   "type": "DECISION",
+   "title": "Mekanisme Distribution Cost Trucking",
+   "owner": "Kamu",
+   "sub": "Standing blocker #6",
+   "unblock": "Pilih (a) split internal/LP + benchmark rate, CBM dari estimasi inventory; atau (b) all internal armada, CBM dari Trip Log actual, tanpa Rate Card."
+  },
+  {
+   "id": "G07",
+   "type": "DECISION",
+   "title": "Numerator ROCE greenfield",
+   "owner": "Kamu",
+   "sub": "Standing blocker #7",
+   "unblock": "Tetapkan definisi numerator. Tidak menyentuh rantai operasional ini — murni model appraisal."
+  },
+  {
+   "id": "G08",
+   "type": "DECISION",
+   "title": "Metode Target CBM",
+   "owner": "Kamu",
+   "sub": "Open item",
+   "unblock": "Ditetapkan di step 1. Dipakai sebagai denominator kapasitas di hilir."
+  },
+  {
+   "id": "G09",
+   "type": "DECISION",
+   "title": "Scope Discount to Distributor",
+   "owner": "Kamu",
+   "sub": "Open item",
+   "unblock": "Menentukan apakah masuk pengurang revenue atau biaya komersial. Retur & klaim belum dipetakan sebagai step."
+  },
+  {
+   "id": "G10",
+   "type": "DECISION",
+   "title": "Scope AP di baris AR-AP-Finance Salary",
+   "owner": "Kamu",
+   "sub": "Open item",
+   "unblock": "Tentukan apakah fungsi AP ikut dialokasi ke Commercial Support atau ke G&A."
+  },
+  {
+   "id": "G11",
+   "type": "DATA",
+   "title": "Split AR staff invoicing vs collection",
+   "owner": "HR / Finance",
+   "sub": "Open item",
+   "unblock": "Tanpa ini, driver invoice di step 16 ikut menanggung biaya collection dari step 18."
+  },
+  {
+   "id": "G12",
+   "type": "DATA",
+   "title": "Status dedikasi Asman Tax",
+   "owner": "HR",
+   "sub": "Open item",
+   "unblock": "Konfirmasi porsi dedikasi. Catatan: 'Asman' belum dikonfirmasi berarti Assistant Manager — jangan diasumsikan."
+  },
+  {
+   "id": "G13",
+   "type": "DECISION",
+   "title": "Carve-out COS–LP dari pool bersama",
+   "owner": "Kamu",
+   "sub": "Terbuka — risiko double count",
+   "unblock": "Tetapkan apakah biaya melayani barang klien dikarve-out dari pool yang sama sehingga Storing/Distribution Cost tinggal porsi barang sendiri, atau dihitung terpisah. Tanpa keputusan ini, sewa gudang dan biaya armada berisiko terhitung dua kali."
+  },
+  {
+   "id": "G14",
+   "type": "DATA",
+   "title": "Kepemilikan Barang tidak ditangkap di luar LP02 Trip Log",
+   "owner": "Warehouse + IT",
+   "sub": "Blocker baru — jalur LP",
+   "unblock": "Tambahkan atribut pemilik di GRN, WMS lot/lokasi, picking, dan kolom SJ. Ini join key yang membelah pool bersama antara barang sendiri dan barang klien. Tanpa itu, revenue LP ada tapi dasar biayanya tidak ada."
+  },
+  {
+   "id": "G15",
+   "type": "DECISION",
+   "title": "Basis tarif layanan LP",
+   "owner": "Kamu",
+   "sub": "Terbuka",
+   "unblock": "Tarif ke pihak ketiga = harga pasar di atas cost-to-serve. Untuk klien afiliasi, tarif pihak ketiga jadi pembanding internal — tetapkan apakah dipakai apa adanya atau disesuaikan, dan dokumentasikan selisihnya."
+  }
+ ],
+ "steps": [
+  {
+   "name": "Kontrak layanan LP & rate card per klien",
+   "fn": "SALES",
+   "co": "Commercial + PF",
+   "track": "LP",
+   "docs": [
+    "Perjanjian jasa fulfillment & trucking",
+    "LP02 Rate Card Model",
+    "Proposal & penawaran tarif"
+   ],
+   "coa": [],
+   "drivers": [
+    "Tarif per pallet position per periode",
+    "Tarif per CBM per zona"
+   ],
+   "needs": [
+    {
+     "item": "Perjanjian jasa tertulis per klien LP",
+     "kind": "MASTER",
+     "src": "Legal / Commercial",
+     "owner": "Sales + FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Master klien LP — badan usaha, term, tarif",
+     "kind": "MASTER",
+     "src": "Sistem / Sales",
+     "owner": "Sales",
+     "status": "BELUM"
+    },
+    {
+     "item": "Basis penetapan tarif layanan",
+     "kind": "PARAMETER",
+     "src": "LP02 Rate Card Model",
+     "owner": "PF",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Benchmark tarif pasar 3PL",
+     "kind": "REFERENSI",
+     "src": "Pasar",
+     "owner": "Sales + PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Limit kredit per klien LP",
+     "kind": "MASTER",
+     "src": "Finance",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Tarif ditetapkan tanpa dasar biaya sehingga layanan dijual di bawah cost-to-serve; layanan berjalan tanpa perjanjian tertulis.",
+   "control": "Perjanjian tertulis dan limit kredit disetujui sebelum barang pertama masuk; tarif ditinjau berkala terhadap cost-to-serve aktual.",
+   "gap": "G15",
+   "note": "Tarif LP harus berdiri di atas cost-to-serve per pallet-day dan per CBM — angka yang keluar dari pool bersama. Kalau pool-nya belum dibelah, tarifnya belum punya dasar.",
+   "label": "1",
+   "slot": 1
+  },
+  {
+   "name": "Demand plan & forecast per principal",
+   "fn": "SALES",
+   "co": "Demand planning",
+   "docs": [
+    "SAMB_Demand_Forecast_WP_v1.0.xlsx",
+    "Historis sales SAP (VBRP)",
+    "Rencana promo principal"
+   ],
+   "coa": [],
+   "drivers": [
+    "Target CBM — denominator kapasitas",
+    "Basis normal capacity (PSAK 14)"
+   ],
+   "risk": "Bias forecast: overstock mengunci pallet position, stockout menghapus margin yang tidak bisa diambil kembali. Kalau penyerahan ke Purchasing tidak berdokumen, PO terbit atas penilaian Purchasing sendiri dan forecast-nya jadi hiasan.",
+   "control": "Review bulanan forecast vs actual dengan tracking error per principal. Demand plan diserahkan ke Purchasing sebagai dokumen bernomor periode, bukan lisan.",
+   "gap": "G08",
+   "note": "Belum ada posting akuntansi di step ini — murni perencanaan. Pemiliknya Sales karena yang dibutuhkan pengetahuan pasar dan kalender promo; PF menyediakan modelnya, Purchasing menerima keluarannya.",
+   "needs": [
+    {
+     "item": "Historis sales per principal per SKU per bulan",
+     "kind": "TRANSAKSI",
+     "src": "SAP — VBRP",
+     "owner": "IT + FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Kalender promo & program principal",
+     "kind": "REFERENSI",
+     "src": "Principal",
+     "owner": "Sales (Mbak Yani)",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Target CBM per gudang per periode",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kapasitas normal gudang dalam pallet position",
+     "kind": "PARAMETER",
+     "src": "Survey gudang",
+     "owner": "Warehouse (Pak Deni)",
+     "status": "BELUM"
+    },
+    {
+     "item": "Lead time principal per SKU",
+     "kind": "MASTER",
+     "src": "Kesepakatan principal",
+     "owner": "Purchasing",
+     "status": "BELUM"
+    }
+   ],
+   "track": "TRADE",
+   "label": "2",
+   "slot": 1
+  },
+  {
+   "name": "Terbit PO ke principal",
+   "fn": "PURCHASING",
+   "co": "",
+   "docs": [
+    "PO",
+    "Price list principal",
+    "Konfirmasi trading term"
+   ],
+   "coa": [],
+   "drivers": [
+    "Isi per karton per SKU — LAHIR DI SINI"
+   ],
+   "risk": "PO di luar batas otorisasi; harga tidak sesuai price list; trading term tidak terdokumentasi.",
+   "control": "Matriks otorisasi PO; harga terkunci ke price list aktif.",
+   "gap": "G01",
+   "note": "Price list principal adalah sumber isi-per-karton. Blocker #1 sebetulnya lahir di step ini — datanya sudah lewat tangan Purchasing setiap kali PO dibuat.",
+   "needs": [
+    {
+     "item": "Price list principal aktif per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing",
+     "status": "ADA"
+    },
+    {
+     "item": "Isi per karton per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing / Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Trading term & skema discount per principal",
+     "kind": "REFERENSI",
+     "src": "Kontrak principal",
+     "owner": "Sales + Purchasing",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Matriks otorisasi PO",
+     "kind": "PARAMETER",
+     "src": "Kebijakan internal",
+     "owner": "Management",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "TRADE",
+   "label": "3",
+   "slot": 2
+  },
+  {
+   "name": "Konfirmasi & jadwal kedatangan",
+   "fn": "PURCHASING",
+   "co": "",
+   "docs": [
+    "Konfirmasi order principal",
+    "Jadwal slot bongkar"
+   ],
+   "coa": [],
+   "drivers": [
+    "Rencana CBM inbound — cek kapasitas gudang"
+   ],
+   "risk": "Kedatangan menumpuk di hari yang sama → lembur bongkar dan pallet position tidak siap.",
+   "control": "Slot booking bongkar; konfirmasi kapasitas ke Warehouse sebelum jadwal dikunci.",
+   "gap": "",
+   "note": "",
+   "needs": [
+    {
+     "item": "Jadwal slot bongkar harian",
+     "kind": "TRANSAKSI",
+     "src": "Belum ada sistem",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Occupancy gudang harian",
+     "kind": "TRANSAKSI",
+     "src": "WMS / LP01",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "TRADE",
+   "label": "4",
+   "slot": 3
+  },
+  {
+   "name": "Terima instruksi & titipan dari klien LP",
+   "fn": "KLIEN",
+   "co": "Pemilik barang",
+   "track": "LP",
+   "docs": [
+    "Instruksi penitipan barang",
+    "SJ klien",
+    "Berita acara terima titipan"
+   ],
+   "coa": [
+    {
+     "code": "Neraca",
+     "label": "Barang titipan — off-balance, bukan inventory SAMB"
+    }
+   ],
+   "drivers": [
+    "Volume titipan masuk per klien"
+   ],
+   "needs": [
+    {
+     "item": "Instruksi penitipan per klien",
+     "kind": "TRANSAKSI",
+     "src": "Dokumen klien",
+     "owner": "Sales Admin + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Berita acara terima titipan",
+     "kind": "TRANSAKSI",
+     "src": "Form manual",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Master klien LP sebagai pemilik barang",
+     "kind": "MASTER",
+     "src": "Sistem",
+     "owner": "Sales",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Barang titipan masuk tanpa dokumen pemilik sehingga tercatat seolah inventory SAMB — persediaan dan HPP dua-duanya salah saji.",
+   "control": "Terima titipan hanya dengan berita acara bernomor; kode pemilik wajib diisi sebelum barang masuk rak.",
+   "gap": "G14",
+   "note": "Kepala jalur LP. Bedanya dengan step 4: di sini SAMB tidak membeli apa pun, hanya jadi custodian. Tidak ada PO, tidak ada GR/IR, tidak ada harga beli, dan tidak ada inventory di neraca.",
+   "label": "5",
+   "slot": 3
+  },
+  {
+   "name": "Kedatangan & bongkar — barang sendiri",
+   "fn": "WAREHOUSE",
+   "co": "Inbound",
+   "docs": [
+    "SJ principal",
+    "Tally sheet bongkar",
+    "Referensi PO"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "CBM inbound per kategori → Pool 1 Receiving & Put-Away"
+   ],
+   "risk": "Qty fisik ≠ qty SJ principal; kerusakan saat bongkar tidak tercatat sehingga jadi selisih opname nanti.",
+   "control": "Dual check tally lawan SJ principal dan PO; berita acara selisih ditandatangani dua pihak sebelum truk principal keluar.",
+   "gap": "",
+   "note": "Kedatangan lawan PO. Ada penjual, ada harga, ada kewajiban bayar — jadi ada GR/IR di step berikutnya.",
+   "needs": [
+    {
+     "item": "Qty terima per SKU per PO",
+     "kind": "TRANSAKSI",
+     "src": "Tally sheet bongkar",
+     "owner": "Warehouse Inbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Jumlah & jam kerja tenaga bongkar",
+     "kind": "TRANSAKSI",
+     "src": "Absensi / borongan",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Berita acara selisih terima",
+     "kind": "TRANSAKSI",
+     "src": "Form manual",
+     "owner": "Warehouse Inbound",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "TRADE",
+   "label": "6a",
+   "slot": 4
+  },
+  {
+   "name": "Kedatangan & bongkar — barang klien",
+   "fn": "WAREHOUSE",
+   "co": "Inbound",
+   "docs": [
+    "SJ klien LP",
+    "Tally sheet bongkar",
+    "Referensi instruksi penitipan"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower — carve-out ke COS–LP"
+    }
+   ],
+   "drivers": [
+    "CBM inbound per klien → Pool 1, porsi COS–LP"
+   ],
+   "risk": "Barang klien di-tally dengan form yang sama seperti barang sendiri sehingga tercampur di WMS; tanpa kode pemilik, biaya bongkarnya menempel ke Storing Cost dan bukan ke COS–LP.",
+   "control": "Form tally terpisah dengan kode klien wajib; barang klien tidak boleh masuk rak sebelum kode pemilik terisi.",
+   "gap": "G14",
+   "note": "Tidak ada PO. Tidak ada penjual, tidak ada harga beli, tidak ada kewajiban bayar. Yang lahir di sini adalah kewajiban menjaga barang — bukan utang dagang.",
+   "needs": [
+    {
+     "item": "Qty terima per SKU per instruksi penitipan",
+     "kind": "TRANSAKSI",
+     "src": "Tally sheet bongkar",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jumlah & jam kerja tenaga bongkar per pemilik barang",
+     "kind": "TRANSAKSI",
+     "src": "Absensi / borongan",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kepemilikan Barang — kode klien LP",
+     "kind": "TRANSAKSI",
+     "src": "Tally sheet",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    }
+   ],
+   "track": "LP",
+   "label": "6b",
+   "slot": 4
+  },
+  {
+   "name": "Checking & terbit GRN",
+   "fn": "WAREHOUSE",
+   "co": "Inbound",
+   "docs": [
+    "GRN",
+    "Entry WMS",
+    "Invoice principal",
+    "Foto kondisi barang"
+   ],
+   "coa": [
+    {
+     "code": "5.3.xx",
+     "label": "Inventory / COGS — Dr Inventory"
+    },
+    {
+     "code": "Neraca",
+     "label": "GR/IR clearing"
+    }
+   ],
+   "drivers": [
+    "Konversi PC → karton → CBM (butuh isi per karton)"
+   ],
+   "risk": "GRN tidak match PO dan invoice principal; tanggal GRN ≠ tanggal fisik terima sehingga cut-off bulanan bergeser.",
+   "control": "Three-way match PO – GRN – invoice; cut-off GRN harian, tidak boleh backdate lewat tanggal tutup.",
+   "gap": "G01",
+   "note": "Tanpa isi per karton, konversi PC→karton di sini manual atau diestimasi — dan seluruh CBM di hilir mewarisi estimasi itu.",
+   "needs": [
+    {
+     "item": "Nomor & tanggal GRN dengan link ke PO",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Faktor konversi PC ↔ karton per SKU",
+     "kind": "MASTER",
+     "src": "Price list principal",
+     "owner": "Purchasing",
+     "status": "BELUM"
+    },
+    {
+     "item": "Harga beli per SKU",
+     "kind": "TRANSAKSI",
+     "src": "Invoice principal",
+     "owner": "FAT",
+     "status": "ADA"
+    }
+   ],
+   "track": "TRADE",
+   "label": "7a",
+   "slot": 5
+  },
+  {
+   "name": "Checking & berita acara terima titipan",
+   "fn": "WAREHOUSE",
+   "co": "Inbound",
+   "docs": [
+    "Berita acara terima titipan",
+    "Entry WMS dengan kode pemilik",
+    "Foto kondisi barang"
+   ],
+   "coa": [
+    {
+     "code": "Neraca",
+     "label": "Barang titipan — off-balance, bukan inventory SAMB"
+    },
+    {
+     "code": "Memo",
+     "label": "Catatan kuantitas & kondisi untuk pertanggungjawaban ke klien"
+    }
+   ],
+   "drivers": [
+    "CBM titipan masuk per klien → dasar tagih & dasar carve-out"
+   ],
+   "risk": "Barang titipan masuk ke WMS tanpa penanda off-balance sehingga ikut terhitung sebagai inventory SAMB — persediaan dan HPP dua-duanya salah saji, dan opname tidak akan pernah tie ke TB.",
+   "control": "Registrasi titipan di ledger terpisah dari inventory; berita acara ditandatangani klien sebagai dasar pertanggungjawaban kuantitas.",
+   "gap": "G14",
+   "note": "TIDAK ADA GRN DAN TIDAK ADA GR/IR. Yang terbit adalah pengakuan kuantitas untuk dipertanggungjawabkan, bukan pengakuan aset. Ini pemisahan akuntansi paling tegas di seluruh rantai — dan hari ini dijalankan dengan form yang sama seperti barang sendiri.",
+   "needs": [
+    {
+     "item": "Berita acara terima titipan bernomor",
+     "kind": "TRANSAKSI",
+     "src": "Form manual",
+     "owner": "Warehouse Inbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kuantitas & kondisi terima per SKU klien",
+     "kind": "TRANSAKSI",
+     "src": "WMS",
+     "owner": "Warehouse + IT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Dimensi karton SKU klien untuk konversi CBM",
+     "kind": "MASTER",
+     "src": "Data dari klien",
+     "owner": "Sales + Warehouse",
+     "status": "BELUM"
+    }
+   ],
+   "track": "LP",
+   "label": "7b",
+   "slot": 5
+  },
+  {
+   "name": "Put-away ke lokasi & pallet",
+   "fn": "WAREHOUSE",
+   "co": "Storage",
+   "docs": [
+    "Task put-away WMS",
+    "Peta lokasi rak",
+    "LP01 — occupancy"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.3.02",
+     "label": "Storing — Rental"
+    }
+   ],
+   "drivers": [
+    "Pallet position terisi → basis pallet-day",
+    "CBM inbound → Pool 1",
+    "Pallet position per pemilik barang → belah pool bersama"
+   ],
+   "risk": "Lokasi tidak di-update di WMS → stok hantu. Tumpukan melewati max tumpuk SKU → barang bawah rusak.",
+   "control": "Scan lokasi wajib saat put-away; batas max tumpuk tertulis per SKU di label rak.",
+   "gap": "G14",
+   "note": "Max tumpuk aktual per SKU yang dipakai di sini adalah angka yang sama yang dibutuhkan untuk stacking factor — tapi belum pernah ditarik jadi data.",
+   "needs": [
+    {
+     "item": "Dimensi karton P × L × T per SKU",
+     "kind": "MASTER",
+     "src": "Product master / spec principal",
+     "owner": "Commercial",
+     "status": "BELUM"
+    },
+    {
+     "item": "Max tumpuk aktual per SKU",
+     "kind": "MASTER",
+     "src": "Observasi gudang",
+     "owner": "Warehouse (Pak Deni)",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tinggi rak berguna per zona gudang",
+     "kind": "MASTER",
+     "src": "Ukur gudang",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Lokasi / bin per SKU",
+     "kind": "TRANSAKSI",
+     "src": "WMS",
+     "owner": "Warehouse",
+     "status": "ADA"
+    },
+    {
+     "item": "Pallet position terpakai per principal",
+     "kind": "TRANSAKSI",
+     "src": "WMS / LP01",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Kepemilikan Barang — milik SAMB vs titipan afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "WMS — atribut lot / lokasi",
+     "owner": "Warehouse + IT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "8",
+   "slot": 6
+  },
+  {
+   "name": "Penyimpanan, housekeeping & opname",
+   "fn": "WAREHOUSE",
+   "co": "Storage",
+   "docs": [
+    "Stock report WMS",
+    "Berita acara opname",
+    "LP01 — occupancy pallet-day",
+    "Aging / slow-moving report"
+   ],
+   "coa": [
+    {
+     "code": "6.3.02",
+     "label": "Storing — Rental"
+    },
+    {
+     "code": "6.3.03",
+     "label": "Storing — Utilities"
+    },
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.3.06",
+     "label": "Storing — Security"
+    },
+    {
+     "code": "6.3.07",
+     "label": "Storing — Insurance"
+    },
+    {
+     "code": "6.3.08",
+     "label": "Storing — Depreciation"
+    }
+   ],
+   "drivers": [
+    "CBM × inventory days (space × time) → Pool 2 Storage & Housekeeping",
+    "Pallet-day rate — total cost pool ÷ pallet-days",
+    "Net CBM movement → cluster sisa account",
+    "Pallet-day per pemilik barang → belah pool bersama"
+   ],
+   "risk": "Selisih opname tidak ditelusuri sampai akar; slow-moving dan expired tidak terdeteksi sampai jadi write-off. Stok titipan afiliasi tercampur dengan stok milik sendiri sehingga opname tidak akan pernah tie ke TB.",
+   "control": "Cycle count berjadwal dengan toleransi tertulis; aging review bulanan dengan pemilik keputusan yang jelas.",
+   "gap": "G02",
+   "note": "Inventory days punya dua jalur perhitungan (moneter vs fisik) dan belum dipatok satu. Selama belum, WP storing tidak bisa konsisten antar periode. Selain itu: stok fisik di gudang termasuk barang titipan afiliasi yang bukan inventory SAMB. Kalau WMS tidak membedakan owned vs consigned, selisih opname akan selalu ada dan selalu tak terjelaskan — bukan karena kontrolnya lemah, tapi karena definisinya beda.",
+   "needs": [
+    {
+     "item": "Stok awal & akhir per SKU per periode — qty dan nilai",
+     "kind": "TRANSAKSI",
+     "src": "SAP / WMS",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "CBM tersimpan per principal per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari dimensi karton",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Inventory days per principal",
+     "kind": "PARAMETER",
+     "src": "Turunan — 2 jalur, belum dipilih",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Biaya sewa gudang per periode",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Pallet position tersedia per gudang",
+     "kind": "MASTER",
+     "src": "Layout gudang",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Headcount & pembagian waktu per 4 activity pool",
+     "kind": "MASTER",
+     "src": "HR + time study",
+     "owner": "HR + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Hasil opname & selisih per periode",
+     "kind": "TRANSAKSI",
+     "src": "Berita acara opname",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Aging stok per SKU",
+     "kind": "TRANSAKSI",
+     "src": "WMS",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Kepemilikan Barang — milik SAMB vs titipan afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "WMS stock report",
+     "owner": "Warehouse + IT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "9",
+   "slot": 7
+  },
+  {
+   "name": "Order masuk dari customer",
+   "fn": "SALES",
+   "co": "CS",
+   "docs": [
+    "SO",
+    "Credit check",
+    "ATP / stock availability check"
+   ],
+   "coa": [],
+   "drivers": [
+    "Order count → driver alternatif cost-to-serve (B2C / e-commerce)"
+   ],
+   "risk": "Order melebihi limit kredit diloloskan manual; order diterima tanpa stok sehingga jadi partial delivery.",
+   "control": "Credit block otomatis di sistem; ATP check sebelum SO dikonfirmasi.",
+   "gap": "",
+   "note": "Order count adalah driver yang bisa membalik verdict portfolio: satu order satuan B2C butuh labour hampir sama dengan order bulk.",
+   "needs": [
+    {
+     "item": "SO — customer, SKU, qty, tanggal minta",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Sales / CS",
+     "status": "ADA"
+    },
+    {
+     "item": "Limit kredit & outstanding AR per customer",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Finance AR",
+     "status": "ADA"
+    },
+    {
+     "item": "Jumlah order per principal per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari SO",
+     "owner": "PF",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Master customer — channel, zona, alamat kirim",
+     "kind": "MASTER",
+     "src": "SAP",
+     "owner": "Sales",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "TRADE",
+   "label": "10",
+   "slot": 8
+  },
+  {
+   "name": "Instruksi pengiriman dari klien LP",
+   "fn": "KLIEN",
+   "co": "Pemilik barang",
+   "track": "LP",
+   "docs": [
+    "Delivery order klien",
+    "Daftar tujuan kirim"
+   ],
+   "coa": [],
+   "drivers": [
+    "Jumlah order layanan per klien"
+   ],
+   "needs": [
+    {
+     "item": "Delivery order dari klien LP",
+     "kind": "TRANSAKSI",
+     "src": "Dokumen klien",
+     "owner": "Sales Admin",
+     "status": "BELUM"
+    },
+    {
+     "item": "Alamat & zona tujuan customer klien",
+     "kind": "MASTER",
+     "src": "Master tujuan",
+     "owner": "Sales + Fleet",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Barang titipan dikeluarkan atas instruksi lisan sehingga tidak ada jejak otorisasi pemilik.",
+   "control": "Pengeluaran barang titipan hanya atas DO tertulis dari pemilik; DO diarsip bersama SJ.",
+   "gap": "",
+   "note": "",
+   "label": "11",
+   "slot": 8
+  },
+  {
+   "name": "Alokasi stok & terbit DO",
+   "fn": "SALES",
+   "co": "Sales Admin + Warehouse",
+   "docs": [
+    "DO",
+    "Picking list"
+   ],
+   "coa": [],
+   "drivers": [
+    "Rencana CBM outbound per rute"
+   ],
+   "risk": "Alokasi ganda atas stok yang sama; FEFO tidak diikuti sehingga barang tua tertinggal.",
+   "control": "Alokasi terkunci di WMS saat DO terbit; FEFO di-enforce sistem, bukan kebijaksanaan picker.",
+   "gap": "",
+   "note": "",
+   "needs": [
+    {
+     "item": "Stok tersedia real-time per SKU",
+     "kind": "TRANSAKSI",
+     "src": "WMS",
+     "owner": "Warehouse",
+     "status": "ADA"
+    },
+    {
+     "item": "Tanggal expired per lot & aturan FEFO",
+     "kind": "MASTER",
+     "src": "WMS",
+     "owner": "Warehouse",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Rute & zona per customer",
+     "kind": "MASTER",
+     "src": "Master rute",
+     "owner": "Sales + Fleet",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "12",
+   "slot": 9
+  },
+  {
+   "name": "Picking",
+   "fn": "WAREHOUSE",
+   "co": "Outbound",
+   "docs": [
+    "Picking list",
+    "Konfirmasi pick di WMS"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "CBM outbound per kategori → Pool 3 Picking & Packing",
+    "Pick line count → kandidat driver LP Fulfillment",
+    "Baris pick per pemilik barang → belah pool bersama"
+   ],
+   "risk": "Salah SKU atau qty; pick dilakukan tanpa scan sehingga stok sistem menyimpang dari fisik.",
+   "control": "Scan verifikasi per baris pick; sampling QC sebelum packing.",
+   "gap": "G05",
+   "note": "Pick line count yang tercatat di step ini adalah salah satu dari tiga kandidat driver LP Fulfillment. Kalau driver-nya dipilih, datanya sudah ada di sini. Tidak dipecah: picking list adalah dokumen kerja internal dengan format yang sama untuk kedua jalur, dan tidak ada posting akuntansi. Yang membedakan hanya atribut pemilik.",
+   "needs": [
+    {
+     "item": "Baris pick per DO",
+     "kind": "TRANSAKSI",
+     "src": "WMS",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Jumlah baris pick per periode per principal",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari WMS",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Jam kerja picker per periode",
+     "kind": "TRANSAKSI",
+     "src": "Absensi",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kepemilikan Barang — milik SAMB vs titipan afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "WMS picking",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "13",
+   "slot": 10
+  },
+  {
+   "name": "Packing & staging",
+   "fn": "WAREHOUSE",
+   "co": "Outbound",
+   "docs": [
+    "Label pengiriman",
+    "Packing list"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    },
+    {
+     "code": "6.3.10",
+     "label": "Storing — Office Supplies / material packing"
+    }
+   ],
+   "drivers": [
+    "Order count → Pool 3",
+    "CBM outbound → Pool 3"
+   ],
+   "risk": "Barang tertukar antar order saat staging; material packing terpakai tanpa pencatatan.",
+   "control": "Staging dipisah per rute dan per armada; pemakaian material packing dicatat harian.",
+   "gap": "",
+   "note": "Tidak dipecah: sama seperti step 13 — dokumen internal, tanpa posting. Pembedanya atribut pemilik.",
+   "needs": [
+    {
+     "item": "Jumlah order dipacking per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari DO",
+     "owner": "PF",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Pemakaian material packing per periode",
+     "kind": "TRANSAKSI",
+     "src": "GL / stok material",
+     "owner": "Warehouse + FAT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "14",
+   "slot": 11
+  },
+  {
+   "name": "Loading & terbit SJ — barang sendiri",
+   "fn": "WAREHOUSE",
+   "co": "Outbound",
+   "docs": [
+    "SJ SAMB — grain per-SJ",
+    "Checklist loading",
+    "Feed ke LP02 Trip Log"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower"
+    }
+   ],
+   "drivers": [
+    "CBM outbound → Pool 4 Loading & Dispatch",
+    "CBM per SJ → basis alokasi trucking"
+   ],
+   "risk": "SJ terbit tanpa barang benar-benar naik; kolom CBM di SJ dikosongkan karena tidak ada yang memakainya di lapangan.",
+   "control": "Verifikasi loading vs SJ oleh checker terpisah; SJ bernomor urut dan dipertanggungjawabkan.",
+   "gap": "",
+   "note": "SAMB sebagai penjual. SJ ini yang jadi dasar pengakuan revenue di POD. TITIK PALING RAPUH: kalau CBM per SJ tidak diisi, LP02 Trip Log kosong dan seluruh alokasi distribution cost kehilangan basisnya — tidak ada cara memperbaikinya di belakang.",
+   "needs": [
+    {
+     "item": "CBM per SJ",
+     "kind": "TRANSAKSI",
+     "src": "Kolom di SJ → LP02 Trip Log",
+     "owner": "Warehouse Outbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Berat per SJ",
+     "kind": "TRANSAKSI",
+     "src": "Kolom di SJ",
+     "owner": "Warehouse Outbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Nomor SJ, tanggal, customer, ref DO",
+     "kind": "TRANSAKSI",
+     "src": "SAP / WMS",
+     "owner": "Warehouse Outbound",
+     "status": "ADA"
+    },
+    {
+     "item": "Jam kerja loading per periode",
+     "kind": "TRANSAKSI",
+     "src": "Absensi",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    }
+   ],
+   "track": "TRADE",
+   "label": "15a",
+   "slot": 12
+  },
+  {
+   "name": "Loading & terbit SJ — barang klien",
+   "fn": "WAREHOUSE",
+   "co": "Outbound",
+   "docs": [
+    "SJ pengiriman barang klien — SAMB sebagai pengangkut, bukan penjual",
+    "Referensi DO klien",
+    "Salinan SJ untuk klien",
+    "Feed ke LP02 Trip Log"
+   ],
+   "coa": [
+    {
+     "code": "6.3.01",
+     "label": "Storing — Manpower — carve-out ke COS–LP"
+    },
+    {
+     "code": "Neraca",
+     "label": "Barang titipan berkurang — bukan penjualan"
+    }
+   ],
+   "drivers": [
+    "CBM outbound per klien → Pool 4, porsi COS–LP",
+    "CBM per SJ per klien → dasar tagih trucking"
+   ],
+   "risk": "SJ barang klien diterbitkan dengan format dan seri yang sama seperti SJ penjualan SAMB, sehingga terlihat seolah SAMB yang melakukan penyerahan — implikasinya PPN dan pengakuan revenue tercatat di entitas yang salah.",
+   "control": "Format SJ terpisah dengan peran SAMB sebagai pengangkut tertulis jelas; seri nomor terpisah dari SJ penjualan; salinan SJ diserahkan ke klien.",
+   "gap": "G14",
+   "note": "SAMB BUKAN PENJUAL DI SINI. Kalau SJ-nya seragam dengan SJ penjualan, risikonya bukan cuma alokasi biaya — tapi siapa yang dianggap melakukan penyerahan untuk tujuan PPN. Ini alasan step 15 harus dipecah dan bukan cukup ditandai atribut pemilik.",
+   "needs": [
+    {
+     "item": "CBM per SJ barang klien",
+     "kind": "TRANSAKSI",
+     "src": "Kolom di SJ → LP02 Trip Log",
+     "owner": "Warehouse Outbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kepemilikan Barang per SJ",
+     "kind": "TRANSAKSI",
+     "src": "Kolom di SJ",
+     "owner": "Warehouse Outbound",
+     "status": "BELUM"
+    },
+    {
+     "item": "Peran SAMB di SJ — pengangkut vs penjual",
+     "kind": "PARAMETER",
+     "src": "Perjanjian jasa",
+     "owner": "FAT + Tax",
+     "status": "BELUM"
+    },
+    {
+     "item": "Nomor seri SJ terpisah dari SJ penjualan",
+     "kind": "MASTER",
+     "src": "Sistem penomoran",
+     "owner": "Warehouse + IT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "LP",
+   "label": "15b",
+   "slot": 12
+  },
+  {
+   "name": "Trip planning & muat armada",
+   "fn": "FLEET",
+   "co": "Logistics",
+   "docs": [
+    "LP02 Trip Log — Trip Key, Armada, Kepemilikan Barang, utilization",
+    "LP02 Master Truck",
+    "Rencana rute & zona"
+   ],
+   "coa": [
+    {
+     "code": "7.3.04",
+     "label": "Distribution — Delivery"
+    },
+    {
+     "code": "7.3.05",
+     "label": "Distribution — Maintenance"
+    },
+    {
+     "code": "7.3.08",
+     "label": "Distribution — Depreciation"
+    },
+    {
+     "code": "7.3.01",
+     "label": "Distribution — Manpower"
+    }
+   ],
+   "drivers": [
+    "CBM per trip dari Trip Log",
+    "Normal / achievable capacity per tipe truk — BUKAN actual",
+    "Depresiasi normalized per tipe truk"
+   ],
+   "risk": "Utilisasi rendah tidak terpantau sehingga terserap diam-diam ke unit cost; trip tercatat tanpa muatan riil.",
+   "control": "Utilization dihitung otomatis di Trip Log; approval rute sebelum armada keluar.",
+   "gap": "G06",
+   "note": "Under-utilisasi adalah variance yang harus dimunculkan, bukan dikubur ke unit cost. Itu sebabnya denominatornya normal capacity. TIDAK BISA DIPECAH: satu trip mengangkut SJ barang sendiri dan SJ barang klien sekaligus — grain-nya per-trip, bukan per-pemilik. Pembelahan biayanya terjadi DI DALAM step ini, lewat Kepemilikan Barang per SJ di Trip Log.",
+   "needs": [
+    {
+     "item": "Master truk — nopol, tipe, kapasitas CBM & tonase, tahun, nilai perolehan",
+     "kind": "MASTER",
+     "src": "LP02 Master Truck",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Normal / achievable capacity per tipe truk",
+     "kind": "PARAMETER",
+     "src": "Konfirmasi operasional",
+     "owner": "Fleet",
+     "status": "BELUM"
+    },
+    {
+     "item": "Trip log per SJ — Trip Key, armada, kepemilikan barang, CBM, utilization",
+     "kind": "TRANSAKSI",
+     "src": "LP02 Trip Log",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Biaya per akun trucking per periode",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Umur ekonomis & metode depresiasi per tipe truk",
+     "kind": "PARAMETER",
+     "src": "Kebijakan akuntansi",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Benchmark rate / rate card per rute",
+     "kind": "REFERENSI",
+     "src": "Pasar / vendor luar",
+     "owner": "Sales",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kepemilikan Barang — milik SAMB vs titipan afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "LP02 Trip Log",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "16",
+   "slot": 13
+  },
+  {
+   "name": "Delivery ke customer",
+   "fn": "FLEET",
+   "co": "Logistics",
+   "docs": [
+    "SJ + tanda terima",
+    "Log BBM per trip",
+    "Data GPS / tracking"
+   ],
+   "coa": [
+    {
+     "code": "7.3.04",
+     "label": "Distribution — Delivery: BBM, tol, uang jalan"
+    }
+   ],
+   "drivers": [
+    "CBM × zona (Zone 1 / 2 / 3)",
+    "Backhaul sudah di dalam asumsi tarif round-trip Zone 2 & 3"
+   ],
+   "risk": "BBM dan uang jalan tidak sepadan dengan rute; deviasi rute tidak terdeteksi.",
+   "control": "Log BBM per trip direkonsiliasi dengan jarak GPS; deviasi di atas ambang wajib penjelasan.",
+   "gap": "",
+   "note": "Tidak bisa dipecah karena alasan yang sama seperti step 16 — satu perjalanan, muatan campuran. BBM dan uang jalan satu trip melayani dua jenis barang; pembagiannya lewat CBM per SJ per pemilik.",
+   "needs": [
+    {
+     "item": "Jarak & zona per rute",
+     "kind": "MASTER",
+     "src": "Master rute",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Konsumsi & biaya BBM per trip",
+     "kind": "TRANSAKSI",
+     "src": "Log BBM",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Uang jalan & tol per trip",
+     "kind": "TRANSAKSI",
+     "src": "Settlement driver",
+     "owner": "Fleet + Finance",
+     "status": "ADA"
+    },
+    {
+     "item": "Jarak aktual dari GPS",
+     "kind": "TRANSAKSI",
+     "src": "Sistem GPS",
+     "owner": "Fleet + IT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "17",
+   "slot": 14
+  },
+  {
+   "name": "POD & serah terima — barang sendiri",
+   "fn": "FLEET",
+   "co": "serah ke Finance",
+   "docs": [
+    "POD bertanda tangan customer",
+    "Nota retur / reject"
+   ],
+   "coa": [
+    {
+     "code": "4.3.xx",
+     "label": "Revenue — trigger pengakuan"
+    },
+    {
+     "code": "5.3.xx",
+     "label": "COGS — trigger pengakuan"
+    }
+   ],
+   "drivers": [],
+   "risk": "POD hilang sehingga invoice tidak bisa ditagih dan umur AR jalan tanpa dasar; retur di lapangan tidak masuk sistem.",
+   "control": "Tracking POD dengan SLA pengembalian; retur wajib bernota sebelum truk kembali ditutup.",
+   "gap": "",
+   "note": "Titik cut-off pengakuan revenue SAMB. Retur masuk kembali sebagai inventory SAMB.",
+   "needs": [
+    {
+     "item": "POD — tanggal terima, nama penerima, status",
+     "kind": "TRANSAKSI",
+     "src": "POD fisik",
+     "owner": "Fleet",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Retur / reject — SKU, qty, alasan",
+     "kind": "TRANSAKSI",
+     "src": "Nota retur",
+     "owner": "Fleet + Sales",
+     "status": "BELUM"
+    },
+    {
+     "item": "Tanggal cut-off pengakuan per periode",
+     "kind": "PARAMETER",
+     "src": "Kalender close",
+     "owner": "FAT",
+     "status": "ADA"
+    }
+   ],
+   "track": "TRADE",
+   "label": "18a",
+   "slot": 15
+  },
+  {
+   "name": "POD & serah terima — barang klien",
+   "fn": "FLEET",
+   "co": "serah ke Finance",
+   "docs": [
+    "POD bertanda tangan penerima",
+    "Salinan POD untuk klien",
+    "Nota retur titipan"
+   ],
+   "coa": [
+    {
+     "code": "Memo",
+     "label": "Penyelesaian jasa — bukan pengakuan penjualan"
+    },
+    {
+     "code": "Neraca",
+     "label": "Barang titipan berkurang — off-balance"
+    }
+   ],
+   "drivers": [
+    "SJ terselesaikan per klien → konfirmasi konsumsi layanan"
+   ],
+   "risk": "POD barang klien tidak dikembalikan ke klien sehingga klien tidak bisa mengakui penjualannya dan SAMB tidak punya bukti jasa selesai; retur titipan dicatat sebagai retur penjualan sehingga ikut masuk inventory SAMB.",
+   "control": "SLA pengembalian salinan POD ke klien; retur titipan masuk ledger titipan, bukan inventory.",
+   "gap": "G14",
+   "note": "TIDAK ADA REVENUE DAN TIDAK ADA COGS yang diakui di sini. Yang selesai adalah jasa — dan POD-nya barang bukti yang harus DISERAHKAN ke klien, bukan cuma diarsip. Ini kewajiban SAMB ke klien, bukan dokumen internal.",
+   "needs": [
+    {
+     "item": "POD barang klien dengan tanda terima",
+     "kind": "TRANSAKSI",
+     "src": "POD fisik",
+     "owner": "Fleet",
+     "status": "BELUM"
+    },
+    {
+     "item": "Salinan POD dikirim ke klien",
+     "kind": "TRANSAKSI",
+     "src": "Log pengiriman POD",
+     "owner": "Sales Admin",
+     "status": "BELUM"
+    },
+    {
+     "item": "Retur titipan — SKU, qty, alasan",
+     "kind": "TRANSAKSI",
+     "src": "Nota retur titipan",
+     "owner": "Fleet + Warehouse",
+     "status": "BELUM"
+    }
+   ],
+   "track": "LP",
+   "label": "18b",
+   "slot": 15
+  },
+  {
+   "name": "Terbit invoice & faktur pajak",
+   "fn": "FINANCE",
+   "co": "AR + Tax",
+   "docs": [
+    "Invoice (dicetak fisik)",
+    "Faktur pajak / e-Faktur"
+   ],
+   "coa": [
+    {
+     "code": "4.3.xx",
+     "label": "Revenue"
+    },
+    {
+     "code": "5.3.xx",
+     "label": "COGS"
+    },
+    {
+     "code": "8.1.01",
+     "label": "Commercial Support — Manpower"
+    },
+    {
+     "code": "Neraca",
+     "label": "PPN keluaran"
+    }
+   ],
+   "drivers": [
+    "Jumlah invoice created → Commercial Support (people cost DAN paper cost)"
+   ],
+   "risk": "Invoice tidak match SJ atau POD; faktur pajak terlambat terbit sehingga timbul eksposur sanksi.",
+   "control": "Invoice hanya boleh terbit dari POD valid; rekonsiliasi invoice vs faktur pajak bulanan.",
+   "gap": "G11",
+   "note": "Semua invoice dicetak fisik — itu sebabnya jumlah invoice cukup jadi driver tunggal untuk people cost dan paper cost sekaligus, tanpa driver kertas terpisah.",
+   "needs": [
+    {
+     "item": "Invoice — nomor, tanggal, customer, nilai, ref SJ",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Finance AR",
+     "status": "ADA"
+    },
+    {
+     "item": "Jumlah invoice created per periode per principal",
+     "kind": "TRANSAKSI",
+     "src": "Turunan dari SAP",
+     "owner": "PF",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Faktur pajak — nomor seri, tanggal, DPP, PPN",
+     "kind": "TRANSAKSI",
+     "src": "e-Faktur",
+     "owner": "Tax",
+     "status": "ADA"
+    },
+    {
+     "item": "Headcount & biaya staff invoicing vs collection",
+     "kind": "MASTER",
+     "src": "HR",
+     "owner": "HR + Finance",
+     "status": "BELUM"
+    },
+    {
+     "item": "Porsi dedikasi Asman Tax",
+     "kind": "PARAMETER",
+     "src": "HR",
+     "owner": "HR",
+     "status": "BELUM"
+    }
+   ],
+   "track": "TRADE",
+   "label": "19",
+   "slot": 16
+  },
+  {
+   "name": "Pengukuran konsumsi layanan per klien LP",
+   "fn": "FINANCE",
+   "co": "PF + Warehouse + Fleet",
+   "track": "LP",
+   "docs": [
+    "Rekap pallet-day per klien",
+    "Rekap CBM terkirim per klien",
+    "LP01 + LP02 sebagai sumber"
+   ],
+   "coa": [],
+   "drivers": [
+    "Pallet-day per klien → dasar tagih fulfillment",
+    "CBM × zona per klien → dasar tagih trucking",
+    "Baris pick per klien → kandidat driver fulfillment"
+   ],
+   "needs": [
+    {
+     "item": "Pallet-day per klien LP per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan WMS + LP01",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "CBM terkirim per klien per zona",
+     "kind": "TRANSAKSI",
+     "src": "Turunan LP02 Trip Log",
+     "owner": "PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Baris pick per klien per periode",
+     "kind": "TRANSAKSI",
+     "src": "Turunan WMS",
+     "owner": "PF",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Tagihan disusun dari estimasi karena konsumsi tidak pernah diukur; revenue LP tidak bisa dipertanggungjawabkan ke volume.",
+   "control": "Rekap konsumsi ditutup bersamaan dengan tutup buku dan dikonfirmasi klien sebelum ditagih.",
+   "gap": "G14",
+   "note": "Pintu dua arah. Angka yang sama menentukan berapa yang DITAGIH ke klien dan berapa biaya pool bersama yang DICARVE-OUT jadi COS–LP. Satu pengukuran, dua kegunaan — dan kalau tidak diukur, dua-duanya jadi taksiran.",
+   "label": "20",
+   "slot": 16
+  },
+  {
+   "name": "Terbit invoice jasa LP & faktur pajak",
+   "fn": "FINANCE",
+   "co": "AR + Tax",
+   "track": "LP",
+   "docs": [
+    "Invoice jasa LP",
+    "Faktur pajak",
+    "Lampiran rekap konsumsi"
+   ],
+   "coa": [
+    {
+     "code": "4.4.xx",
+     "label": "Revenue — Logistic Provider"
+    },
+    {
+     "code": "5.4.xx",
+     "label": "COS – LP Fulfillment / Trucking — carve-out dari pool bersama"
+    },
+    {
+     "code": "Neraca",
+     "label": "PPN keluaran"
+    },
+    {
+     "code": "Neraca",
+     "label": "AR jasa LP"
+    }
+   ],
+   "drivers": [
+    "Tarif × konsumsi terukur per klien"
+   ],
+   "needs": [
+    {
+     "item": "Nomor & nilai invoice jasa LP per klien",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Finance AR",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Faktur pajak atas jasa LP",
+     "kind": "TRANSAKSI",
+     "src": "e-Faktur",
+     "owner": "Tax",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Nomor dokumen referensi — untuk klien berstatus afiliasi",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "risk": "Revenue LP diakui tanpa carve-out biayanya, sehingga margin jasa LP terlihat lebih tinggi dari sebenarnya dan Storing Cost menanggung biaya melayani barang milik klien.",
+   "control": "Invoice hanya terbit dari rekap konsumsi terukur; carve-out COS–LP dibukukan di periode yang sama dengan revenue-nya.",
+   "gap": "G13",
+   "note": "DI SINI RISIKO DOUBLE COUNT. Sewa gudang dan biaya armada yang melayani barang klien tidak boleh tetap tinggal di Storing/Distribution Cost sekaligus muncul di COS–LP. Satu pool, satu kali.",
+   "label": "21",
+   "slot": 17
+  },
+  {
+   "name": "Kirim tagihan & tukar faktur",
+   "fn": "FINANCE",
+   "co": "AR",
+   "docs": [
+    "Tanda terima tukar faktur",
+    "Log pengiriman tagihan"
+   ],
+   "coa": [
+    {
+     "code": "8.1.01",
+     "label": "Commercial Support — Manpower"
+    },
+    {
+     "code": "8.1.10",
+     "label": "Commercial Support — kurir & materai"
+    }
+   ],
+   "drivers": [
+    "Jumlah invoice created"
+   ],
+   "risk": "Tagihan tidak sampai ke customer tetapi umur AR sudah berjalan; tanda terima tidak diarsip.",
+   "control": "Tanda terima tukar faktur wajib kembali dan diarsip; log dicek terhadap daftar invoice terbit.",
+   "gap": "G12",
+   "note": "",
+   "needs": [
+    {
+     "item": "Tanda terima tukar faktur — tanggal kirim & tanggal diterima",
+     "kind": "TRANSAKSI",
+     "src": "Log manual AR",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Biaya kurir & materai per periode",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "ADA"
+    },
+    {
+     "item": "Jadwal tukar faktur per customer",
+     "kind": "MASTER",
+     "src": "Kesepakatan customer",
+     "owner": "Finance AR",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "TRADE",
+   "label": "23",
+   "slot": 17
+  },
+  {
+   "name": "Dokumentasi transfer pricing — khusus klien afiliasi",
+   "fn": "FINANCE",
+   "co": "Tax + PF",
+   "track": "LP",
+   "docs": [
+    "Transfer pricing documentation",
+    "Analisis kesebandingan",
+    "Bukti manfaat bagi penerima jasa"
+   ],
+   "coa": [],
+   "drivers": [
+    "Tarif ke afiliasi vs tarif ke klien pihak ketiga"
+   ],
+   "needs": [
+    {
+     "item": "Daftar klien LP yang berstatus afiliasi",
+     "kind": "MASTER",
+     "src": "Daftar entitas grup",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Tarif ke klien pihak ketiga sebagai pembanding internal",
+     "kind": "REFERENSI",
+     "src": "Rate card & invoice aktual",
+     "owner": "Sales + PF",
+     "status": "BELUM"
+    },
+    {
+     "item": "Analisis kesebandingan per transaksi afiliasi",
+     "kind": "MASTER",
+     "src": "Kertas kerja TP",
+     "owner": "Tax + PF",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Tarif ke afiliasi berbeda dari tarif ke pihak ketiga tanpa penjelasan, sehingga selisihnya jadi koreksi.",
+   "control": "Tarif afiliasi disandarkan pada tarif pihak ketiga untuk layanan sebanding; deviasi didokumentasikan sebab dan besarnya.",
+   "gap": "",
+   "note": "Keunggulan struktural dari punya klien pihak ketiga: tarif ke pihak ketiga adalah internal comparable TERBAIK untuk uji arm's length ke afiliasi. PMK-172 menuntut analisis kesebandingan penuh — dan pembandingnya sudah ada di dalam rumah, tidak perlu dicari di pasar.",
+   "label": "22",
+   "slot": 18
+  },
+  {
+   "name": "Monitoring AR & collection",
+   "fn": "FINANCE",
+   "co": "AR",
+   "docs": [
+    "AR aging",
+    "Statement of account",
+    "Log dunning"
+   ],
+   "coa": [
+    {
+     "code": "9.1.01",
+     "label": "G&A — Manpower: manager AR reconciliation"
+    }
+   ],
+   "drivers": [
+    "Weeks of credit → rotations = 52 ÷ (weeks stock + weeks credit)"
+   ],
+   "risk": "Overdue tidak ditagih karena tidak ada pemilik; dispute mengendap tanpa follow-up dan berubah jadi write-off.",
+   "control": "Review aging bulanan dengan pemilik per akun; dunning bertingkat dengan tanggal eskalasi.",
+   "gap": "G10",
+   "note": "Biaya manager AR reconciliation masuk G&A, bukan Commercial Support — pemisahannya sengaja, supaya driver invoice tidak menanggung biaya collection.",
+   "needs": [
+    {
+     "item": "AR aging per customer per invoice",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Finance AR",
+     "status": "ADA"
+    },
+    {
+     "item": "Term of payment per customer",
+     "kind": "MASTER",
+     "src": "Kontrak customer",
+     "owner": "Sales + Finance",
+     "status": "ADA"
+    },
+    {
+     "item": "Weeks of credit aktual per channel",
+     "kind": "PARAMETER",
+     "src": "Turunan dari AR aging",
+     "owner": "PF",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Log dunning & dispute",
+     "kind": "TRANSAKSI",
+     "src": "Belum ada sistem",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Scope fungsi AP di baris AR-AP-Finance Salary",
+     "kind": "PARAMETER",
+     "src": "Keputusan internal",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "AR jasa LP per klien, terpisah dari AR trade",
+     "kind": "TRANSAKSI",
+     "src": "SAP",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Limit kredit & outstanding per klien LP",
+     "kind": "MASTER",
+     "src": "Finance",
+     "owner": "Finance AR",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "24",
+   "slot": 19
+  },
+  {
+   "name": "Rekon AR & aplikasi pembayaran",
+   "fn": "FINANCE",
+   "co": "Accounting",
+   "docs": [
+    "Rekening koran",
+    "WP rekonsiliasi AR",
+    "Posting GL → TB"
+   ],
+   "coa": [
+    {
+     "code": "Neraca",
+     "label": "Kas / bank"
+    },
+    {
+     "code": "Neraca",
+     "label": "Penyelesaian AR"
+    }
+   ],
+   "drivers": [],
+   "risk": "Pembayaran masuk tidak teridentifikasi ke invoice; selisih 'Per BS' vs 'Control' dibiarkan tanpa penelusuran lalu ikut masuk matrix intercompany.",
+   "control": "Rekonsiliasi bank–GL harian; pre-recon tiap line item ke akun TB-nya SEBELUM masuk matrix intercompany.",
+   "gap": "G04",
+   "note": "Ini pintu terakhir sebelum angka masuk konsolidasi. Kontrol pre-recon di sini yang menentukan apakah matrix intercompany bisa dipakai.",
+   "needs": [
+    {
+     "item": "Rekening koran harian",
+     "kind": "TRANSAKSI",
+     "src": "Bank",
+     "owner": "Finance",
+     "status": "ADA"
+    },
+    {
+     "item": "Mapping COA T.G.FF.DDDD final",
+     "kind": "MASTER",
+     "src": "Kertas kerja mapping",
+     "owner": "PF + FAT (Mbak Muti)",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Rekonsiliasi 'Per BS' vs 'Control' per akun",
+     "kind": "TRANSAKSI",
+     "src": "Kertas kerja rekon",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Daftar transaksi afiliasi + nomor dokumen referensi",
+     "kind": "TRANSAKSI",
+     "src": "GL",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Sisa inventory unsold dari pembelian afiliasi per entitas",
+     "kind": "TRANSAKSI",
+     "src": "GL — perlu filter scope",
+     "owner": "FAT",
+     "status": "BELUM"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "25",
+   "slot": 20
+  },
+  {
+   "name": "Rekonsiliasi intercompany & eliminasi",
+   "fn": "FINANCE",
+   "co": "Accounting + PF",
+   "track": "LP",
+   "docs": [
+    "Matrix intercompany 9 entitas — BS & IS",
+    "Kertas kerja eliminasi",
+    "TB konsolidasi"
+   ],
+   "coa": [
+    {
+     "code": "Elim",
+     "label": "Eliminasi revenue ↔ biaya at cost"
+    },
+    {
+     "code": "Elim",
+     "label": "Eliminasi unrealized profit atas markup"
+    }
+   ],
+   "drivers": [],
+   "needs": [
+    {
+     "item": "Saldo AR/AP afiliasi yang sudah direkonsiliasi dua sisi",
+     "kind": "TRANSAKSI",
+     "src": "Submission entitas",
+     "owner": "FAT",
+     "status": "SEBAGIAN"
+    },
+    {
+     "item": "Pasangan revenue ↔ biaya per nomor dokumen",
+     "kind": "TRANSAKSI",
+     "src": "GL kedua entitas",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Markup di atas biaya per jenis layanan",
+     "kind": "PARAMETER",
+     "src": "LP02 Rate Card vs biaya aktual",
+     "owner": "PF",
+     "status": "BELUM"
+    }
+   ],
+   "risk": "Eliminasi dipaksa simetris padahal IS bukan mirror; unrealized profit atas markup jasa tidak dieliminasi sehingga laba konsolidasi lebih tinggi dari seharusnya.",
+   "control": "Pre-recon tiap line item ke akun TB-nya sebelum masuk matrix; IS di-match per nomor dokumen, bukan per total.",
+   "gap": "G04",
+   "note": "BS adalah mirror simetris — AR di A = AP di B, satu lawan satu. IS tidak. Berlaku HANYA untuk klien LP yang berstatus afiliasi; tagihan ke klien pihak ketiga tidak dieliminasi.",
+   "label": "26",
+   "slot": 21
+  }
+ ],
+ "meta": {
+  "entity": "SAMB",
+  "version": "0.3",
+  "scope": "Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan."
+ }
+}

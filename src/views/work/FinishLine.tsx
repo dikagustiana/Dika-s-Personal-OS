@@ -27,6 +27,8 @@ import type {
   FinishLineItem,
   Milestone,
   OrphanMilestone,
+  ProcessNeed,
+  ProcessStep,
   Project,
   ShareLink,
 } from '../../data/types';
@@ -52,8 +54,10 @@ import {
   type Resolution,
 } from '../../logic/finishLine';
 import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAccounts';
+import { closingNeedsForItem, type ClosingGroup } from '../../logic/processModel';
 import { isSupabaseConfigured } from '../../data/supabaseRepository';
 import { useAppStore } from '../../store/appStore';
+import { NeedStatusChip } from './prosesUi';
 import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
 import { CollaboratorCard } from './CollaboratorCard';
@@ -132,6 +136,7 @@ export function FinishLine() {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
+  const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const finishLineFocus = useAppStore((state) => state.finishLineFocus);
   const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const viewer = useAppStore((state) => state.viewer);
@@ -184,6 +189,13 @@ export function FinishLine() {
   // says COULD NOT CHECK rather than showing an empty list that would read as
   // "nothing is shared".
   const [shareLinks, setShareLinks] = useState<ReadResult<ShareLink>>(unread);
+  // The SAMB process register (§8.1) — READ relation only: it feeds the
+  // "Kondisi tutup dari proses" block in the cell panel and never writes a
+  // cell state. Its tables ship after this frontend, so a missing relation
+  // degrades to no rows and the block simply does not render — exactly what
+  // "no mapped needs" renders, which is the correct pre-migration state.
+  const [processNeeds, setProcessNeeds] = useState<ReadResult<ProcessNeed>>(unread);
+  const [processSteps, setProcessSteps] = useState<ReadResult<ProcessStep>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -211,6 +223,8 @@ export function FinishLine() {
       loadedAccounts,
       loadedAccountMap,
       loadedShareLinks,
+      loadedProcessNeeds,
+      loadedProcessSteps,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -230,6 +244,8 @@ export function FinishLine() {
       repository.listFinishLineAccounts(),
       repository.listFinishLineAccountMap(),
       repository.listShareLinks(),
+      repository.listProcessNeeds(),
+      repository.listProcessSteps(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -242,6 +258,8 @@ export function FinishLine() {
     setAccounts(loadedAccounts);
     setAccountMap(loadedAccountMap);
     setShareLinks(loadedShareLinks);
+    setProcessNeeds(loadedProcessNeeds);
+    setProcessSteps(loadedProcessSteps);
     setLoaded(true);
   }, [repository]);
 
@@ -263,6 +281,8 @@ export function FinishLine() {
       setAccounts(failure);
       setAccountMap(failure);
       setShareLinks(failure);
+      setProcessNeeds(failure);
+      setProcessSteps(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -704,6 +724,19 @@ export function FinishLine() {
           // read would let a save delete links we simply could not see.
           canLink={!matrixFailure}
           isPending={isPending}
+          // §8.1: SAMB cells only — the process is mapped for SAMB alone, so
+          // another entity's cell must not imply its closing conditions are
+          // known. Empty groups (including the pre-migration missing-relation
+          // case) render no block at all.
+          closingGroups={
+            openCell.entityCode === 'SAMB'
+              ? closingNeedsForItem(openCell.itemId, rowsOf(processNeeds), rowsOf(processSteps))
+              : []
+          }
+          onOpenStep={(stepLabel) => {
+            setProsesFocus({ stepLabel });
+            setWorkView('proses');
+          }}
           onClose={() => setOpenCellId(null)}
           onSave={(picked) => void saveCellEdges(openCell.id, picked)}
           onOpenProject={(projectId) => {
@@ -1233,6 +1266,8 @@ function CellPanel({
   projectsById,
   canLink,
   isPending,
+  closingGroups,
+  onOpenStep,
   onClose,
   onSave,
   onOpenProject,
@@ -1246,6 +1281,14 @@ function CellPanel({
   /** False when a read behind the edges failed — see the caller. */
   canLink: boolean;
   isPending: boolean;
+  /**
+   * §8.1 "Kondisi tutup dari proses": the process needs mapped to this row,
+   * grouped BELUM → SEBAGIAN → ADA. PURELY READ — this block never writes a
+   * cell state; a cell whose needs are all ADA still waits for its human
+   * edit, a decision that is locked. Empty = the block does not mount.
+   */
+  closingGroups: ClosingGroup[];
+  onOpenStep: (stepLabel: string) => void;
   onClose: () => void;
   onSave: (picked: { projectId: string; milestoneId: string }[]) => void;
   onOpenProject: (projectId: string) => void;
@@ -1351,6 +1394,50 @@ function CellPanel({
                 ? 'Nil. Whether a reported nil needs work behind it is deferred until entities carry a trading flag.'
                 : 'Arithmetic, not work outstanding.'}
           </p>
+        )}
+
+        {/* §8.1 — below the milestone section, SAMB cells with mapped needs
+            only (the caller passes [] otherwise). Read-only by construction:
+            nothing here can reach a cell state. */}
+        {closingGroups.length > 0 && (
+          <div className="mt-3 border-t border-border-subtle pt-3">
+            <p className="surface-label">Kondisi tutup dari proses</p>
+            {closingGroups.map((group) => (
+              <div key={group.status} className="mt-2">
+                <NeedStatusChip status={group.status} />
+                <ul className="mt-1 divide-y divide-border-subtle">
+                  {group.rows.map(({ need, stepLabel }) => (
+                    <li
+                      key={need.id}
+                      className="flex min-h-9 flex-wrap items-center gap-x-2 gap-y-0.5 py-1"
+                    >
+                      <span className="min-w-0 flex-1 text-xs leading-5 text-foreground">
+                        {need.item}
+                      </span>
+                      {need.owner && (
+                        <span className="shrink-0 text-[11px] text-foreground-muted">
+                          {need.owner}
+                        </span>
+                      )}
+                      {need.requestedOn && (
+                        <span className="shrink-0 text-[11px] tabular-nums text-foreground-muted">
+                          diminta {need.requestedOn}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onOpenStep(stepLabel)}
+                        className="shrink-0 rounded-sm text-xs font-semibold tabular-nums text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={`Buka step ${stepLabel} di swimlane`}
+                      >
+                        #{stepLabel}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
         )}
       </CardContent>
     </Card>

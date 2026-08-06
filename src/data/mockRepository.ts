@@ -32,6 +32,11 @@ import type {
   FinishLineEntity,
   FinishLineItem,
   OrphanMilestone,
+  ProcessGate,
+  ProcessLane,
+  ProcessNeed,
+  ProcessPhase,
+  ProcessStep,
   IeltsError,
   IeltsResult,
   IeltsSession,
@@ -792,6 +797,56 @@ export class MockRepository implements Repository {
     for (const cellId of cellIds) {
       this.finishLineEdges.push({ id: createId(), cellId, projectId, milestoneId });
     }
+  }
+
+  // --- SAMB operational process ---------------------------------------------
+
+  /**
+   * STARTS EMPTY, like the finish-line matrix: the process map is seeded into
+   * the database by migration 20260806000051 and never from here, so a bare
+   * mock renders the same empty state a database without the migration does —
+   * the two agree. Tests seed the private stores via a cast.
+   */
+  private readonly processLanes: ProcessLane[] = [];
+  private readonly processPhases: ProcessPhase[] = [];
+  private readonly processSteps: ProcessStep[] = [];
+  private readonly processGates: ProcessGate[] = [];
+  private readonly processNeeds = new Map<string, ProcessNeed>();
+
+  async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
+    return okRows(clone([...this.processLanes].sort((a, b) => a.ordinal - b.ordinal)));
+  }
+
+  async listProcessPhases(): Promise<ReadResult<ProcessPhase>> {
+    return okRows(clone([...this.processPhases].sort((a, b) => a.slotFrom - b.slotFrom)));
+  }
+
+  async listProcessSteps(): Promise<ReadResult<ProcessStep>> {
+    return okRows(clone([...this.processSteps].sort((a, b) => a.slot - b.slot)));
+  }
+
+  async listProcessGates(): Promise<ReadResult<ProcessGate>> {
+    return okRows(clone([...this.processGates].sort((a, b) => a.id.localeCompare(b.id))));
+  }
+
+  async listProcessNeeds(): Promise<ReadResult<ProcessNeed>> {
+    return okRows(clone([...this.processNeeds.values()]));
+  }
+
+  /**
+   * The ONE write in the process feature. requested_on only — the structure
+   * is composed outside the app, and cell state is not reachable from here
+   * at all.
+   */
+  async setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed> {
+    this.assertOwnerWrite('setProcessNeedRequestedOn');
+    const current = this.processNeeds.get(id);
+    if (!current) throw new Error(`Need not found: ${id}`);
+    const next: ProcessNeed = { ...current };
+    if (requestedOn) next.requestedOn = requestedOn;
+    else delete next.requestedOn;
+    this.processNeeds.set(id, clone(next));
+    return clone(next);
   }
 
   // --- tasks + the project-membership axis (slice 1) ------------------------

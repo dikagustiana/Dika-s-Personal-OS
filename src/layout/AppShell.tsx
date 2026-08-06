@@ -2,6 +2,7 @@ import {
   BookOpen,
   CalendarDays,
   ChevronRight,
+  ClipboardList,
   FileText,
   Flag,
   FlaskConical,
@@ -15,6 +16,7 @@ import {
   RefreshCw,
   Target,
   Trophy,
+  Workflow,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -37,6 +39,11 @@ const workNav: Array<{ id: WorkView; label: string; short: string; icon: typeof 
   { id: 'week', label: 'Week', short: 'Week', icon: CalendarDays },
   { id: 'projects', label: 'Projects', short: 'Projects', icon: Target },
   { id: 'finish-line', label: 'Finish line', short: 'Finish', icon: Flag },
+  // The Finish line group: the SAMB process pair sits directly under the
+  // matrix because all three serve one goal — defining the finish line and
+  // the distance to it.
+  { id: 'proses', label: 'Proses SAMB', short: 'Proses', icon: Workflow },
+  { id: 'proses-kebutuhan-data', label: 'Kebutuhan data', short: 'Data', icon: ClipboardList },
   { id: 'monthly-close', label: 'Monthly close', short: 'Close', icon: RefreshCw },
   { id: 'escalations', label: 'Escalations', short: 'Escalate', icon: Megaphone },
 ];

@@ -33,6 +33,16 @@ import type {
   FinishLineKind,
   FinishLineStyle,
   OrphanMilestone,
+  ProcessCoaRef,
+  ProcessGate,
+  ProcessGateType,
+  ProcessLane,
+  ProcessNeed,
+  ProcessNeedKind,
+  ProcessNeedStatus,
+  ProcessPhase,
+  ProcessStep,
+  ProcessTrack,
   IeltsError,
   IeltsErrorSkill,
   IeltsResult,
@@ -1406,6 +1416,79 @@ class SupabaseRepository implements Repository {
     }
   }
 
+  // --- SAMB operational process ---------------------------------------------
+  //
+  // Every read is a ReadResult: migrations 20260806000050/51 land AFTER this
+  // frontend ships, so a missing os_process_* relation is the expected
+  // pre-deploy state and must arrive as {ok: false, reason:
+  // 'missing-relation'} — the process views render that as their ordinary
+  // empty state. The structure is read-only in the app; the ONE write is
+  // requested_on on a need, and nothing in this section touches
+  // os_finish_line_cells.
+
+  async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
+    const { data, error } = await this.client
+      .from('os_process_lanes')
+      .select('key, label, description, ordinal, is_external')
+      .order('ordinal', { ascending: true });
+    if (error) return readFailure('listProcessLanes', error);
+    return okRows((data as ProcessLaneRow[]).map(rowToProcessLane));
+  }
+
+  async listProcessPhases(): Promise<ReadResult<ProcessPhase>> {
+    const { data, error } = await this.client
+      .from('os_process_phases')
+      .select('id, name, slot_from, slot_to')
+      .order('slot_from', { ascending: true });
+    if (error) return readFailure('listProcessPhases', error);
+    return okRows(
+      (data as { id: string; name: string; slot_from: number; slot_to: number }[]).map((row) => ({
+        id: row.id,
+        name: row.name,
+        slotFrom: row.slot_from,
+        slotTo: row.slot_to,
+      })),
+    );
+  }
+
+  async listProcessSteps(): Promise<ReadResult<ProcessStep>> {
+    const { data, error } = await this.client
+      .from('os_process_steps')
+      .select(PROCESS_STEP_COLUMNS)
+      .order('slot', { ascending: true });
+    if (error) return readFailure('listProcessSteps', error);
+    return okRows((data as ProcessStepRow[]).map(rowToProcessStep));
+  }
+
+  async listProcessGates(): Promise<ReadResult<ProcessGate>> {
+    const { data, error } = await this.client
+      .from('os_process_gates')
+      .select('id, type, title, sub, owner, unblock')
+      .order('id', { ascending: true });
+    if (error) return readFailure('listProcessGates', error);
+    return okRows((data as ProcessGateRow[]).map(rowToProcessGate));
+  }
+
+  async listProcessNeeds(): Promise<ReadResult<ProcessNeed>> {
+    const { data, error } = await this.client
+      .from('os_process_needs')
+      .select(PROCESS_NEED_COLUMNS);
+    if (error) return readFailure('listProcessNeeds', error);
+    return okRows((data as ProcessNeedRow[]).map(rowToProcessNeed));
+  }
+
+  async setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed> {
+    const { data, error } = await this.client
+      .from('os_process_needs')
+      .update({ requested_on: requestedOn })
+      .eq('id', id)
+      .select(PROCESS_NEED_COLUMNS)
+      .maybeSingle();
+    if (error) throw new Error(`setProcessNeedRequestedOn failed: ${error.message}`);
+    if (!data) throw new Error(`Need not found: ${id}`);
+    return rowToProcessNeed(data as ProcessNeedRow);
+  }
+
   // --- tasks + the project-membership axis (slice 1) ------------------------
   //
   // NO CLIENT-SIDE VISIBILITY FILTERING anywhere in this section: for a
@@ -1747,6 +1830,116 @@ function rowToFinishLineCell(row: FinishLineCellRow): FinishLineCell {
   if (row.actor) cell.actor = row.actor;
   if (row.changed_at) cell.changedAt = toIso(row.changed_at);
   return cell;
+}
+
+// --- SAMB operational process rows -----------------------------------------
+
+interface ProcessLaneRow {
+  key: string;
+  label: string;
+  description: string | null;
+  ordinal: number;
+  is_external: boolean;
+}
+
+function rowToProcessLane(row: ProcessLaneRow): ProcessLane {
+  const lane: ProcessLane = {
+    key: row.key,
+    label: row.label,
+    ordinal: row.ordinal,
+    isExternal: row.is_external,
+  };
+  if (row.description) lane.description = row.description;
+  return lane;
+}
+
+interface ProcessStepRow {
+  id: string;
+  label: string;
+  slot: number;
+  lane_key: string;
+  co: string | null;
+  track: ProcessTrack;
+  name: string;
+  risk: string | null;
+  control: string | null;
+  note: string | null;
+  gate_id: string | null;
+  docs: string[] | null;
+  coa: ProcessCoaRef[] | null;
+  drivers: string[] | null;
+}
+
+const PROCESS_STEP_COLUMNS =
+  'id, label, slot, lane_key, co, track, name, risk, control, note, gate_id, docs, coa, drivers';
+
+function rowToProcessStep(row: ProcessStepRow): ProcessStep {
+  const step: ProcessStep = {
+    id: row.id,
+    label: row.label,
+    slot: row.slot,
+    laneKey: row.lane_key,
+    track: row.track,
+    name: row.name,
+    docs: row.docs ?? [],
+    coa: row.coa ?? [],
+    drivers: row.drivers ?? [],
+  };
+  // Empty strings in the seed mean absent; dropped like nulls, matching
+  // rowToProject.
+  if (row.co) step.co = row.co;
+  if (row.risk) step.risk = row.risk;
+  if (row.control) step.control = row.control;
+  if (row.note) step.note = row.note;
+  if (row.gate_id) step.gateId = row.gate_id;
+  return step;
+}
+
+interface ProcessGateRow {
+  id: string;
+  type: ProcessGateType;
+  title: string;
+  sub: string | null;
+  owner: string | null;
+  unblock: string | null;
+}
+
+function rowToProcessGate(row: ProcessGateRow): ProcessGate {
+  const gate: ProcessGate = { id: row.id, type: row.type, title: row.title };
+  if (row.sub) gate.sub = row.sub;
+  if (row.owner) gate.owner = row.owner;
+  if (row.unblock) gate.unblock = row.unblock;
+  return gate;
+}
+
+interface ProcessNeedRow {
+  id: string;
+  step_id: string;
+  item: string;
+  kind: ProcessNeedKind;
+  src: string | null;
+  owner: string | null;
+  status: ProcessNeedStatus;
+  finish_line_item_id: string | null;
+  requested_on: string | null;
+}
+
+const PROCESS_NEED_COLUMNS =
+  'id, step_id, item, kind, src, owner, status, finish_line_item_id, requested_on';
+
+function rowToProcessNeed(row: ProcessNeedRow): ProcessNeed {
+  const need: ProcessNeed = {
+    id: row.id,
+    stepId: row.step_id,
+    item: row.item,
+    kind: row.kind,
+    status: row.status,
+  };
+  if (row.src) need.src = row.src;
+  if (row.owner) need.owner = row.owner;
+  if (row.finish_line_item_id) need.finishLineItemId = row.finish_line_item_id;
+  if (row.requested_on) need.requestedOn = row.requested_on;
+  return need;
 }
 
 // --- share links ------------------------------------------------------------
