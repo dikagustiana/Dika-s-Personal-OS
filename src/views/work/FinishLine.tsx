@@ -29,6 +29,7 @@ import type {
   OrphanMilestone,
   ProcessNeed,
   ProcessStep,
+  ProcessStepItem,
   Project,
   ShareLink,
 } from '../../data/types';
@@ -54,10 +55,10 @@ import {
   type Resolution,
 } from '../../logic/finishLine';
 import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAccounts';
-import { closingNeedsForItem, type ClosingGroup } from '../../logic/processModel';
+import { closingConditionsForItem, type ClosingConditions } from '../../logic/processModel';
 import { isSupabaseConfigured } from '../../data/supabaseRepository';
 import { useAppStore } from '../../store/appStore';
-import { NeedStatusChip } from './prosesUi';
+import { NeedStatusChip } from './processUi';
 import { AccountPasteCard } from './AccountPasteCard';
 import { CellDetailPanel } from './CellDetailPanel';
 import { CollaboratorCard } from './CollaboratorCard';
@@ -132,11 +133,19 @@ const LEGEND: { glyph: string; className?: string; label: string }[] = [
   { glyph: '•', className: 'text-primary', label: 'diisi kolaborator, belum disentuh pemilik' },
 ];
 
-export function FinishLine() {
+export function FinishLine({
+  /**
+   * Hand-off to the swimlane tab, pre-filtered to a row (§2). The step label
+   * is optional and only decides which box opens on arrival — the URL is
+   * `?item=` either way, because the filter is the row, not the step.
+   */
+  onOpenSwimlane,
+}: {
+  onOpenSwimlane: (itemId: string, stepLabel?: string) => void;
+}) {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
   const setProjectFocus = useAppStore((state) => state.setProjectFocus);
-  const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const finishLineFocus = useAppStore((state) => state.finishLineFocus);
   const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const viewer = useAppStore((state) => state.viewer);
@@ -196,6 +205,7 @@ export function FinishLine() {
   // "no mapped needs" renders, which is the correct pre-migration state.
   const [processNeeds, setProcessNeeds] = useState<ReadResult<ProcessNeed>>(unread);
   const [processSteps, setProcessSteps] = useState<ReadResult<ProcessStep>>(unread);
+  const [processStepItems, setProcessStepItems] = useState<ReadResult<ProcessStepItem>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -225,6 +235,7 @@ export function FinishLine() {
       loadedShareLinks,
       loadedProcessNeeds,
       loadedProcessSteps,
+      loadedProcessStepItems,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -246,6 +257,7 @@ export function FinishLine() {
       repository.listShareLinks(),
       repository.listProcessNeeds(),
       repository.listProcessSteps(),
+      repository.listProcessStepItems(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -260,6 +272,7 @@ export function FinishLine() {
     setShareLinks(loadedShareLinks);
     setProcessNeeds(loadedProcessNeeds);
     setProcessSteps(loadedProcessSteps);
+    setProcessStepItems(loadedProcessStepItems);
     setLoaded(true);
   }, [repository]);
 
@@ -283,6 +296,7 @@ export function FinishLine() {
       setShareLinks(failure);
       setProcessNeeds(failure);
       setProcessSteps(failure);
+      setProcessStepItems(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -439,18 +453,17 @@ export function FinishLine() {
   };
 
   return (
-    <div className="page-shell">
-      <header className="mb-7 border-b border-border-subtle pb-7">
-        <p className="page-kicker">Work / Finish line</p>
-        <h1 className="page-title">The pack, entity by entity</h1>
-        <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
-          Line items down, consolidation entities across. Every cell carries a state, never a
-          value — the figures live in the workbook, and a cell that has one reads{' '}
-          <span className="tabular-nums">xxx</span>. A number existing is only half the target:
-          the other half is work standing behind it, and a cell without that is marked here
-          however finished it looks.
-        </p>
-      </header>
+    // A tab of FinishLineArea, which owns page-shell, the header and the one
+    // <h1>. What follows the description is the matrix exactly as it was
+    // before the tabs existed.
+    <>
+      <p className="mb-7 max-w-2xl text-sm leading-6 text-foreground-muted">
+        The pack, entity by entity: line items down, consolidation entities across. Every cell
+        carries a state, never a value — the figures live in the workbook, and a cell that has
+        one reads <span className="tabular-nums">xxx</span>. A number existing is only half the
+        target: the other half is work standing behind it, and a cell without that is marked
+        here however finished it looks.
+      </p>
 
       <div className="mb-5 flex flex-wrap gap-x-5 gap-y-2 rounded-lg border border-border-subtle bg-card p-4">
         {LEGEND.map((entry) => (
@@ -724,19 +737,21 @@ export function FinishLine() {
           // read would let a save delete links we simply could not see.
           canLink={!matrixFailure}
           isPending={isPending}
-          // §8.1: SAMB cells only — the process is mapped for SAMB alone, so
+          // §5: SAMB cells only — the process is mapped for SAMB alone, so
           // another entity's cell must not imply its closing conditions are
-          // known. Empty groups (including the pre-migration missing-relation
-          // case) render no block at all.
-          closingGroups={
+          // known. null (no feeding step, and the pre-migration
+          // missing-relation case) renders no block at all.
+          closing={
             openCell.entityCode === 'SAMB'
-              ? closingNeedsForItem(openCell.itemId, rowsOf(processNeeds), rowsOf(processSteps))
-              : []
+              ? closingConditionsForItem(
+                  openCell.itemId,
+                  rowsOf(processStepItems),
+                  rowsOf(processNeeds),
+                  rowsOf(processSteps),
+                )
+              : null
           }
-          onOpenStep={(stepLabel) => {
-            setProsesFocus({ stepLabel });
-            setWorkView('proses');
-          }}
+          onOpenStep={(stepLabel) => onOpenSwimlane(openCell.itemId, stepLabel)}
           onClose={() => setOpenCellId(null)}
           onSave={(picked) => void saveCellEdges(openCell.id, picked)}
           onOpenProject={(projectId) => {
@@ -964,7 +979,7 @@ export function FinishLine() {
       {isOwnerViewer && level === 'group' && isSupabaseConfigured && loaded && (
         <CollaboratorCard entities={entityRows} />
       )}
-    </div>
+    </>
   );
 }
 
@@ -1266,7 +1281,7 @@ function CellPanel({
   projectsById,
   canLink,
   isPending,
-  closingGroups,
+  closing,
   onOpenStep,
   onClose,
   onSave,
@@ -1282,12 +1297,12 @@ function CellPanel({
   canLink: boolean;
   isPending: boolean;
   /**
-   * §8.1 "Kondisi tutup dari proses": the process needs mapped to this row,
-   * grouped BELUM → SEBAGIAN → ADA. PURELY READ — this block never writes a
-   * cell state; a cell whose needs are all ADA still waits for its human
-   * edit, a decision that is locked. Empty = the block does not mount.
+   * §5 "Kondisi tutup dari proses": every need of every step that feeds this
+   * row, grouped BELUM → SEBAGIAN → ADA. PURELY READ — this block never
+   * writes a cell state; a row whose needs are all ADA still waits for its
+   * human edit, a decision that is locked. null = the block does not mount.
    */
-  closingGroups: ClosingGroup[];
+  closing: ClosingConditions | null;
   onOpenStep: (stepLabel: string) => void;
   onClose: () => void;
   onSave: (picked: { projectId: string; milestoneId: string }[]) => void;
@@ -1396,13 +1411,20 @@ function CellPanel({
           </p>
         )}
 
-        {/* §8.1 — below the milestone section, SAMB cells with mapped needs
-            only (the caller passes [] otherwise). Read-only by construction:
-            nothing here can reach a cell state. */}
-        {closingGroups.length > 0 && (
+        {/* §5 — below the milestone section, SAMB cells whose row is fed by
+            at least one step (the caller passes null otherwise). Read-only by
+            construction: nothing here can reach a cell state. */}
+        {closing && (
           <div className="mt-3 border-t border-border-subtle pt-3">
             <p className="surface-label">Kondisi tutup dari proses</p>
-            {closingGroups.map((group) => (
+            <p className="mt-1 text-xs tabular-nums text-foreground-muted">
+              {closing.stepCount} step penyuap ·{' '}
+              <span className="font-semibold text-destructive">{closing.counts.BELUM}</span> belum
+              ada · <span className="font-semibold text-escalate">{closing.counts.SEBAGIAN}</span>{' '}
+              sebagian · <span className="font-semibold text-success">{closing.counts.ADA}</span>{' '}
+              ada
+            </p>
+            {closing.groups.map((group) => (
               <div key={group.status} className="mt-2">
                 <NeedStatusChip status={group.status} />
                 <ul className="mt-1 divide-y divide-border-subtle">

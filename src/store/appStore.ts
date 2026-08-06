@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { mockRepository } from '../data/mockRepository';
 import type { Repository } from '../data/repository';
 import type { TrackFilter } from '../logic/process';
+import { finishLineRouteFromLocation } from '../views/work/finishLineRoute';
 
 // Repository selection: the store boots with the in-memory mock so a bare
 // clone (no credentials) always runs. When VITE_SUPABASE_URL and
@@ -21,12 +22,11 @@ export type WorkView =
   | 'today'
   | 'week'
   | 'projects'
+  // ONE entry, three tabs. The SAMB swimlane and its data-needs register are
+  // tabs of the Finish line, not views of their own: the matrix is the
+  // target, the process is the road to it, and splitting them into sidebar
+  // entries reduced that relationship to a hyperlink. See FinishLineArea.
   | 'finish-line'
-  // The SAMB process pair: the swimlane and its data-needs register. Two nav
-  // entries in the Finish line group — they serve the same goal, defining
-  // the finish line and the distance to it — connected by underline tabs.
-  | 'proses'
-  | 'proses-kebutuhan-data'
   | 'monthly-close'
   | 'escalations';
 export type GrowthView =
@@ -79,10 +79,10 @@ export interface FinishLineFocus {
 }
 
 /**
- * One-shot handoff into the swimlane: "open Proses, scrolled to THIS step,
+ * One-shot handoff into the swimlane tab: "open it scrolled to THIS step,
  * with its detail panel open". Set by the register's step-label links and by
  * the Finish line cell panel's closing-conditions block; consumed and
- * cleared by Proses on arrival. The label is the step's human identity.
+ * cleared by the swimlane on arrival. The label is the step's human identity.
  */
 export interface ProsesFocus {
   stepLabel: string;
@@ -131,7 +131,10 @@ export const useAppStore = create<AppState>((set) => ({
   repository: mockRepository,
   viewer: { kind: 'owner' },
   workspace: 'work',
-  workView: 'dashboard',
+  // The Finish line is the one view with an address (see finishLineRoute).
+  // Reading it HERE rather than in an effect is what makes a bookmarked tab
+  // render as itself on the first frame instead of flashing the dashboard.
+  workView: finishLineRouteFromLocation() ? 'finish-line' : 'dashboard',
   growthView: 'dashboard',
   projectFocus: null,
   finishLineFocus: null,

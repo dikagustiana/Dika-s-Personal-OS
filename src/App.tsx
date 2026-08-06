@@ -1,9 +1,9 @@
+import { useEffect } from 'react';
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
 import { Dashboard } from './views/work/Dashboard';
-import { FinishLine } from './views/work/FinishLine';
-import { Proses } from './views/work/Proses';
-import { ProsesKebutuhanData } from './views/work/ProsesKebutuhanData';
+import { FinishLineArea } from './views/work/FinishLineArea';
+import { isFinishLinePath } from './views/work/finishLineRoute';
 import { Today } from './views/work/Today';
 import { Week } from './views/work/Week';
 import { Projects } from './views/growth/Projects';
@@ -19,6 +19,18 @@ export default function App() {
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
 
+  // The Finish line owns the only address in the app; every other view is
+  // state with no URL. Leaving it therefore has to put the address back,
+  // or a Dashboard would sit under a /finish-line/swimlane URL and a reload
+  // would land somewhere the reader did not leave. replaceState, not push:
+  // sidebar navigation is not history in this app.
+  useEffect(() => {
+    if (workspace === 'work' && workView === 'finish-line') return;
+    if (isFinishLinePath(window.location.pathname)) {
+      window.history.replaceState(null, '', '/');
+    }
+  }, [workspace, workView]);
+
   // key={workspace} remounts the view when switching worlds so no local state
   // (drafts, selected dates) leaks from one domain into the other.
   let view: React.ReactNode;
@@ -26,9 +38,7 @@ export default function App() {
     if (workView === 'today') view = <Today key="work" />;
     else if (workView === 'week') view = <Week key="work" />;
     else if (workView === 'projects') view = <Projects key="work" />;
-    else if (workView === 'finish-line') view = <FinishLine />;
-    else if (workView === 'proses') view = <Proses />;
-    else if (workView === 'proses-kebutuhan-data') view = <ProsesKebutuhanData />;
+    else if (workView === 'finish-line') view = <FinishLineArea />;
     else if (workView === 'monthly-close') view = <MonthlyClose />;
     else if (workView === 'escalations') view = <Escalations />;
     else view = <Dashboard />;
