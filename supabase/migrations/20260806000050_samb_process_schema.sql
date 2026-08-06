@@ -1,13 +1,31 @@
 -- ===========================================================================
 -- SAMB OPERATIONAL PROCESS: SWIMLANE AS DATA, NEEDS AS THE REGISTER.
 -- ===========================================================================
--- Five tables describing the SAMB operational chain: lanes (the functions),
--- phases (the ribbon), steps (the boxes), gates (the blockers), and needs
--- (the data register that makes the diagram more than a picture). The chain
--- exists to define what "done" means for each Finish line row, which is why
--- os_process_needs carries a nullable FK to os_finish_line_items — a READ
--- relation only. Nothing in this feature writes cell state; cell state
--- changes only through explicit human edits, and that decision is locked.
+-- Six tables describing the SAMB operational chain: lanes (the functions),
+-- phases (the ribbon), steps (the boxes), gates (the blockers), needs (the
+-- data register that makes the diagram more than a picture), and
+-- os_process_step_items — the bridge that says which Finish line rows a step
+-- feeds. The chain exists to define what "done" means for each Finish line
+-- row, and that relation is READ ONLY: nothing in this feature writes cell
+-- state, which changes only through explicit human edits. That is locked.
+--
+-- THE BRIDGE IS MANY-TO-MANY BECAUSE THE WORLD IS. Step 9 (storage,
+-- housekeeping and opname) feeds Storing cost, Inventories AND Pallet
+-- positions used. An earlier draft of this file hung a single nullable
+-- Finish line reference off os_process_needs instead; that forced each need
+-- to pick one row and threw the rest of the truth away. Same shape and same
+-- reason as os_finish_line_item_projects — do NOT collapse this to one
+-- column on a need or on a step.
+--
+-- WHAT THE NEEDS REGISTER IS FOR, now that the bridge carries the mapping:
+-- os_finish_line_accounts already holds WHAT the ideal data is
+-- (data_ideal), WHERE it comes from (driver_source) and WHO owns it (pic)
+-- for ~529 of its 560 rows. It does not hold HOW READY that data is, or WHEN
+-- it was asked for. `status` and `requested_on` are this register's original
+-- contribution; everything else here must not become a second source for a
+-- fact that table already owns. There is deliberately NO table joining needs
+-- to accounts — one need ("CBM per SJ") feeds dozens of accounts, and
+-- mapping 560 accounts to 30 steps is separate authoring work.
 --
 -- Lanes are a table, not an enum and not hardcoded columns — the same
 -- precedent as os_finish_line_entities. The frontend must never hardcode the
@@ -27,10 +45,11 @@
 -- cannot be enforced at table level; it is asserted by the frontend logic
 -- tests instead. The CHECK here only guards each row's own range.
 --
--- finish_line_item_id is ON DELETE SET NULL, not restrict/cascade: the
--- Finish line keeps full authority over its own rows. Deleting an item must
--- never be blocked by, nor delete, a process need — the need merely loses
--- its mapping and stays visible in the register.
+-- Both sides of the bridge cascade, and the asymmetry is deliberate: deleting
+-- a Finish line ITEM removes its edges and leaves the steps standing (the
+-- process is still real, it just no longer feeds that row); deleting a STEP
+-- removes its edges too. Neither deletion is ever blocked by the other side —
+-- the Finish line keeps full authority over its own rows.
 --
 -- NOT APPLIED. This session has no database access. The frontend that reads
 -- these tables ships before this file runs, and treats the missing relations
@@ -114,21 +133,18 @@ comment on column public.os_process_steps.drivers is
 
 -- 5. Needs — the data register ---------------------------------------------
 create table if not exists public.os_process_needs (
-  id                  uuid primary key default gen_random_uuid(),
-  step_id             uuid not null references public.os_process_steps(id) on delete cascade,
-  item                text not null,
-  kind                text not null check (kind in ('MASTER', 'TRANSAKSI', 'PARAMETER', 'REFERENSI')),
-  src                 text,
-  owner               text,
-  status              text not null check (status in ('ADA', 'SEBAGIAN', 'BELUM')),
-  finish_line_item_id uuid references public.os_finish_line_items(id) on delete set null,
-  requested_on        date
+  id           uuid primary key default gen_random_uuid(),
+  step_id      uuid not null references public.os_process_steps(id) on delete cascade,
+  item         text not null,
+  kind         text not null check (kind in ('MASTER', 'TRANSAKSI', 'PARAMETER', 'REFERENSI')),
+  src          text,
+  owner        text,
+  status       text not null check (status in ('ADA', 'SEBAGIAN', 'BELUM')),
+  requested_on date
 );
 
 comment on table public.os_process_needs is
-  'What must exist for a step to run correctly — not what the step produces. The bridge to the Finish line: finish_line_item_id says which row this need helps close. The relation is read-only toward cells; nothing here ever writes cell state.';
-comment on column public.os_process_needs.finish_line_item_id is
-  'Nullable by design: seed does not fill it, mapping is applied by label at apply time, and an unmatched label stays NULL — the need still shows in the register, only the Finish line link is missing. ON DELETE SET NULL keeps Finish line authority over its own rows.';
+  'What must exist for a step to run correctly — not what the step produces. Carries NO link to the Finish line: a need belongs to its step, and the step-to-row mapping lives in os_process_step_items, where one step may feed several rows. status and requested_on are what this register adds over os_finish_line_accounts, which already owns data_ideal, driver_source and pic.';
 comment on column public.os_process_needs.requested_on is
   'When the item was requested from its owner. Not in the seed; filled in by hand later. The only column in this feature editable from inside the app — status BELUM moves nobody, "requested on X, unanswered" does.';
 
@@ -136,10 +152,24 @@ create index if not exists os_process_needs_status_idx
   on public.os_process_needs (status);
 create index if not exists os_process_needs_owner_idx
   on public.os_process_needs (owner);
-create index if not exists os_process_needs_finish_line_item_idx
-  on public.os_process_needs (finish_line_item_id);
 
--- 6. RLS --------------------------------------------------------------------
+-- 6. The bridge: which Finish line rows a step feeds -------------------------
+-- Many-to-many on purpose (see the header). The composite PK covers
+-- step → rows; the extra index covers the direction the cell panel reads,
+-- "which steps feed THIS row".
+create table if not exists public.os_process_step_items (
+  step_id uuid not null references public.os_process_steps(id) on delete cascade,
+  item_id uuid not null references public.os_finish_line_items(id) on delete cascade,
+  primary key (step_id, item_id)
+);
+
+comment on table public.os_process_step_items is
+  'Which Finish line rows each process step feeds. MANY-TO-MANY ON PURPOSE: one step feeds several rows (step 9 feeds Storing cost, Inventories and Pallet positions used) and one row is fed by several steps. Never collapse this to a single item_id on the step or on a need. Read-only toward the Finish line: this table can never change a cell state.';
+
+create index if not exists os_process_step_items_item_idx
+  on public.os_process_step_items (item_id);
+
+-- 7. RLS --------------------------------------------------------------------
 -- The house pattern from the most recent table (os_tasks): four split
 -- policies per table, every predicate subquery-wrapped so os_key_valid()
 -- evaluates once per statement. Owner-only SELECT — the share read-only key
@@ -147,11 +177,12 @@ create index if not exists os_process_needs_finish_line_item_idx
 -- existed when it was issued, and silently widening an already-issued
 -- credential to new content types is a permission grant, not a default
 -- (the os_tasks stance).
-alter table public.os_process_lanes  enable row level security;
-alter table public.os_process_gates  enable row level security;
-alter table public.os_process_phases enable row level security;
-alter table public.os_process_steps  enable row level security;
-alter table public.os_process_needs  enable row level security;
+alter table public.os_process_lanes      enable row level security;
+alter table public.os_process_gates      enable row level security;
+alter table public.os_process_phases     enable row level security;
+alter table public.os_process_steps      enable row level security;
+alter table public.os_process_needs      enable row level security;
+alter table public.os_process_step_items enable row level security;
 
 do $$
 declare
@@ -159,7 +190,7 @@ declare
 begin
   foreach tbl in array array[
     'os_process_lanes', 'os_process_gates', 'os_process_phases',
-    'os_process_steps', 'os_process_needs'
+    'os_process_steps', 'os_process_needs', 'os_process_step_items'
   ] loop
     if not exists (select 1 from pg_policies where schemaname = 'public'
                    and tablename = tbl

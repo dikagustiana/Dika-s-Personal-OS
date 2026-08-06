@@ -1,13 +1,15 @@
 -- Down-migration for 20260806000051_samb_process_seed.
--- Empties the SAMB process map: needs (cascade from steps), steps, phases,
--- gates, lanes. DESTROYS HAND-ENTERED requested_on DATES and any
--- hand-corrected finish_line_item_id mappings — those exist nowhere else;
--- export os_process_needs first if any row has ever been edited. Touches no
--- os_finish_line_* row: the FK sits on os_process_needs, so deleting here
--- cannot alter Finish line rows or cell state. Run BEFORE
+-- Empties the SAMB process map: the step → Finish line bridge, needs, steps,
+-- phases, gates, lanes. DESTROYS HAND-ENTERED requested_on DATES and any
+-- hand-authored bridge edges — those exist nowhere else; export
+-- os_process_needs and os_process_step_items first if either has ever been
+-- edited. Touches no os_finish_line_* row: every FK points AT the Finish
+-- line from this side, so deleting here removes edges only and cannot alter
+-- a Finish line row or cell state. Run BEFORE
 -- 20260806000050_samb_process_schema_down.sql when unwinding both (that one
 -- drops the tables outright, which subsumes this).
 
+delete from public.os_process_step_items;
 delete from public.os_process_needs;
 delete from public.os_process_steps;
 delete from public.os_process_phases;

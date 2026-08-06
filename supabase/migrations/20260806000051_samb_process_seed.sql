@@ -10,17 +10,16 @@
 -- not sequence errors. Contains no financial figures.
 --
 -- Idempotent: lanes and gates upsert on their natural PKs, steps on the
--- unique label, phases and needs insert only when absent — so a re-run never
--- duplicates rows and never touches hand-entered requested_on dates or a
--- human-corrected finish_line_item_id (the mapping below only fills NULLs).
+-- unique label, phases and needs insert only when absent, and the bridge
+-- upserts on its composite PK — so a re-run never duplicates rows and never
+-- touches hand-entered requested_on dates.
 --
--- The Finish line mapping resolves BY EXACT LABEL at apply time, because
--- os_finish_line_items rows exist only in the live database (deliberately
--- unseeded there — the repo is public). A label that does not resolve, or
--- resolves to more than one metric row, maps nothing: those needs keep
--- finish_line_item_id NULL, appear normally in the register, and only the
--- Finish line link is missing. Gates G03, G07 and G09 are referenced by no
--- step — deliberate, they keep external blocker numbering consistent.
+-- Section 6 maps steps to Finish line rows by LITERAL UUID, read from the
+-- live table on 6 August. It is not a label lookup and must not become one:
+-- three Finish line labels appear twice across sections, so a by-label match
+-- would pick the wrong twin. See the note above that section. Gates G03, G07
+-- and G09 are referenced by no step — deliberate, they keep external blocker
+-- numbering consistent.
 --
 -- NOT APPLIED. Apply via the Supabase apply_migration tool AFTER
 -- 20260806000050, per the APPLY BEFORE DEPLOY block in the PR that
@@ -299,179 +298,92 @@ where not exists (
   where n.step_id = s.id and n.item = v.item
 );
 
--- 6. Finish line mapping ----------------------------------------------------
--- One statement per Finish line row. The target subquery resolves the row by
--- exact label among kind='metric' items and yields a row ONLY when exactly
--- one matches — zero or several matches map nothing. finish_line_item_id is
--- only ever filled where NULL, so a re-run is a no-op and a human remapping
--- is never overwritten. A need is claimed by at most one row; needs of steps
--- outside the §8.3 table, and needs whose closest row was genuinely
--- ambiguous, stay NULL (the PR lists them).
-
--- Sales Gross
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Sales Gross')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('2', '10', '18a')
-    or (s.label, n.item) in (
-      ('19', 'Invoice — nomor, tanggal, customer, nilai, ref SJ'),
-      ('19', 'Faktur pajak — nomor seri, tanggal, DPP, PPN')
-    ));
-
--- Revenue per CBM
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Revenue per CBM')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('3')
-    or (s.label, n.item) in (
-      ('7a', 'Faktor konversi PC ↔ karton per SKU'),
-      ('9', 'CBM tersimpan per principal per periode')
-    ));
-
--- Logistic Provider (Sales-LP)
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Logistic Provider', 'Sales-LP')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('1')
-    or (s.label, n.item) in (
-      ('21', 'Nomor & nilai invoice jasa LP per klien'),
-      ('21', 'Faktur pajak atas jasa LP'),
-      ('21', 'Nomor dokumen referensi — untuk klien berstatus afiliasi')
-    ));
-
--- Cost of Sales – Inventory
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Cost of Sales – Inventory')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and ((s.label, n.item) in (
-      ('7a', 'Nomor & tanggal GRN dengan link ke PO'),
-      ('7a', 'Harga beli per SKU'),
-      ('9', 'Stok awal & akhir per SKU per periode — qty dan nilai'),
-      ('9', 'Hasil opname & selisih per periode')
-    ));
-
--- COS – LP Fulfillment
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('COS – LP Fulfillment')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('5', '6b', '7b')
-    or (s.label, n.item) in (
-      ('8', 'Kepemilikan Barang — milik SAMB vs titipan afiliasi'),
-      ('9', 'Kepemilikan Barang — milik SAMB vs titipan afiliasi'),
-      ('13', 'Baris pick per DO'),
-      ('13', 'Jumlah baris pick per periode per principal'),
-      ('13', 'Kepemilikan Barang — milik SAMB vs titipan afiliasi'),
-      ('20', 'Pallet-day per klien LP per periode'),
-      ('20', 'Baris pick per klien per periode')
-    ));
-
--- COS – LP Trucking
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('COS – LP Trucking')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('15b', '18b')
-    or (s.label, n.item) in (
-      ('16', 'Kepemilikan Barang — milik SAMB vs titipan afiliasi'),
-      ('20', 'CBM terkirim per klien per zona')
-    ));
-
--- Storing Cost
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Storing Cost')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('6a', '14')
-    or (s.label, n.item) in (
-      ('8', 'Dimensi karton P × L × T per SKU'),
-      ('8', 'Max tumpuk aktual per SKU'),
-      ('8', 'Tinggi rak berguna per zona gudang'),
-      ('8', 'Lokasi / bin per SKU'),
-      ('8', 'Pallet position terpakai per principal'),
-      ('9', 'Inventory days per principal'),
-      ('9', 'Biaya sewa gudang per periode'),
-      ('9', 'Pallet position tersedia per gudang'),
-      ('9', 'Headcount & pembagian waktu per 4 activity pool'),
-      ('13', 'Jam kerja picker per periode'),
-      ('15a', 'Jam kerja loading per periode')
-    ));
-
--- Distribution Cost
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('Distribution Cost')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('17')
-    or (s.label, n.item) in (
-      ('15a', 'CBM per SJ'),
-      ('15a', 'Berat per SJ'),
-      ('15a', 'Nomor SJ, tanggal, customer, ref DO'),
-      ('16', 'Master truk — nopol, tipe, kapasitas CBM & tonase, tahun, nilai perolehan'),
-      ('16', 'Normal / achievable capacity per tipe truk'),
-      ('16', 'Trip log per SJ — Trip Key, armada, kepemilikan barang, CBM, utilization'),
-      ('16', 'Biaya per akun trucking per periode'),
-      ('16', 'Umur ekonomis & metode depresiasi per tipe truk'),
-      ('16', 'Benchmark rate / rate card per rute')
-    ));
-
--- AR-AP-Finance Salary
-update public.os_process_needs n
-set finish_line_item_id = t.id
-from public.os_process_steps s,
-     (select min(i.id) as id
-        from public.os_finish_line_items i
-        where i.kind = 'metric' and i.item in ('AR-AP-Finance Salary')
-        having count(i.id) = 1) t
-where n.step_id = s.id
-  and n.finish_line_item_id is null
-  and (s.label in ('23', '24')
-    or (s.label, n.item) in (
-      ('19', 'Jumlah invoice created per periode per principal'),
-      ('19', 'Headcount & biaya staff invoicing vs collection'),
-      ('19', 'Porsi dedikasi Asman Tax')
-    ));
+-- 6. The step → Finish line bridge ------------------------------------------
+-- Many-to-many, one row per (step, Finish line row). LITERAL UUIDS, NEVER A
+-- LABEL LOOKUP: three Finish line labels are duplicated across sections
+-- (Storing cost, Distribution cost and Commercials and support each appear
+-- once under Laba rugi with accounts behind them and once under Margin
+-- layering & cost-to-serve as a derived metric), so matching by label would
+-- silently pick the wrong one or map both. These ids were read from the live
+-- table on 6 August. The two Margin-layering twins are deliberately NOT
+-- mapped — derived metrics with no accounts underneath.
+--
+-- step_id IS resolved by label, because step uuids are generated by
+-- gen_random_uuid() when section 4 runs; the join drops nothing, since every
+-- label below is asserted present in the seed.
+--
+-- A uuid that does not exist in os_finish_line_items raises a foreign-key
+-- violation and aborts the whole migration. That is the intended failure:
+-- the mapping is a claim about live rows, and a claim that no longer holds
+-- must stop the apply rather than seed a partial map.
+--
+-- 45 pairs across 17 Finish line rows. Steps 4, 11, 12, 18b, 22 and 26 feed
+-- no row yet — recorded in the PR, not an omission to fix here.
+insert into public.os_process_step_items (step_id, item_id)
+select s.id, v.item_id::uuid
+from (values
+  -- Sales — General Trade
+  ('2', '634e675f-4681-4307-b831-6cad1e7d80fa'),
+  ('10', '634e675f-4681-4307-b831-6cad1e7d80fa'),
+  ('18a', '634e675f-4681-4307-b831-6cad1e7d80fa'),
+  ('19', '634e675f-4681-4307-b831-6cad1e7d80fa'),
+  -- Sales — Logistic provider
+  ('1', '2b7394bf-92f4-4900-b2a6-03353dbe6d98'),
+  ('20', '2b7394bf-92f4-4900-b2a6-03353dbe6d98'),
+  ('21', '2b7394bf-92f4-4900-b2a6-03353dbe6d98'),
+  -- COGS — General Trade
+  ('7a', '2e4c8392-8c03-488b-b30c-d633b5b00ea3'),
+  ('9', '2e4c8392-8c03-488b-b30c-d633b5b00ea3'),
+  -- COGS — Logistic provider
+  ('5', '768beb21-1151-4a1f-924a-c1c3f5001348'),
+  ('6b', '768beb21-1151-4a1f-924a-c1c3f5001348'),
+  ('7b', '768beb21-1151-4a1f-924a-c1c3f5001348'),
+  ('20', '768beb21-1151-4a1f-924a-c1c3f5001348'),
+  ('21', '768beb21-1151-4a1f-924a-c1c3f5001348'),
+  -- Storing cost
+  ('6a', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  ('8', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  ('9', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  ('13', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  ('14', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  ('15a', '10b151a5-5c45-454c-a13b-ffbc786ec645'),
+  -- Distribution cost
+  ('15a', '7d040e4a-7bf4-425a-b171-a46245d8158c'),
+  ('16', '7d040e4a-7bf4-425a-b171-a46245d8158c'),
+  ('17', '7d040e4a-7bf4-425a-b171-a46245d8158c'),
+  -- Commercials and support
+  ('19', '390d42f8-4add-4f23-b59f-1c8aed3bc5e1'),
+  ('23', '390d42f8-4add-4f23-b59f-1c8aed3bc5e1'),
+  ('24', '390d42f8-4add-4f23-b59f-1c8aed3bc5e1'),
+  -- Revenue / CBM
+  ('3', '8f95868d-0cdd-4590-beb0-244777dad99e'),
+  ('7a', '8f95868d-0cdd-4590-beb0-244777dad99e'),
+  -- Pallet utilisation
+  ('8', '1054d85e-83b7-4ae9-bdd6-1aa48bbde597'),
+  ('9', '1054d85e-83b7-4ae9-bdd6-1aa48bbde597'),
+  ('16', '1054d85e-83b7-4ae9-bdd6-1aa48bbde597'),
+  -- Volume delivered
+  ('15a', 'eeabd2b2-85af-4d86-8940-d7191203592b'),
+  ('15b', 'eeabd2b2-85af-4d86-8940-d7191203592b'),
+  -- Cartons delivered
+  ('3', 'f656f8d2-73e8-4835-b7b0-2b4c7429844f'),
+  ('7a', 'f656f8d2-73e8-4835-b7b0-2b4c7429844f'),
+  -- Delivery trips
+  ('16', '1df8ea55-0e61-4f4f-a0df-c55e5cea42a6'),
+  ('17', '1df8ea55-0e61-4f4f-a0df-c55e5cea42a6'),
+  -- Pallet positions used
+  ('8', 'd0199bc1-d9e9-4b24-9d6c-b3ebead0cb60'),
+  ('9', 'd0199bc1-d9e9-4b24-9d6c-b3ebead0cb60'),
+  -- Inventories
+  ('7a', '873b8990-305d-426b-b43d-9effc2398957'),
+  ('9', '873b8990-305d-426b-b43d-9effc2398957'),
+  -- Trade payable
+  ('7a', '39eac155-d88e-4536-a42f-f5d4c3698cea'),
+  -- Trade receivable
+  ('24', '5af36fdd-bc29-4372-9d5a-cd77afda0dfb'),
+  ('25', '5af36fdd-bc29-4372-9d5a-cd77afda0dfb'),
+  -- DSO
+  ('24', 'd5b2d207-b46d-4761-b5d4-b2eb16969c57')
+) as v(step_label, item_id)
+join public.os_process_steps s on s.label = v.step_label
+on conflict (step_id, item_id) do nothing;
