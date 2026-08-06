@@ -20,6 +20,11 @@ import type {
   IeltsResult,
   IeltsSession,
   OrphanMilestone,
+  ProcessGate,
+  ProcessLane,
+  ProcessNeed,
+  ProcessPhase,
+  ProcessStep,
   Project,
   ProjectMember,
   ProjectTask,
@@ -173,6 +178,29 @@ export interface Repository {
   setCellEdges(cellId: string, edges: { projectId: string; milestoneId?: string }[]): Promise<void>;
   /** The same operation inverted, from a milestone. */
   setMilestoneEdges(projectId: string, milestoneId: string, cellIds: string[]): Promise<void>;
+
+  /**
+   * =========================================================================
+   * SAMB OPERATIONAL PROCESS — swimlane structure + the data-needs register.
+   * =========================================================================
+   * Every read returns ReadResult for the same reason the finish-line reads
+   * do: the frontend ships before migration 20260806000050 is applied, and a
+   * missing relation must arrive as {ok: false, reason: 'missing-relation'}
+   * — which both process views render as their ordinary empty state — never
+   * as a crash and never as a silent [].
+   *
+   * The structure is read-only in the app (composed outside, seeded by
+   * migration). The ONE write is requestedOn on a need. There is no create,
+   * no delete, no structure editor, and nothing here may ever write a
+   * Finish line cell state.
+   */
+  listProcessLanes(): Promise<ReadResult<ProcessLane>>;
+  listProcessPhases(): Promise<ReadResult<ProcessPhase>>;
+  listProcessSteps(): Promise<ReadResult<ProcessStep>>;
+  listProcessGates(): Promise<ReadResult<ProcessGate>>;
+  listProcessNeeds(): Promise<ReadResult<ProcessNeed>>;
+  /** null clears the date. Returns the updated need. */
+  setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed>;
 
   /**
    * =========================================================================

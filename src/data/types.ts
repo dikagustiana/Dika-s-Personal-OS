@@ -816,3 +816,110 @@ export interface SharedView {
   expiresAt: string;
   data: SharedFinishLine;
 }
+
+/**
+ * ===========================================================================
+ * SAMB OPERATIONAL PROCESS — the swimlane, its gates, and the data register.
+ * ===========================================================================
+ * The process map exists to define what "done" means for each Finish line
+ * row: a need may point at the row it helps close (finishLineItemId). That
+ * relation is READ-ONLY toward cells — nothing in the process feature writes
+ * cell state, which still changes only through an explicit human edit.
+ *
+ * The structure (lanes, phases, steps, gates, needs) is seeded by migration
+ * 20260806000051 and composed OUTSIDE the app — there is no in-app editor,
+ * importer or exporter for it. The single editable field in the whole
+ * feature is ProcessNeed.requestedOn.
+ */
+
+/** KEDUANYA = shared backbone steps; their cost pools are split, not doubled. */
+export type ProcessTrack = 'TRADE' | 'LP' | 'KEDUANYA';
+
+/**
+ * DATA = waiting on someone else; DECISION = waiting on the process owner;
+ * OOS = outside SAMB scope, rendered dimmed so gate numbering stays aligned
+ * with the blocker register kept outside the app.
+ */
+export type ProcessGateType = 'DATA' | 'DECISION' | 'OOS';
+
+export type ProcessNeedKind = 'MASTER' | 'TRANSAKSI' | 'PARAMETER' | 'REFERENSI';
+
+export type ProcessNeedStatus = 'ADA' | 'SEBAGIAN' | 'BELUM';
+
+/** A swimlane row. A table, never an enum — the frontend must not hardcode lanes. */
+export interface ProcessLane {
+  key: string;
+  label: string;
+  description?: string;
+  ordinal: number;
+  /** Outside actor (the LP client): dashed border, not an internal function. */
+  isExternal: boolean;
+}
+
+/** A ribbon segment. Phases tile slot 1..max(slot) exactly once. */
+export interface ProcessPhase {
+  id: string;
+  name: string;
+  slotFrom: number;
+  slotTo: number;
+}
+
+export interface ProcessCoaRef {
+  code: string;
+  label: string;
+}
+
+/**
+ * A box in the swimlane. `label` is the human identity ('6a', '15b') and is
+ * NOT sequential; `slot` is the column. Two steps may share a slot — a
+ * parallel branch, not a duplicate.
+ */
+export interface ProcessStep {
+  id: string;
+  label: string;
+  slot: number;
+  laneKey: string;
+  co?: string;
+  track: ProcessTrack;
+  name: string;
+  risk?: string;
+  control?: string;
+  note?: string;
+  gateId?: string;
+  docs: string[];
+  coa: ProcessCoaRef[];
+  drivers: string[];
+}
+
+export interface ProcessGate {
+  id: string;
+  type: ProcessGateType;
+  title: string;
+  sub?: string;
+  owner?: string;
+  /** How to open it. */
+  unblock?: string;
+}
+
+/**
+ * What must exist for a step to run correctly — not what the step produces.
+ * finishLineItemId links the need to the Finish line row it helps close;
+ * NULL means the mapping label did not resolve (or was deliberately left
+ * open) and the need still renders normally in the register.
+ */
+export interface ProcessNeed {
+  id: string;
+  stepId: string;
+  item: string;
+  kind: ProcessNeedKind;
+  src?: string;
+  owner?: string;
+  status: ProcessNeedStatus;
+  finishLineItemId?: string;
+  /**
+   * When the item was requested from its owner (yyyy-MM-dd). The only
+   * editable field in the feature: status BELUM moves nobody, "requested on
+   * X, unanswered" does.
+   */
+  requestedOn?: string;
+}
