@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+# No lockfile is tracked, and that is deliberate rather than an oversight:
+# this project has always installed with `npm install`, so committing one now
+# would re-resolve every existing dependency on the next build. Anyone adding
+# a package generates one locally — it stays local.
+package-lock.json
 
 # Build output
 dist/
