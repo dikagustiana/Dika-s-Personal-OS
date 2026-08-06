@@ -31,6 +31,7 @@ import {
   fixturePhases,
   fixtureStepItems,
   fixtureSteps,
+  fixtureTracks,
 } from '../../logic/process/seedFixture';
 import { useAppStore } from '../../store/appStore';
 import { FinishLineSwimlane } from './FinishLineSwimlane';
@@ -47,6 +48,7 @@ function seededRepository(): Repository {
     listProcessGates: async () => okRows(fixtureGates()),
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
+    listProcessTracks: async () => okRows(fixtureTracks()),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
@@ -61,6 +63,7 @@ function missingRelationRepository(): Repository {
     listProcessGates: async () => gone('listProcessGates'),
     listProcessNeeds: async () => gone('listProcessNeeds'),
     listProcessStepItems: async () => gone('listProcessStepItems'),
+    listProcessTracks: async () => gone('listProcessTracks'),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
@@ -128,11 +131,11 @@ afterEach(() => {
   cleanup();
   clearLayoutStub();
   vi.unstubAllGlobals();
-  useAppStore.setState({ prosesTrack: 'ALL', prosesFocus: null });
+  useAppStore.setState({ prosesEntity: 'SAMB', prosesFocus: null });
 });
 
 function renderSwimlane(repository: Repository) {
-  useAppStore.setState({ repository, prosesTrack: 'ALL', prosesFocus: null });
+  useAppStore.setState({ repository, prosesEntity: 'SAMB', prosesFocus: null });
   return render(
     <FinishLineSwimlane onClearItemFilter={noop} onOpenMatrix={noop} />,
   );

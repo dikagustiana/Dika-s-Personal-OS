@@ -141,7 +141,7 @@ export function FinishLine({
    */
   onOpenSwimlane,
 }: {
-  onOpenSwimlane: (itemId: string, stepLabel?: string) => void;
+  onOpenSwimlane: (itemId: string, stepLabel: string | undefined, entityCode: string) => void;
 }) {
   const repository = useAppStore((state) => state.repository);
   const setWorkView = useAppStore((state) => state.setWorkView);
@@ -198,7 +198,7 @@ export function FinishLine({
   // says COULD NOT CHECK rather than showing an empty list that would read as
   // "nothing is shared".
   const [shareLinks, setShareLinks] = useState<ReadResult<ShareLink>>(unread);
-  // The SAMB process register (§8.1) — READ relation only: it feeds the
+  // The process register (§8.1) — READ relation only: it feeds the
   // "Kondisi tutup dari proses" block in the cell panel and never writes a
   // cell state. Its tables ship after this frontend, so a missing relation
   // degrades to no rows and the block simply does not render — exactly what
@@ -737,21 +737,21 @@ export function FinishLine({
           // read would let a save delete links we simply could not see.
           canLink={!matrixFailure}
           isPending={isPending}
-          // §5: SAMB cells only — the process is mapped for SAMB alone, so
-          // another entity's cell must not imply its closing conditions are
-          // known. null (no feeding step, and the pre-migration
-          // missing-relation case) renders no block at all.
-          closing={
-            openCell.entityCode === 'SAMB'
-              ? closingConditionsForItem(
-                  openCell.itemId,
-                  rowsOf(processStepItems),
-                  rowsOf(processNeeds),
-                  rowsOf(processSteps),
-                )
-              : null
+          // §4.3: the closing-conditions block follows THE CELL'S OWN
+          // entity — a SAMB cell reads SAMB's chain, an ARBI cell ARBI's,
+          // and a cell of an entity with no chain gets null (no block)
+          // without any special case. The old `=== 'SAMB'` guard is gone;
+          // the entity scoping lives in the join through the step.
+          closing={closingConditionsForItem(
+            openCell.itemId,
+            openCell.entityCode,
+            rowsOf(processStepItems),
+            rowsOf(processNeeds),
+            rowsOf(processSteps),
+          )}
+          onOpenStep={(stepLabel) =>
+            onOpenSwimlane(openCell.itemId, stepLabel, openCell.entityCode)
           }
-          onOpenStep={(stepLabel) => onOpenSwimlane(openCell.itemId, stepLabel)}
           onClose={() => setOpenCellId(null)}
           onSave={(picked) => void saveCellEdges(openCell.id, picked)}
           onOpenProject={(projectId) => {
@@ -1411,9 +1411,9 @@ function CellPanel({
           </p>
         )}
 
-        {/* §5 — below the milestone section, SAMB cells whose row is fed by
-            at least one step (the caller passes null otherwise). Read-only by
-            construction: nothing here can reach a cell state. */}
+        {/* Below the milestone section: cells whose row is fed by at least
+            one step OF THE CELL'S ENTITY (the caller passes null otherwise).
+            Read-only by construction: nothing here can reach a cell state. */}
         {closing && (
           <div className="mt-3 border-t border-border-subtle pt-3">
             <p className="surface-label">Kondisi tutup dari proses</p>

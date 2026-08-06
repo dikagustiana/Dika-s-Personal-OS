@@ -1,9 +1,21 @@
 /**
- * The Finish line's Swimlane tab (/finish-line/swimlane): the SAMB
- * operational chain. Read-only — no add/remove/move step, no lane edit, no
- * drag; the structure changes often and is revised OUTSIDE the app. The one
- * writable field anywhere in the feature is a need's requested_on, edited in
- * the detail panel.
+ * The Finish line's Swimlane tab (/finish-line/swimlane): one entity's
+ * operational chain — SAMB or ARBI today, whichever ?entity= and the picker
+ * say; entities appear as their chains are seeded, with no code change.
+ * Read-only — no add/remove/move step, no lane edit, no drag; the structure
+ * changes often and is revised OUTSIDE the app. The one writable field
+ * anywhere in the feature is a need's requested_on, edited in the detail
+ * panel.
+ *
+ * ENTITY IS PAGE-LEVEL CONTEXT, NOT A TOOLBAR FILTER: it decides WHICH chain
+ * renders, while every toolbar control is a view option within one chain, so
+ * the picker sits fused with the scope line above the toolbar. It is ONE
+ * state shared with the register tab (store), while the jalur filter is
+ * per-tab local state — see the store comment for why that split is a truth
+ * requirement, not a style choice. Switching entity swaps lanes, phases,
+ * tracks, steps, needs and bridge at once, resets the local jalur filter
+ * (FORWARD means nothing under SAMB), and RE-MEASURES the canvas — a missed
+ * re-measure would draw ARBI's arrows from SAMB's box positions.
  *
  * THE CANVAS SHOWS SHAPE; THE PANEL SHOWS DETAIL. That split is the design
  * decision everything else follows from. The first cut attached the whole
@@ -48,17 +60,21 @@ import type {
   ProcessPhase,
   ProcessStep,
   ProcessStepItem,
+  ProcessTrackDef,
 } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import { cn } from '../../lib/utils';
 import {
+  ALL_TRACKS,
   deriveEdges,
   duplicateChainSlots,
   groupCells,
   maxSlot,
   phaseCoverageProblems,
   processStats,
+  sharedTrackCodes,
   visibleSteps,
+  type TrackFilter,
 } from '../../logic/process';
 import {
   buildProcessModel,
@@ -76,8 +92,10 @@ import {
   type WireEdge,
 } from '../../logic/processWires';
 import { useAppStore } from '../../store/appStore';
+import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
 import { Checking, CouldNotCheck } from './finishLineUi';
 import {
+  EntityScopeRow,
   GateChip,
   NeedKindChip,
   NeedStatusChip,
@@ -88,9 +106,20 @@ import {
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
-/** §4: meta.scope is not seeded — it is this view's subtitle, hardcoded. */
-const SCOPE_SUBTITLE =
-  'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.';
+/**
+ * meta.scope is not seeded — it is this view's subtitle, hardcoded per
+ * entity (each seed's meta.scope, verbatim). The scope sentence IS the
+ * entity's identity, so it swaps with the picker; an entity seeded later
+ * renders its chain with no subtitle until one is added here.
+ */
+const SCOPE_SUBTITLES: Record<string, string> = {
+  SAMB: 'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.',
+  ARBI: 'Rantai B2C ARBI: setup master & harga → pengadaan → inbound & penyimpanan → order marketplace → outbound → pengiriman kurir → retur → settlement & kas. Jalur retur masuk lewat pintu inbound sebagai ASN Return. Seam ke jalur LP SAMB belum ditetapkan — lihat B04.',
+};
+
+/** §4.6's one visible line for the pre-52 window. */
+const LEGACY_NOTICE =
+  'Fitur multi-entitas belum aktif — migration entity-aware belum diterapkan; yang tampil rantai SAMB, seperti sebelumnya.';
 
 /**
  * Two causes, two sentences — never one. See EmptyCause in processModel.ts:
@@ -153,10 +182,19 @@ export function FinishLineSwimlane({
   onOpenMatrix: (itemId: string) => void;
 }) {
   const repository = useAppStore((state) => state.repository);
-  const track = useAppStore((state) => state.prosesTrack);
+  const entity = useAppStore((state) => state.prosesEntity);
+  const setEntity = useAppStore((state) => state.setProsesEntity);
   const prosesFocus = useAppStore((state) => state.prosesFocus);
   const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const { run, isPending } = useMutation();
+
+  // The jalur filter: PER-TAB local state, default Semua, reset when the
+  // entity changes — a FORWARD selection is meaningless under SAMB and would
+  // silently blank the branch steps.
+  const [track, setTrack] = useState<TrackFilter>(ALL_TRACKS);
+  useEffect(() => {
+    setTrack(ALL_TRACKS);
+  }, [entity]);
 
   const [lanesRead, setLanesRead] = useState<ReadResult<ProcessLane>>(unread);
   const [phasesRead, setPhasesRead] = useState<ReadResult<ProcessPhase>>(unread);
@@ -164,6 +202,7 @@ export function FinishLineSwimlane({
   const [gatesRead, setGatesRead] = useState<ReadResult<ProcessGate>>(unread);
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
   const [stepItemsRead, setStepItemsRead] = useState<ReadResult<ProcessStepItem>>(unread);
+  const [tracksRead, setTracksRead] = useState<ReadResult<ProcessTrackDef>>(unread);
   const [itemsRead, setItemsRead] = useState<ReadResult<FinishLineItem>>(unread);
   const [loaded, setLoaded] = useState(false);
 
@@ -181,13 +220,14 @@ export function FinishLineSwimlane({
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [lanes, phases, steps, gates, needs, stepItems, items] = await Promise.all([
+    const [lanes, phases, steps, gates, needs, stepItems, tracks, items] = await Promise.all([
       repository.listProcessLanes(),
       repository.listProcessPhases(),
       repository.listProcessSteps(),
       repository.listProcessGates(),
       repository.listProcessNeeds(),
       repository.listProcessStepItems(),
+      repository.listProcessTracks(),
       repository.listFinishLineItems(),
     ]);
     setLanesRead(lanes);
@@ -196,6 +236,7 @@ export function FinishLineSwimlane({
     setGatesRead(gates);
     setNeedsRead(needs);
     setStepItemsRead(stepItems);
+    setTracksRead(tracks);
     setItemsRead(items);
     setLoaded(true);
   }, [repository]);
@@ -213,25 +254,66 @@ export function FinishLineSwimlane({
         gates: gatesRead,
         needs: needsRead,
         stepItems: stepItemsRead,
+        tracks: tracksRead,
       }),
-    [lanesRead, phasesRead, stepsRead, gatesRead, needsRead, stepItemsRead],
+    [lanesRead, phasesRead, stepsRead, gatesRead, needsRead, stepItemsRead, tracksRead],
   );
 
-  const steps = model.kind === 'ready' ? model.steps : [];
+  // EVERYTHING BELOW IS SLICED BY THE SELECTED ENTITY — lanes, phases,
+  // steps, tracks; needs and the bridge inherit the slice through step ids.
+  // No list is hardcoded: an entity seeded tomorrow renders today.
+  const allSteps = model.kind === 'ready' ? model.steps : [];
   const needs = model.kind === 'ready' ? model.needs : [];
   const gates = model.kind === 'ready' ? model.gates : [];
   const stepItems = useMemo(() => (model.kind === 'ready' ? model.stepItems : []), [model]);
+  const steps = useMemo(
+    () => allSteps.filter((step) => step.entityCode === entity),
+    [allSteps, entity],
+  );
+  const entitiesWithSteps = useMemo(() => {
+    const codes = [...new Set(allSteps.map((step) => step.entityCode))];
+    // The default entity leads; the rest alphabetical — a stable row of two
+    // today that grows on its own as chains are seeded.
+    return codes.sort((a, b) =>
+      a === DEFAULT_PROCESS_ENTITY ? -1 : b === DEFAULT_PROCESS_ENTITY ? 1 : a.localeCompare(b),
+    );
+  }, [allSteps]);
   const lanes = useMemo(
     () =>
-      model.kind === 'ready' ? [...model.lanes].sort((a, b) => a.ordinal - b.ordinal) : [],
-    [model],
+      model.kind === 'ready'
+        ? model.lanes
+            .filter((lane) => lane.entityCode === entity)
+            .sort((a, b) => a.ordinal - b.ordinal)
+        : [],
+    [model, entity],
   );
-  const phases = model.kind === 'ready' ? model.phases : [];
+  const phases = useMemo(
+    () =>
+      model.kind === 'ready'
+        ? model.phases.filter((phase) => phase.entityCode === entity)
+        : [],
+    [model, entity],
+  );
+  const entityTracks = useMemo(
+    () =>
+      model.kind === 'ready'
+        ? model.tracks.filter((trackDef) => trackDef.entityCode === entity)
+        : [],
+    [model, entity],
+  );
+  const shared = useMemo(() => sharedTrackCodes(entityTracks), [entityTracks]);
+  const trackDefByCode = useMemo(
+    () => new Map(entityTracks.map((trackDef) => [trackDef.code, trackDef])),
+    [entityTracks],
+  );
 
-  const shown = useMemo(() => visibleSteps(steps, track), [steps, track]);
+  const shown = useMemo(() => visibleSteps(steps, track, shared), [steps, track, shared]);
   const cells = useMemo(() => groupCells(shown), [shown]);
   const highestSlot = useMemo(() => maxSlot(steps), [steps]);
-  const stats = useMemo(() => processStats(steps, needs, track), [steps, needs, track]);
+  const stats = useMemo(
+    () => processStats(steps, needs, track, entityTracks),
+    [steps, needs, track, entityTracks],
+  );
   const gatesById = useMemo(() => new Map(gates.map((gate) => [gate.id, gate])), [gates]);
   const needsByStep = useMemo(() => {
     const grouped = new Map<string, ProcessNeed[]>();
@@ -258,7 +340,10 @@ export function FinishLineSwimlane({
 
   // §6.5's tripwire: a duplicated slot inside one walk means the seed is
   // broken and the order would be a guess — refuse to draw arrows, loudly.
-  const brokenChains = useMemo(() => duplicateChainSlots(steps), [steps]);
+  const brokenChains = useMemo(
+    () => duplicateChainSlots(steps, entityTracks),
+    [steps, entityTracks],
+  );
   const phaseProblems = useMemo(
     () => (steps.length > 0 ? phaseCoverageProblems(phases, highestSlot) : []),
     [phases, steps.length, highestSlot],
@@ -266,12 +351,12 @@ export function FinishLineSwimlane({
 
   const wireEdges: WireEdge[] = useMemo(() => {
     if (brokenChains.length > 0) return [];
-    return deriveEdges(steps, track).map((edge) => ({
+    return deriveEdges(steps, track, entityTracks).map((edge) => ({
       fromLabel: edge.from.label,
       toLabel: edge.to.label,
       cross: edge.cross,
     }));
-  }, [steps, track, brokenChains]);
+  }, [steps, track, entityTracks, brokenChains]);
 
   // --- measurement (§6.6) ---------------------------------------------------
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -326,12 +411,14 @@ export function FinishLineSwimlane({
   }, [wireEdges]);
 
   // After layout — never during render — and again on every input that can
-  // change box sizes: filter, density, column choice.
+  // change box sizes or swap the box set entirely: filter, density, column
+  // choice, and THE ENTITY (§4.5) — without it, a switch would draw the new
+  // chain's arrows from the old chain's box positions.
   useLayoutEffect(() => {
     retryRef.current = 0;
     const frame = requestAnimationFrame(measure);
     return () => cancelAnimationFrame(frame);
-  }, [measure, density, showCol, model.kind]);
+  }, [measure, density, showCol, model.kind, entity]);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -406,7 +493,9 @@ export function FinishLineSwimlane({
   // --- deep link from the register / Finish line panel ----------------------
   useEffect(() => {
     if (!prosesFocus || model.kind !== 'ready') return;
-    const target = model.steps.find((step) => step.label === prosesFocus.stepLabel);
+    // Labels repeat across entities (ARBI '9' beside SAMB '9'), so the focus
+    // resolves within the SELECTED entity's steps only.
+    const target = steps.find((step) => step.label === prosesFocus.stepLabel);
     if (target) {
       setSelectedLabel(target.label);
       requestAnimationFrame(() => {
@@ -416,7 +505,7 @@ export function FinishLineSwimlane({
       });
     }
     setProsesFocus(null);
-  }, [prosesFocus, model, setProsesFocus]);
+  }, [prosesFocus, model, steps, setProsesFocus]);
 
   // --- the column popover (lengkap only) ------------------------------------
   const columnsRef = useRef<HTMLDivElement | null>(null);
@@ -468,9 +557,16 @@ export function FinishLineSwimlane({
 
   return (
     <>
-      {/* meta.scope from the seed, as this tab's description under the tab
-          bar. There is no <h1> here — FinishLineArea owns the only one. */}
-      <p className="mb-6 max-w-2xl text-sm leading-6 text-foreground-muted">{SCOPE_SUBTITLE}</p>
+      {/* Entity + scope: which chain is in view. There is no <h1> here —
+          FinishLineArea owns the only one. Before data lands the picker
+          shows just the selected code; it grows to every entity with steps
+          the moment the read returns. */}
+      <EntityScopeRow
+        entities={entitiesWithSteps.length > 0 ? entitiesWithSteps : [entity]}
+        value={entity}
+        onChange={setEntity}
+        scope={SCOPE_SUBTITLES[entity]}
+      />
 
       {itemFilter && (
         <div className="mb-4 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/40 bg-primary/5 px-4 py-2">
@@ -495,17 +591,33 @@ export function FinishLineSwimlane({
       )}
 
       {!loaded ? (
-        <Checking label="Proses SAMB" />
+        <Checking label={`Proses ${entity}`} />
       ) : model.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
           <EmptyRow label="Swimlane" clause={CANVAS_EMPTY[model.cause]} />
         </div>
       ) : model.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">
-          <CouldNotCheck label="Proses SAMB" failure={{ reason: 'failed', detail: model.detail }} />
+          <CouldNotCheck label={`Proses ${entity}`} failure={{ reason: 'failed', detail: model.detail }} />
+        </div>
+      ) : steps.length === 0 ? (
+        // A ready model with no steps for THIS entity: the URL named an
+        // entity whose chain is not seeded (or not offered — the picker only
+        // lists chains that exist). One line, switchable via the picker
+        // above; never an error.
+        <div className="rounded-lg border border-border-subtle bg-card px-4">
+          <EmptyRow
+            label="Swimlane"
+            clause={`Entitas ${entity} belum punya rantai proses — pilih entitas lain di atas.`}
+          />
         </div>
       ) : (
         <>
+          {model.legacyEntity && (
+            <p className="mb-4 flex min-h-9 items-center gap-2 rounded-lg border border-border-subtle bg-surface-2 px-4 text-xs leading-5 text-foreground-secondary">
+              {LEGACY_NOTICE}
+            </p>
+          )}
           {/* The toolbar: four segments with real separation, not twelve
               buttons in a row. Jalur | kepadatan (+kolom) | sorot | zoom, and
               the stats line pushed to the right edge. Every control is a
@@ -515,7 +627,7 @@ export function FinishLineSwimlane({
             role="group"
             aria-label="Kontrol swimlane"
           >
-            <TrackFilterGroup />
+            <TrackFilterGroup tracks={entityTracks} value={track} onChange={setTrack} />
             <div
               className="flex items-center gap-1 border-l border-border-subtle pl-5"
               role="group"
@@ -768,6 +880,7 @@ export function FinishLineSwimlane({
                         cells={cells}
                         gatesById={gatesById}
                         needsByStep={needsByStep}
+                        trackDefByCode={trackDefByCode}
                         density={density}
                         showCol={showCol}
                         onlyGap={onlyGap}
@@ -817,6 +930,7 @@ export function FinishLineSwimlane({
             {selectedStep && (
               <StepPanel
                 step={selectedStep}
+                trackDefByCode={trackDefByCode}
                 laneLabel={
                   lanes.find((lane) => lane.key === selectedStep.laneKey)?.label ??
                   selectedStep.laneKey
@@ -941,6 +1055,7 @@ function LaneRow({
   cells,
   gatesById,
   needsByStep,
+  trackDefByCode,
   density,
   showCol,
   onlyGap,
@@ -955,6 +1070,7 @@ function LaneRow({
   cells: Map<string, ProcessStep[]>;
   gatesById: Map<string, ProcessGate>;
   needsByStep: Map<string, ProcessNeed[]>;
+  trackDefByCode: Map<string, ProcessTrackDef>;
   density: Density;
   showCol: Record<AttachColumn, boolean>;
   onlyGap: boolean;
@@ -1020,6 +1136,7 @@ function LaneRow({
               step={step}
               gate={step.gateId ? gatesById.get(step.gateId) : undefined}
               needs={needsByStep.get(step.id) ?? []}
+              trackDefByCode={trackDefByCode}
               density={density}
               showCol={showCol}
               // Two independent reasons to recede, and either is enough:
@@ -1075,6 +1192,7 @@ function StepBox({
   step,
   gate,
   needs,
+  trackDefByCode,
   density,
   showCol,
   dim,
@@ -1084,6 +1202,7 @@ function StepBox({
   step: ProcessStep;
   gate?: ProcessGate;
   needs: ProcessNeed[];
+  trackDefByCode: Map<string, ProcessTrackDef>;
   density: Density;
   showCol: Record<AttachColumn, boolean>;
   dim: boolean;
@@ -1104,6 +1223,7 @@ function StepBox({
     <button
       type="button"
       data-step-label={step.label}
+      data-entity={step.entityCode}
       data-dim={dim || undefined}
       onClick={onSelect}
       aria-pressed={selected}
@@ -1129,7 +1249,7 @@ function StepBox({
         </span>
       </span>
       <span className="mt-1.5 flex items-center gap-1.5">
-        <TrackChip track={step.track} />
+        <TrackChip code={step.track} def={trackDefByCode.get(step.track)} />
         {step.co && (
           <span className="min-w-0 truncate text-[9px] font-semibold uppercase tracking-[0.1em] text-foreground-muted">
             {step.co}
@@ -1256,6 +1376,7 @@ function BoxGroup({
 
 function StepPanel({
   step,
+  trackDefByCode,
   laneLabel,
   needs,
   gate,
@@ -1266,6 +1387,7 @@ function StepPanel({
   onClose,
 }: {
   step: ProcessStep;
+  trackDefByCode: Map<string, ProcessTrackDef>;
   laneLabel: string;
   needs: ProcessNeed[];
   gate?: ProcessGate;
@@ -1287,7 +1409,7 @@ function StepPanel({
           </p>
           <h2 className="mt-1 text-sm font-semibold leading-5 text-foreground">{step.name}</h2>
           <p className="mt-1 flex flex-wrap items-center gap-1">
-            <TrackChip track={step.track} />
+            <TrackChip code={step.track} def={trackDefByCode.get(step.track)} />
             {step.co && (
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground-muted">
                 {step.co}

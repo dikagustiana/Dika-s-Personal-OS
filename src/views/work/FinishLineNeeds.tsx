@@ -1,8 +1,14 @@
 /**
  * The Finish line's Kebutuhan data tab (/finish-line/kebutuhan-data): every
- * data item the SAMB chain needs, joined to its step, with the proportion
- * bar and the per-owner grouping that turns the list into an actual request
- * to send someone.
+ * data item ONE ENTITY'S chain needs — SAMB or ARBI, per the shared entity
+ * state — joined to its step, with the proportion bar and the per-owner
+ * grouping that turns the list into an actual request to send someone.
+ *
+ * The ENTITY is the one piece of state shared with the swimlane tab; the
+ * JALUR filter is deliberately local here, defaulting to Semua: on this tab
+ * a track selection silently narrows the request list, so when one is
+ * active the bar above the table SAYS how many rows it is hiding — a
+ * request list with unexplained holes is worse than a longer list.
  *
  * What this register adds over os_finish_line_accounts — which already holds
  * the ideal data, its source and its owner for most accounts — is how ready
@@ -20,7 +26,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Input } from '../../components/ui/Input';
 import { EmptyRow } from '../../components/ui/EmptyRow';
 import { okRows, rowsOf, type ReadResult } from '../../data/readResult';
-import type { ProcessNeed, ProcessNeedKind, ProcessNeedStatus, ProcessStep } from '../../data/types';
+import type {
+  ProcessNeed,
+  ProcessNeedKind,
+  ProcessNeedStatus,
+  ProcessStep,
+  ProcessTrackDef,
+} from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
   buildRegisterState,
@@ -30,15 +42,22 @@ import {
   type EmptyCause,
   type RegisterRow,
 } from '../../logic/processModel';
+import {
+  ALL_TRACKS,
+  sharedTrackCodes,
+  type TrackFilter,
+} from '../../logic/process';
 import { useAppStore } from '../../store/appStore';
 import { cn } from '../../lib/utils';
 import { Checking, CouldNotCheck } from './finishLineUi';
 import {
+  EntityScopeRow,
   NeedKindChip,
   NeedStatusChip,
   TrackFilterGroup,
   filterButtonClass,
 } from './processUi';
+import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
@@ -64,11 +83,21 @@ export function FinishLineNeeds({
   onOpenStep: (stepLabel: string) => void;
 }) {
   const repository = useAppStore((state) => state.repository);
-  const track = useAppStore((state) => state.prosesTrack);
+  const entity = useAppStore((state) => state.prosesEntity);
+  const setEntity = useAppStore((state) => state.setProsesEntity);
   const { run, isPending } = useMutation();
+
+  // Per-tab local jalur, default Semua — never shared with the swimlane —
+  // and reset on entity switch, where the old code would name a track the
+  // new entity does not have.
+  const [track, setTrack] = useState<TrackFilter>(ALL_TRACKS);
+  useEffect(() => {
+    setTrack(ALL_TRACKS);
+  }, [entity]);
 
   const [stepsRead, setStepsRead] = useState<ReadResult<ProcessStep>>(unread);
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
+  const [tracksRead, setTracksRead] = useState<ReadResult<ProcessTrackDef>>(unread);
   const [loaded, setLoaded] = useState(false);
 
   const [statusOn, setStatusOn] = useState<Record<ProcessNeedStatus, boolean>>({
@@ -85,12 +114,14 @@ export function FinishLineNeeds({
   const [byOwner, setByOwner] = useState(false);
 
   const load = useCallback(async () => {
-    const [steps, needs] = await Promise.all([
+    const [steps, needs, tracks] = await Promise.all([
       repository.listProcessSteps(),
       repository.listProcessNeeds(),
+      repository.listProcessTracks(),
     ]);
     setStepsRead(steps);
     setNeedsRead(needs);
+    setTracksRead(tracks);
     setLoaded(true);
   }, [repository]);
 
@@ -98,15 +129,49 @@ export function FinishLineNeeds({
     void load().catch(() => setLoaded(true));
   }, [load]);
 
-  const steps = rowsOf(stepsRead);
+  const allSteps = rowsOf(stepsRead);
   const needs = rowsOf(needsRead);
-  const state = buildRegisterState(stepsRead, needsRead);
+  const state = buildRegisterState(stepsRead, needsRead, tracksRead);
 
-  const summary = useMemo(() => summarizeNeeds(needs, steps, track), [needs, steps, track]);
-  const rows = useMemo(
-    () => registerRows(needs, steps, { track, status: statusOn, kind: kindOn }),
-    [needs, steps, track, statusOn, kindOn],
+  // Entity slicing: steps directly, needs through their step ids; the track
+  // vocabulary comes from the register state so the legacy (pre-52) window
+  // uses the same compatibility defs as the swimlane.
+  const steps = useMemo(
+    () => allSteps.filter((step) => step.entityCode === entity),
+    [allSteps, entity],
   );
+  const entitiesWithSteps = useMemo(() => {
+    const codes = [...new Set(allSteps.map((step) => step.entityCode))];
+    return codes.sort((a, b) =>
+      a === DEFAULT_PROCESS_ENTITY ? -1 : b === DEFAULT_PROCESS_ENTITY ? 1 : a.localeCompare(b),
+    );
+  }, [allSteps]);
+  const entityTracks = useMemo(
+    () =>
+      state.kind === 'ready'
+        ? state.tracks.filter((trackDef) => trackDef.entityCode === entity)
+        : [],
+    [state, entity],
+  );
+  const shared = useMemo(() => sharedTrackCodes(entityTracks), [entityTracks]);
+
+  const summary = useMemo(
+    () => summarizeNeeds(needs, steps, track, shared),
+    [needs, steps, track, shared],
+  );
+  const rows = useMemo(
+    () => registerRows(needs, steps, { track, status: statusOn, kind: kindOn }, shared),
+    [needs, steps, track, statusOn, kindOn, shared],
+  );
+  // §4.1: an active jalur filter must SAY what it hides — the same
+  // status/kind slice under Semua, minus what survives the track.
+  const hiddenByTrack = useMemo(() => {
+    if (track === ALL_TRACKS) return 0;
+    return (
+      registerRows(needs, steps, { track: ALL_TRACKS, status: statusOn, kind: kindOn }, shared)
+        .length - rows.length
+    );
+  }, [needs, steps, track, statusOn, kindOn, shared, rows.length]);
   const ownerGroups = useMemo(() => (byOwner ? groupByOwner(rows) : []), [byOwner, rows]);
 
   const saveRequestedOn = async (id: string, value: string) => {
@@ -123,12 +188,16 @@ export function FinishLineNeeds({
 
   return (
     <>
-      {/* This tab's description, under the tab bar. No <h1> — the area owns
-          the only one on the page. */}
-      <p className="mb-6 max-w-2xl text-sm leading-6 text-foreground-muted">
-        Apa yang harus ada supaya rantai ini bisa dijalankan — bukan apa yang dihasilkan tiap
-        step. Kelompokkan per pemilik untuk mendapat daftar permintaan data.
-      </p>
+      {/* Entity + this tab's description. No <h1> — the area owns the only
+          one on the page. The picker is the same shared entity state the
+          swimlane uses; the description stays generic because the job here
+          (compose the request list) is the same whichever chain is in view. */}
+      <EntityScopeRow
+        entities={entitiesWithSteps.length > 0 ? entitiesWithSteps : [entity]}
+        value={entity}
+        onChange={setEntity}
+        scope="Apa yang harus ada supaya rantai ini bisa dijalankan — bukan apa yang dihasilkan tiap step. Kelompokkan per pemilik untuk mendapat daftar permintaan data."
+      />
 
       {!loaded ? (
         <Checking label="Kebutuhan data" />
@@ -143,8 +212,21 @@ export function FinishLineNeeds({
             failure={{ reason: 'failed', detail: state.detail }}
           />
         </div>
+      ) : steps.length === 0 ? (
+        <div className="rounded-lg border border-border-subtle bg-card px-4">
+          <EmptyRow
+            label="Kebutuhan data"
+            clause={`Entitas ${entity} belum punya rantai proses — pilih entitas lain di atas.`}
+          />
+        </div>
       ) : (
         <>
+          {state.legacyEntity && (
+            <p className="mb-4 flex min-h-9 items-center gap-2 rounded-lg border border-border-subtle bg-surface-2 px-4 text-xs leading-5 text-foreground-secondary">
+              Fitur multi-entitas belum aktif — migration entity-aware belum diterapkan; yang
+              tampil register SAMB, seperti sebelumnya.
+            </p>
+          )}
           <section className="mb-5">
             <div
               className="flex h-2 max-w-lg overflow-hidden rounded-sm bg-surface-3"
@@ -206,7 +288,7 @@ export function FinishLineNeeds({
                 </button>
               ))}
             </div>
-            <TrackFilterGroup />
+            <TrackFilterGroup tracks={entityTracks} value={track} onChange={setTrack} />
             <button
               type="button"
               aria-pressed={byOwner}
@@ -215,7 +297,15 @@ export function FinishLineNeeds({
             >
               Kelompokkan per pemilik
             </button>
-            <span className="text-xs tabular-nums text-foreground-muted">{rows.length} baris</span>
+            <span className="text-xs tabular-nums text-foreground-muted">
+              {rows.length} baris
+              {hiddenByTrack > 0 && (
+                <span className="text-escalate">
+                  {' '}
+                  · {hiddenByTrack} baris di luar jalur ini disembunyikan
+                </span>
+              )}
+            </span>
           </div>
 
           <section className="rounded-lg border border-border bg-card shadow-card">

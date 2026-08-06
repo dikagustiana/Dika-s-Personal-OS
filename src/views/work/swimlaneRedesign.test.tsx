@@ -30,6 +30,7 @@ import {
   fixturePhases,
   fixtureStepItems,
   fixtureSteps,
+  fixtureTracks,
 } from '../../logic/process/seedFixture';
 import { useAppStore } from '../../store/appStore';
 import { FinishLineSwimlane } from './FinishLineSwimlane';
@@ -51,6 +52,7 @@ function seededRepository(): Repository {
     listProcessGates: async () => okRows(fixtureGates()),
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
+    listProcessTracks: async () => okRows(fixtureTracks()),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
@@ -116,11 +118,11 @@ afterEach(() => {
   cleanup();
   clearLayoutStub();
   vi.unstubAllGlobals();
-  useAppStore.setState({ prosesTrack: 'ALL', prosesFocus: null });
+  useAppStore.setState({ prosesEntity: 'SAMB', prosesFocus: null });
 });
 
 function renderSwimlane(props: { itemFilter?: string } = {}) {
-  useAppStore.setState({ repository: seededRepository(), prosesFocus: null });
+  useAppStore.setState({ repository: seededRepository(), prosesEntity: 'SAMB', prosesFocus: null });
   return render(
     <FinishLineSwimlane
       itemFilter={props.itemFilter}
@@ -141,7 +143,6 @@ async function waitForCanvas(container: HTMLElement, boxes: number) {
 
 describe('§4 boxes and handoff markers per filter', () => {
   it('Semua: 30 boxes, 12 handoff markers, none gathered', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
 
@@ -168,21 +169,24 @@ describe('§4 boxes and handoff markers per filter', () => {
   });
 
   it('Trade: 19 boxes, 6 handoff markers', async () => {
-    useAppStore.setState({ prosesTrack: 'TRADE' });
     const { container } = renderSwimlane();
+    await waitForCanvas(container, 30);
+    // The jalur filter is per-tab local state now — driven by its button,
+    // whose label comes from os_process_tracks.
+    fireEvent.click(screen.getByRole('button', { name: 'TRADE' }));
     await waitForCanvas(container, 19);
     expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(6);
   });
 
   it('LP: 20 boxes, 7 handoff markers', async () => {
-    useAppStore.setState({ prosesTrack: 'LP' });
     const { container } = renderSwimlane();
+    await waitForCanvas(container, 30);
+    fireEvent.click(screen.getByRole('button', { name: 'LP' }));
     await waitForCanvas(container, 20);
     expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(7);
   });
 
   it('renders 6 lane labels and 7 phase ribbon segments', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
     for (const lane of fixtureLanes()) {
@@ -198,7 +202,6 @@ describe('§4 boxes and handoff markers per filter', () => {
 
 describe('§4 the ?item highlight dims — it never filters', () => {
   it('lights 4, dims 26, and leaves the box and wire counts untouched', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const plain = renderSwimlane();
     await waitForCanvas(plain.container, 30);
     const plainWireCount = plain.container.querySelectorAll('svg path[marker-end]').length;
@@ -221,7 +224,6 @@ describe('§4 the ?item highlight dims — it never filters', () => {
 
 describe('prose never renders on the canvas — at any density', () => {
   it('keeps risk text out of ringkas, sedang and lengkap, and in the panel', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
     const risk = STEP_9_RISK_FRAGMENT();
@@ -252,7 +254,6 @@ describe('prose never renders on the canvas — at any density', () => {
   });
 
   it('caps every on-box group at two items and declares the rest', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
     fireEvent.click(screen.getByRole('button', { name: 'Lengkap' }));
@@ -273,7 +274,6 @@ describe('prose never renders on the canvas — at any density', () => {
   });
 
   it('sedang shows the two highest-signal needs — BELUM outranks ADA', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
     fireEvent.click(screen.getByRole('button', { name: 'Sedang' }));
@@ -291,7 +291,6 @@ describe('prose never renders on the canvas — at any density', () => {
 
 describe('the toolbar collapsed to one density control', () => {
   it('offers three density positions and no tempel toggle', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
 
@@ -303,7 +302,6 @@ describe('the toolbar collapsed to one density control', () => {
   });
 
   it('shows the column popover only at lengkap, and toggling a column works', async () => {
-    useAppStore.setState({ prosesTrack: 'ALL' });
     const { container } = renderSwimlane();
     await waitForCanvas(container, 30);
 
