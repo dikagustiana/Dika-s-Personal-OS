@@ -1,9 +1,9 @@
 # Dependencies
 node_modules/
-# No lockfile is tracked, and that is deliberate rather than an oversight:
-# this project has always installed with `npm install`, so committing one now
-# would re-resolve every existing dependency on the next build. Anyone adding
-# a package generates one locally — it stays local.
+# This project is pnpm. pnpm-lock.yaml is the tracked lockfile and CI installs
+# with --frozen-lockfile, so an npm lockfile is not a second opinion — it is
+# the residue of running the wrong package manager, and committing one lets
+# package.json and pnpm-lock.yaml drift apart until CI catches it.
 package-lock.json
 
 # Build output
