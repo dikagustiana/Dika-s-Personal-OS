@@ -1,5 +1,6 @@
 /**
- * View-models for the two process views and the Finish line closing block.
+ * View-models for the swimlane and register tabs of the Finish line, and for
+ * the closing-conditions block in its cell panel.
  *
  * THE MISSING-RELATION RULE IS INVERTED HERE, DELIBERATELY. Finish-line
  * cards count problems, so a missing relation must say COULD NOT CHECK. The
@@ -20,6 +21,7 @@ import type {
   ProcessNeedStatus,
   ProcessPhase,
   ProcessStep,
+  ProcessStepItem,
 } from '../data/types';
 import { stepVisible, type TrackFilter } from './process';
 
@@ -33,6 +35,7 @@ export type ProcessModel =
       steps: ProcessStep[];
       gates: ProcessGate[];
       needs: ProcessNeed[];
+      stepItems: ProcessStepItem[];
     };
 
 export type ProcessReadFold =
@@ -66,6 +69,7 @@ export function buildProcessModel(input: {
   steps: ReadResult<ProcessStep>;
   gates: ReadResult<ProcessGate>;
   needs: ReadResult<ProcessNeed>;
+  stepItems: ReadResult<ProcessStepItem>;
 }): ProcessModel {
   const folded = foldProcessReads([
     input.lanes,
@@ -73,9 +77,17 @@ export function buildProcessModel(input: {
     input.steps,
     input.gates,
     input.needs,
+    input.stepItems,
   ]);
   if (folded.kind !== 'ok') return folded;
-  if (!input.lanes.ok || !input.phases.ok || !input.steps.ok || !input.gates.ok || !input.needs.ok) {
+  if (
+    !input.lanes.ok ||
+    !input.phases.ok ||
+    !input.steps.ok ||
+    !input.gates.ok ||
+    !input.needs.ok ||
+    !input.stepItems.ok
+  ) {
     return { kind: 'empty' }; // unreachable; narrows the types below
   }
   if (input.steps.rows.length === 0) return { kind: 'empty' };
@@ -86,6 +98,7 @@ export function buildProcessModel(input: {
     steps: input.steps.rows,
     gates: input.gates.rows,
     needs: input.needs.rows,
+    stepItems: input.stepItems.rows,
   };
 }
 
@@ -176,9 +189,29 @@ export function groupByOwner(rows: RegisterRow[]): OwnerGroup[] {
     .sort((a, b) => b.belum - a.belum || a.owner.localeCompare(b.owner));
 }
 
-// --- the Finish line closing block (§8.1 / §8.2) ---------------------------
+// --- the step ↔ Finish line bridge -----------------------------------------
 
 const STATUS_ORDER: ProcessNeedStatus[] = ['BELUM', 'SEBAGIAN', 'ADA'];
+
+/**
+ * The steps feeding one Finish line row. The bridge is many-to-many in both
+ * directions, so this is a filter, never a lookup of one id.
+ */
+export function stepsForItem(itemId: string, stepItems: ProcessStepItem[], steps: ProcessStep[]): ProcessStep[] {
+  const fed = new Set(
+    stepItems.filter((edge) => edge.itemId === itemId).map((edge) => edge.stepId),
+  );
+  return steps.filter((step) => fed.has(step.id));
+}
+
+/** Step LABELS feeding a row — what the swimlane highlights on ?item=. */
+export function stepLabelsForItem(
+  itemId: string,
+  stepItems: ProcessStepItem[],
+  steps: ProcessStep[],
+): Set<string> {
+  return new Set(stepsForItem(itemId, stepItems, steps).map((step) => step.label));
+}
 
 export interface ClosingNeed {
   need: ProcessNeed;
@@ -190,47 +223,72 @@ export interface ClosingGroup {
   rows: ClosingNeed[];
 }
 
-/**
- * The needs that define "closed" for one Finish line row, grouped
- * BELUM → SEBAGIAN → ADA. Empty result = the block does not render at all.
- * READ-ONLY toward the cell: nothing derived here may write cell state.
- */
-export function closingNeedsForItem(
-  itemId: string,
-  needs: ProcessNeed[],
-  steps: ProcessStep[],
-): ClosingGroup[] {
-  const stepLabelById = new Map(steps.map((step) => [step.id, step.label]));
-  const matched = needs.filter((need) => need.finishLineItemId === itemId);
-  return STATUS_ORDER.map((status) => ({
-    status,
-    rows: matched
-      .filter((need) => need.status === status)
-      .sort((a, b) => a.item.localeCompare(b.item))
-      .map((need) => ({
-        need,
-        stepLabel: stepLabelById.get(need.stepId) ?? '?',
-      })),
-  })).filter((group) => group.rows.length > 0);
+export interface ClosingConditions {
+  /** How many steps feed this row — the first half of the summary line. */
+  stepCount: number;
+  counts: Record<ProcessNeedStatus, number>;
+  groups: ClosingGroup[];
 }
 
 /**
- * The reverse direction (§8.2): the Finish line rows a step feeds — the
- * deduped finishLineItemId targets of its needs, resolved to items.
+ * What "closed" means for one Finish line row: every need of every step that
+ * feeds it, grouped BELUM → SEBAGIAN → ADA.
+ *
+ * Returns null when NO step feeds the row — that is what hides the block
+ * entirely rather than rendering an empty one. A row with feeding steps but
+ * no needs still returns a value: "three steps feed this and none of them
+ * needs anything" is information, an empty block is not.
+ *
+ * READ-ONLY toward the cell. A row whose needs are all ADA still does not
+ * change its cell state; that happens only through an explicit human edit,
+ * and this function has no way to say otherwise.
+ */
+export function closingConditionsForItem(
+  itemId: string,
+  stepItems: ProcessStepItem[],
+  needs: ProcessNeed[],
+  steps: ProcessStep[],
+): ClosingConditions | null {
+  const feeding = stepsForItem(itemId, stepItems, steps);
+  if (feeding.length === 0) return null;
+  const labelById = new Map(feeding.map((step) => [step.id, step.label]));
+  const matched = needs.filter((need) => labelById.has(need.stepId));
+  const counts: Record<ProcessNeedStatus, number> = { ADA: 0, SEBAGIAN: 0, BELUM: 0 };
+  for (const need of matched) counts[need.status] += 1;
+  const groups = STATUS_ORDER.map((status) => ({
+    status,
+    rows: matched
+      .filter((need) => need.status === status)
+      .map((need) => ({ need, stepLabel: labelById.get(need.stepId) ?? '?' }))
+      // Grouped by step first so a reader scanning one status still sees the
+      // needs of one step together, then by item for a stable order.
+      .sort(
+        (a, b) =>
+          a.stepLabel.localeCompare(b.stepLabel, undefined, { numeric: true }) ||
+          a.need.item.localeCompare(b.need.item),
+      ),
+  })).filter((group) => group.rows.length > 0);
+  return { stepCount: feeding.length, counts, groups };
+}
+
+/**
+ * The reverse direction: the Finish line rows one step feeds, resolved to
+ * items and ordered as the matrix orders them. An id with no matching item
+ * (a row deleted live before the app reloaded) is dropped rather than shown
+ * as a broken link.
  */
 export function finishLineRowsForStep(
   stepId: string,
-  needs: ProcessNeed[],
+  stepItems: ProcessStepItem[],
   items: FinishLineItem[],
 ): FinishLineItem[] {
   const itemsById = new Map(items.map((item) => [item.id, item]));
   const seen = new Set<string>();
   const rows: FinishLineItem[] = [];
-  for (const need of needs) {
-    if (need.stepId !== stepId || !need.finishLineItemId) continue;
-    if (seen.has(need.finishLineItemId)) continue;
-    seen.add(need.finishLineItemId);
-    const item = itemsById.get(need.finishLineItemId);
+  for (const edge of stepItems) {
+    if (edge.stepId !== stepId || seen.has(edge.itemId)) continue;
+    seen.add(edge.itemId);
+    const item = itemsById.get(edge.itemId);
     if (item) rows.push(item);
   }
   return rows.sort((a, b) => a.order - b.order);

@@ -822,9 +822,9 @@ export interface SharedView {
  * SAMB OPERATIONAL PROCESS — the swimlane, its gates, and the data register.
  * ===========================================================================
  * The process map exists to define what "done" means for each Finish line
- * row: a need may point at the row it helps close (finishLineItemId). That
- * relation is READ-ONLY toward cells — nothing in the process feature writes
- * cell state, which still changes only through an explicit human edit.
+ * row: ProcessStepItem says which rows a step feeds. That relation is
+ * READ-ONLY toward cells — nothing in the process feature writes cell state,
+ * which still changes only through an explicit human edit.
  *
  * The structure (lanes, phases, steps, gates, needs) is seeded by migration
  * 20260806000051 and composed OUTSIDE the app — there is no in-app editor,
@@ -903,9 +903,13 @@ export interface ProcessGate {
 
 /**
  * What must exist for a step to run correctly — not what the step produces.
- * finishLineItemId links the need to the Finish line row it helps close;
- * NULL means the mapping label did not resolve (or was deliberately left
- * open) and the need still renders normally in the register.
+ * A need belongs to its STEP and carries no Finish line link of its own: one
+ * step feeds several rows, and forcing a need to pick one would throw the
+ * rest away. The mapping lives in ProcessStepItem.
+ *
+ * What this register adds over os_finish_line_accounts — which already owns
+ * what the ideal data is, where it comes from and who owns it — is `status`
+ * and `requestedOn`: how ready the data is, and when it was asked for.
  */
 export interface ProcessNeed {
   id: string;
@@ -915,11 +919,21 @@ export interface ProcessNeed {
   src?: string;
   owner?: string;
   status: ProcessNeedStatus;
-  finishLineItemId?: string;
   /**
    * When the item was requested from its owner (yyyy-MM-dd). The only
    * editable field in the feature: status BELUM moves nobody, "requested on
    * X, unanswered" does.
    */
   requestedOn?: string;
+}
+
+/**
+ * One edge of the step → Finish line bridge. MANY-TO-MANY: step 9 feeds
+ * Storing cost, Inventories and Pallet positions used; Storing cost is fed
+ * by six steps. Seeded from literal uuids read live — never matched by
+ * label, because three Finish line labels are duplicated across sections.
+ */
+export interface ProcessStepItem {
+  stepId: string;
+  itemId: string;
 }

@@ -37,6 +37,7 @@ import type {
   ProcessNeed,
   ProcessPhase,
   ProcessStep,
+  ProcessStepItem,
   IeltsError,
   IeltsResult,
   IeltsSession,
@@ -812,6 +813,7 @@ export class MockRepository implements Repository {
   private readonly processSteps: ProcessStep[] = [];
   private readonly processGates: ProcessGate[] = [];
   private readonly processNeeds = new Map<string, ProcessNeed>();
+  private readonly processStepItems: ProcessStepItem[] = [];
 
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
     return okRows(clone([...this.processLanes].sort((a, b) => a.ordinal - b.ordinal)));
@@ -831,6 +833,10 @@ export class MockRepository implements Repository {
 
   async listProcessNeeds(): Promise<ReadResult<ProcessNeed>> {
     return okRows(clone([...this.processNeeds.values()]));
+  }
+
+  async listProcessStepItems(): Promise<ReadResult<ProcessStepItem>> {
+    return okRows(clone(this.processStepItems));
   }
 
   /**
