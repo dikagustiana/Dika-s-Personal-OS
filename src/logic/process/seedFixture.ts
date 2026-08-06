@@ -24,6 +24,7 @@ import type {
   ProcessStep,
   ProcessStepItem,
   ProcessTrack,
+  ProcessTrackDef,
 } from '../../data/types';
 import seed from './sambProcessSeed.json';
 
@@ -87,9 +88,23 @@ interface SeedStep {
 
 const steps = seed.steps as SeedStep[];
 
+/**
+ * SAMB's track vocabulary — what migration 52 seeds into os_process_tracks
+ * for the rows that already exist. The parity test pins this against the
+ * migration AND against LEGACY_SAMB_TRACKS, so neither can drift alone.
+ */
+export function fixtureTracks(): ProcessTrackDef[] {
+  return [
+    { entityCode: 'SAMB', code: 'TRADE', label: 'TRADE', ordinal: 1, isShared: false },
+    { entityCode: 'SAMB', code: 'LP', label: 'LP', ordinal: 2, isShared: false },
+    { entityCode: 'SAMB', code: 'KEDUANYA', label: 'BERSAMA', ordinal: 3, isShared: true },
+  ];
+}
+
 export function fixtureLanes(): ProcessLane[] {
   return seed.lanes.map((lane) => {
     const mapped: ProcessLane = {
+      entityCode: 'SAMB',
       key: lane.key,
       label: lane.label,
       ordinal: lane.ordinal,
@@ -104,6 +119,7 @@ export function fixtureLanes(): ProcessLane[] {
 export function fixturePhases(): ProcessPhase[] {
   return seed.phases.map((phase, index) => ({
     id: `phase-${index + 1}`,
+    entityCode: 'SAMB',
     name: phase.name,
     slotFrom: phase.a,
     slotTo: phase.b,
@@ -114,6 +130,7 @@ export function fixtureGates(): ProcessGate[] {
   return seed.gates.map((gate) => {
     const mapped: ProcessGate = {
       id: gate.id,
+      entityCode: 'SAMB',
       type: gate.type as ProcessGateType,
       title: gate.title,
     };
@@ -128,6 +145,7 @@ export function fixtureSteps(): ProcessStep[] {
   return steps.map((step) => {
     const mapped: ProcessStep = {
       id: step.label,
+      entityCode: 'SAMB',
       label: step.label,
       slot: step.slot,
       laneKey: step.fn,

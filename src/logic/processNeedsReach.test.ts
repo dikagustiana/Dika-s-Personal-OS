@@ -40,6 +40,7 @@ import {
   fixturePhases,
   fixtureStepItems,
   fixtureSteps,
+  fixtureTracks,
 } from './process/seedFixture';
 
 const ALL_STATUS = { ADA: true, SEBAGIAN: true, BELUM: true };
@@ -53,7 +54,10 @@ const ready = () => ({
   gates: okRows(fixtureGates()),
   needs: okRows(fixtureNeeds()),
   stepItems: okRows(fixtureStepItems()),
+  tracks: okRows(fixtureTracks()),
 });
+const TRACKS = fixtureTracks();
+const SHARED: ReadonlySet<string> = new Set(['KEDUANYA']);
 
 describe('the needs register reaches the canvas — positive counts, not absence of error', () => {
   it('carries 118 needs through buildProcessModel into the stats line', () => {
@@ -63,7 +67,7 @@ describe('the needs register reaches the canvas — positive counts, not absence
 
     // The assertion that would have failed on 6 August.
     expect(model.needs.length).toBe(118);
-    const stats = processStats(model.steps, model.needs, 'ALL');
+    const stats = processStats(model.steps, model.needs, 'ALL', TRACKS);
     expect(stats).toEqual({
       visible: 30,
       total: 30,
@@ -77,9 +81,9 @@ describe('the needs register reaches the canvas — positive counts, not absence
     const model = buildProcessModel(ready());
     if (model.kind !== 'ready') throw new Error('model must be ready');
 
-    const trade = processStats(model.steps, model.needs, 'TRADE');
+    const trade = processStats(model.steps, model.needs, 'TRADE', TRACKS);
     expect([trade.needCount, trade.needBelum]).toEqual([83, 35]);
-    const lp = processStats(model.steps, model.needs, 'LP');
+    const lp = processStats(model.steps, model.needs, 'LP', TRACKS);
     expect([lp.needCount, lp.needBelum]).toEqual([82, 50]);
   });
 
@@ -96,11 +100,12 @@ describe('the needs register reaches the canvas — positive counts, not absence
   });
 
   it('groups the 64 BELUM rows under 29 owners — the request list is not empty', () => {
-    const rows = registerRows(fixtureNeeds(), fixtureSteps(), {
-      track: 'ALL',
-      status: BELUM_ONLY,
-      kind: ALL_KIND,
-    });
+    const rows = registerRows(
+      fixtureNeeds(),
+      fixtureSteps(),
+      { track: 'ALL', status: BELUM_ONLY, kind: ALL_KIND },
+      SHARED,
+    );
     expect(rows.length).toBe(64);
     const groups = groupByOwner(rows);
     expect(groups.length).toBe(29);
@@ -111,7 +116,7 @@ describe('the needs register reaches the canvas — positive counts, not absence
   });
 
   it('summarises 22 / 32 / 64 of 118 for the proportion bar', () => {
-    expect(summarizeNeeds(fixtureNeeds(), fixtureSteps(), 'ALL')).toEqual({
+    expect(summarizeNeeds(fixtureNeeds(), fixtureSteps(), 'ALL', SHARED)).toEqual({
       ada: 22,
       sebagian: 32,
       belum: 64,
@@ -120,15 +125,16 @@ describe('the needs register reaches the canvas — positive counts, not absence
   });
 
   it('the register tab is ready with the seed, and every filter keeps rows', () => {
-    expect(buildRegisterState(okRows(fixtureSteps()), okRows(fixtureNeeds()))).toEqual({
-      kind: 'ready',
-    });
+    expect(
+      buildRegisterState(okRows(fixtureSteps()), okRows(fixtureNeeds()), okRows(fixtureTracks())),
+    ).toEqual({ kind: 'ready', tracks: fixtureTracks(), legacyEntity: false });
     for (const track of ['ALL', 'TRADE', 'LP'] as const) {
-      const rows = registerRows(fixtureNeeds(), fixtureSteps(), {
-        track,
-        status: ALL_STATUS,
-        kind: ALL_KIND,
-      });
+      const rows = registerRows(
+        fixtureNeeds(),
+        fixtureSteps(),
+        { track, status: ALL_STATUS, kind: ALL_KIND },
+        SHARED,
+      );
       expect(rows.length).toBeGreaterThan(0);
     }
   });
@@ -136,7 +142,9 @@ describe('the needs register reaches the canvas — positive counts, not absence
 
 describe('a needs read that succeeds with zero rows is its own state, not the migration state', () => {
   it('calls a present-but-empty table unseeded, and a missing one absent', () => {
-    expect(buildRegisterState(okRows(fixtureSteps()), okRows<ProcessNeed>([]))).toEqual({
+    expect(
+      buildRegisterState(okRows(fixtureSteps()), okRows<ProcessNeed>([]), okRows(fixtureTracks())),
+    ).toEqual({
       kind: 'empty',
       cause: 'unseeded',
     });
@@ -144,6 +152,7 @@ describe('a needs read that succeeds with zero rows is its own state, not the mi
       buildRegisterState(
         okRows(fixtureSteps()),
         readAbsence('listProcessNeeds', { code: '42P01' }) as ReadResult<ProcessNeed>,
+        okRows(fixtureTracks()),
       ),
     ).toEqual({ kind: 'empty', cause: 'absent' });
   });

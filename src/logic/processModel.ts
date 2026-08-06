@@ -22,8 +22,30 @@ import type {
   ProcessPhase,
   ProcessStep,
   ProcessStepItem,
+  ProcessTrackDef,
 } from '../data/types';
 import { stepVisible, type TrackFilter } from './process';
+
+/**
+ * ===========================================================================
+ * THE PRE-52 COMPATIBILITY VOCABULARY — §4.6, and the ONE place it lives.
+ * ===========================================================================
+ * This frontend ships before migration 20260806000052. In that window the
+ * process tables exist and hold SAMB, but os_process_tracks does not exist
+ * and no table carries entity_code. The repository already papers over the
+ * missing column (rows arrive tagged SAMB); what cannot be read from
+ * anywhere is the track vocabulary — so this constant IS migration 52's
+ * SAMB seed, verbatim, used only when listProcessTracks reports the table
+ * absent while steps carry rows. After 52 applies, this constant is dead
+ * code. If it ever disagrees with the migration, the swimlane would draw
+ * the wrong walks for exactly the pre-apply window — which is why the seed
+ * parity test pins it against the SQL.
+ */
+export const LEGACY_SAMB_TRACKS: ProcessTrackDef[] = [
+  { entityCode: 'SAMB', code: 'TRADE', label: 'TRADE', ordinal: 1, isShared: false },
+  { entityCode: 'SAMB', code: 'LP', label: 'LP', ordinal: 2, isShared: false },
+  { entityCode: 'SAMB', code: 'KEDUANYA', label: 'BERSAMA', ordinal: 3, isShared: true },
+];
 
 /**
  * ===========================================================================
@@ -57,6 +79,13 @@ export type ProcessModel =
       gates: ProcessGate[];
       needs: ProcessNeed[];
       stepItems: ProcessStepItem[];
+      tracks: ProcessTrackDef[];
+      /**
+       * True when the vocabulary table was absent (pre-52 schema) and
+       * `tracks` is LEGACY_SAMB_TRACKS: render SAMB as before, plus the one
+       * visible line saying multi-entity is not active yet.
+       */
+      legacyEntity: boolean;
     };
 
 export type ProcessReadFold =
@@ -93,6 +122,7 @@ export function buildProcessModel(input: {
   gates: ReadResult<ProcessGate>;
   needs: ReadResult<ProcessNeed>;
   stepItems: ReadResult<ProcessStepItem>;
+  tracks: ReadResult<ProcessTrackDef>;
 }): ProcessModel {
   const folded = foldProcessReads([
     input.lanes,
@@ -114,7 +144,42 @@ export function buildProcessModel(input: {
   ) {
     return { kind: 'empty', cause: 'absent' }; // unreachable; narrows the types below
   }
-  if (input.steps.rows.length === 0) return { kind: 'empty', cause: 'unseeded' };
+  if (input.steps.rows.length === 0) {
+    // The whole feature absent vs present-but-unseeded is decided by the six
+    // core reads; a missing VOCABULARY table changes nothing when there are
+    // no steps to draw.
+    return { kind: 'empty', cause: 'unseeded' };
+  }
+
+  // The vocabulary read folds separately (§4.6): absent while steps carry
+  // rows is the expected PRE-52 window — SAMB renders from the compatibility
+  // constant, flagged so the view says so. Any other failure of the tracks
+  // read surfaces; and a PRESENT vocabulary with zero rows while steps exist
+  // would silently draw a diagram with no walks and no arrows, so it is a
+  // failure too, not an empty state.
+  if (!input.tracks.ok) {
+    if (input.tracks.reason === 'missing-relation') {
+      return {
+        kind: 'ready',
+        lanes: input.lanes.rows,
+        phases: input.phases.rows,
+        steps: input.steps.rows,
+        gates: input.gates.rows,
+        needs: input.needs.rows,
+        stepItems: input.stepItems.rows,
+        tracks: LEGACY_SAMB_TRACKS,
+        legacyEntity: true,
+      };
+    }
+    return { kind: 'failed', detail: input.tracks.detail };
+  }
+  if (input.tracks.rows.length === 0) {
+    return {
+      kind: 'failed',
+      detail:
+        'listProcessTracks: os_process_tracks ada tapi kosong — kosakata track hilang, alur tidak bisa diturunkan.',
+    };
+  }
   return {
     kind: 'ready',
     lanes: input.lanes.rows,
@@ -123,6 +188,8 @@ export function buildProcessModel(input: {
     gates: input.gates.rows,
     needs: input.needs.rows,
     stepItems: input.stepItems.rows,
+    tracks: input.tracks.rows,
+    legacyEntity: false,
   };
 }
 
@@ -131,7 +198,7 @@ export function buildProcessModel(input: {
 export type RegisterState =
   | { kind: 'empty'; cause: EmptyCause }
   | { kind: 'failed'; detail: string }
-  | { kind: 'ready' };
+  | { kind: 'ready'; tracks: ProcessTrackDef[]; legacyEntity: boolean };
 
 /**
  * The register's three-way decision, extracted from the view so the case that
@@ -149,13 +216,30 @@ export type RegisterState =
 export function buildRegisterState(
   steps: ReadResult<ProcessStep>,
   needs: ReadResult<ProcessNeed>,
+  tracks: ReadResult<ProcessTrackDef>,
 ): RegisterState {
   const folded = foldProcessReads([steps, needs]);
   if (folded.kind === 'failed') return folded;
   if (folded.kind === 'empty') return { kind: 'empty', cause: 'absent' };
   if (!steps.ok || !needs.ok) return { kind: 'empty', cause: 'absent' }; // unreachable
   if (needs.rows.length === 0) return { kind: 'empty', cause: 'unseeded' };
-  return { kind: 'ready' };
+  // Same §4.6 fold as the canvas: vocabulary absent while the register has
+  // rows = the pre-52 window, rendered from the compatibility constant with
+  // the visible notice; any other tracks failure surfaces.
+  if (!tracks.ok) {
+    if (tracks.reason === 'missing-relation') {
+      return { kind: 'ready', tracks: LEGACY_SAMB_TRACKS, legacyEntity: true };
+    }
+    return { kind: 'failed', detail: tracks.detail };
+  }
+  if (tracks.rows.length === 0) {
+    return {
+      kind: 'failed',
+      detail:
+        'listProcessTracks: os_process_tracks ada tapi kosong — kosakata track hilang, register tidak bisa difilter.',
+    };
+  }
+  return { kind: 'ready', tracks: tracks.rows, legacyEntity: false };
 }
 
 export interface RegisterFilters {
@@ -173,13 +257,14 @@ export function registerRows(
   needs: ProcessNeed[],
   steps: ProcessStep[],
   filters: RegisterFilters,
+  shared: ReadonlySet<string>,
 ): RegisterRow[] {
   const stepsById = new Map(steps.map((step) => [step.id, step]));
   const rows: RegisterRow[] = [];
   for (const need of needs) {
     const step = stepsById.get(need.stepId);
     if (!step) continue;
-    if (!stepVisible(step, filters.track)) continue;
+    if (!stepVisible(step, filters.track, shared)) continue;
     if (!filters.status[need.status]) continue;
     if (!filters.kind[need.kind]) continue;
     rows.push({ need, step });
@@ -203,9 +288,10 @@ export function summarizeNeeds(
   needs: ProcessNeed[],
   steps: ProcessStep[],
   track: TrackFilter,
+  shared: ReadonlySet<string>,
 ): NeedSummary {
   const visibleIds = new Set(
-    steps.filter((step) => stepVisible(step, track)).map((step) => step.id),
+    steps.filter((step) => stepVisible(step, track, shared)).map((step) => step.id),
   );
   const scoped = needs.filter((need) => visibleIds.has(need.stepId));
   return {
@@ -249,7 +335,9 @@ const STATUS_ORDER: ProcessNeedStatus[] = ['BELUM', 'SEBAGIAN', 'ADA'];
 
 /**
  * The steps feeding one Finish line row. The bridge is many-to-many in both
- * directions, so this is a filter, never a lookup of one id.
+ * directions, so this is a filter, never a lookup of one id. Entity scoping
+ * happens through the STEPS argument: pass one entity's steps and only that
+ * entity's feeders come back — the bridge rows themselves carry no entity.
  */
 export function stepsForItem(itemId: string, stepItems: ProcessStepItem[], steps: ProcessStep[]): ProcessStep[] {
   const fed = new Set(
@@ -285,8 +373,11 @@ export interface ClosingConditions {
 }
 
 /**
- * What "closed" means for one Finish line row: every need of every step that
- * feeds it, grouped BELUM → SEBAGIAN → ADA.
+ * What "closed" means for one CELL — (Finish line row, entity): every need of
+ * every step OF THAT ENTITY that feeds the row, grouped BELUM → SEBAGIAN →
+ * ADA. The entity comes from the cell itself, never from a hardcode: a SAMB
+ * cell reads SAMB's chain, an ARBI cell reads ARBI's, and a cell of an
+ * entity with no chain gets null — no block — without any special case.
  *
  * Returns null when NO step feeds the row — that is what hides the block
  * entirely rather than rendering an empty one. A row with feeding steps but
@@ -299,11 +390,16 @@ export interface ClosingConditions {
  */
 export function closingConditionsForItem(
   itemId: string,
+  entityCode: string,
   stepItems: ProcessStepItem[],
   needs: ProcessNeed[],
   steps: ProcessStep[],
 ): ClosingConditions | null {
-  const feeding = stepsForItem(itemId, stepItems, steps);
+  const feeding = stepsForItem(
+    itemId,
+    stepItems,
+    steps.filter((step) => step.entityCode === entityCode),
+  );
   if (feeding.length === 0) return null;
   const labelById = new Map(feeding.map((step) => [step.id, step.label]));
   const matched = needs.filter((need) => labelById.has(need.stepId));

@@ -26,13 +26,17 @@ import {
   fixtureNeeds,
   fixturePhases,
   fixtureSteps,
+  fixtureTracks,
 } from './process/seedFixture';
+import { sharedTrackCodes } from './process';
 
 const lanes = fixtureLanes();
 const phases = fixturePhases();
 const gates = fixtureGates();
 const steps = fixtureSteps();
 const needs = fixtureNeeds();
+const tracks = fixtureTracks();
+const shared = sharedTrackCodes(tracks);
 
 describe('§10.2 the seed counts are exact — mismatches mean the seed was misread', () => {
   it('carries 6 lanes, 7 phases, 15 gates, 30 steps, 118 needs', () => {
@@ -91,43 +95,43 @@ describe('§10.4 every gate reference resolves; three gates are deliberately unu
 
 describe('§6.5 the walks are unambiguous and the filters produce the pinned counts', () => {
   it('has no duplicated slot inside either walk — the tripwire stays silent', () => {
-    expect(duplicateChainSlots(steps)).toEqual([]);
+    expect(duplicateChainSlots(steps, tracks)).toEqual([]);
   });
 
   it('walks 19 TRADE steps and 20 LP steps in slot order', () => {
-    expect(chainFor(steps, 'TRADE')).toHaveLength(19);
-    expect(chainFor(steps, 'LP')).toHaveLength(20);
+    expect(chainFor(steps, 'TRADE', shared)).toHaveLength(19);
+    expect(chainFor(steps, 'LP', shared)).toHaveLength(20);
   });
 
   it('Semua: 30 steps visible, 12 handoffs after label dedupe', () => {
-    expect(visibleSteps(steps, 'ALL')).toHaveLength(30);
-    expect(handoffs(deriveEdges(steps, 'ALL'))).toHaveLength(12);
+    expect(visibleSteps(steps, 'ALL', shared)).toHaveLength(30);
+    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(12);
   });
 
   it('Trade: 19 steps, 6 handoffs', () => {
-    expect(visibleSteps(steps, 'TRADE')).toHaveLength(19);
-    expect(handoffs(deriveEdges(steps, 'TRADE'))).toHaveLength(6);
+    expect(visibleSteps(steps, 'TRADE', shared)).toHaveLength(19);
+    expect(handoffs(deriveEdges(steps, 'TRADE', tracks))).toHaveLength(6);
   });
 
   it('LP: 20 steps, 7 handoffs', () => {
-    expect(visibleSteps(steps, 'LP')).toHaveLength(20);
-    expect(handoffs(deriveEdges(steps, 'LP'))).toHaveLength(7);
+    expect(visibleSteps(steps, 'LP', shared)).toHaveLength(20);
+    expect(handoffs(deriveEdges(steps, 'LP', tracks))).toHaveLength(7);
   });
 
   it('deduplicates the shared spine: 12→13 is one edge in Semua though both walks carry it', () => {
-    const edges = deriveEdges(steps, 'ALL');
+    const edges = deriveEdges(steps, 'ALL', tracks);
     expect(edges.filter((edge) => edge.from.label === '12' && edge.to.label === '13')).toHaveLength(
       1,
     );
   });
 
   it('emerges convergence: step 8 receives two arrows, from 7a and 7b', () => {
-    const into8 = deriveEdges(steps, 'ALL').filter((edge) => edge.to.label === '8');
+    const into8 = deriveEdges(steps, 'ALL', tracks).filter((edge) => edge.to.label === '8');
     expect(into8.map((edge) => edge.from.label).sort()).toEqual(['7a', '7b']);
   });
 
   it('emerges divergence: step 17 sends two arrows, to 18a and 18b', () => {
-    const outOf17 = deriveEdges(steps, 'ALL').filter((edge) => edge.from.label === '17');
+    const outOf17 = deriveEdges(steps, 'ALL', tracks).filter((edge) => edge.from.label === '17');
     expect(outOf17.map((edge) => edge.to.label).sort()).toEqual(['18a', '18b']);
   });
 
@@ -135,7 +139,7 @@ describe('§6.5 the walks are unambiguous and the filters produce the pinned cou
     const broken = steps.map((step) =>
       step.label === '3' ? { ...step, slot: 1 } : step,
     );
-    expect(duplicateChainSlots(broken)).toEqual([{ track: 'TRADE', slot: 1 }]);
+    expect(duplicateChainSlots(broken, tracks)).toEqual([{ track: 'TRADE', slot: 1 }]);
   });
 });
 
@@ -147,7 +151,7 @@ describe('§10.7 stacked cells — parallel branches and same-slot tracks, never
     // Same phenomenon as 19/20 and 21/23: different tracks on one slot.
     // Asserting six would mean asserting something the seed contradicts;
     // the deviation is recorded in the PR.
-    const cells = groupCells(visibleSteps(steps, 'ALL'));
+    const cells = groupCells(visibleSteps(steps, 'ALL', shared));
     const stacked = [...cells.entries()]
       .filter(([, group]) => group.length > 1)
       .map(([key, group]) => [key, group.map((step) => step.label)] as const);
@@ -163,10 +167,10 @@ describe('§10.7 stacked cells — parallel branches and same-slot tracks, never
   });
 
   it('un-stacks the track-split cells under a single-track filter', () => {
-    const trade = groupCells(visibleSteps(steps, 'TRADE'));
+    const trade = groupCells(visibleSteps(steps, 'TRADE', shared));
     expect(trade.get(cellKey('SALES', 1))?.map((step) => step.label)).toEqual(['2']);
     expect(trade.get(cellKey('WAREHOUSE', 4))?.map((step) => step.label)).toEqual(['6a']);
-    const lp = groupCells(visibleSteps(steps, 'LP'));
+    const lp = groupCells(visibleSteps(steps, 'LP', shared));
     expect(lp.get(cellKey('SALES', 1))?.map((step) => step.label)).toEqual(['1']);
     expect(lp.get(cellKey('WAREHOUSE', 4))?.map((step) => step.label)).toEqual(['6b']);
   });
@@ -174,14 +178,14 @@ describe('§10.7 stacked cells — parallel branches and same-slot tracks, never
 
 describe('§6.8 the stats line follows the jalur filter', () => {
   it('counts all 118 needs in Semua', () => {
-    const stats = processStats(steps, needs, 'ALL');
+    const stats = processStats(steps, needs, 'ALL', tracks);
     expect(stats).toMatchObject({ visible: 30, total: 30, handoffCount: 12, needCount: 118 });
     expect(stats.needBelum).toBe(needs.filter((need) => need.status === 'BELUM').length);
   });
 
   it('narrows the need count to the visible steps for a single track', () => {
-    const trade = processStats(steps, needs, 'TRADE');
-    const lp = processStats(steps, needs, 'LP');
+    const trade = processStats(steps, needs, 'TRADE', tracks);
+    const lp = processStats(steps, needs, 'LP', tracks);
     expect(trade.visible).toBe(19);
     expect(lp.visible).toBe(20);
     expect(trade.needCount + lp.needCount).toBeGreaterThan(118); // KEDUANYA counted in both
@@ -190,8 +194,8 @@ describe('§6.8 the stats line follows the jalur filter', () => {
   });
 
   it('keeps KEDUANYA steps visible under both single-track filters', () => {
-    const shared = steps.find((step) => step.label === '8');
-    expect(shared && stepVisible(shared, 'TRADE')).toBe(true);
-    expect(shared && stepVisible(shared, 'LP')).toBe(true);
+    const shared8 = steps.find((step) => step.label === '8');
+    expect(shared8 && stepVisible(shared8, 'TRADE', shared)).toBe(true);
+    expect(shared8 && stepVisible(shared8, 'LP', shared)).toBe(true);
   });
 });

@@ -27,6 +27,7 @@ import {
   fixturePhases,
   fixtureStepItems,
   fixtureSteps,
+  fixtureTracks,
 } from './process/seedFixture';
 
 const ready = () => ({
@@ -36,9 +37,11 @@ const ready = () => ({
   gates: okRows(fixtureGates()),
   needs: okRows(fixtureNeeds()),
   stepItems: okRows(fixtureStepItems()),
+  tracks: okRows(fixtureTracks()),
 });
 
 const ALL_STATUS = { ADA: true, SEBAGIAN: true, BELUM: true };
+const SHARED: ReadonlySet<string> = new Set(['KEDUANYA']);
 const ALL_KIND = { MASTER: true, TRANSAKSI: true, PARAMETER: true, REFERENSI: true };
 
 const SALES_GENERAL_TRADE = '634e675f-4681-4307-b831-6cad1e7d80fa';
@@ -105,6 +108,7 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
     gates: readFailure('listProcessGates', { code: '42P01' }),
     needs: readFailure('listProcessNeeds', { code: '42P01' }),
     stepItems: readFailure('listProcessStepItems', { code: '42P01' }),
+    tracks: readFailure('listProcessTracks', { code: '42P01' }),
   });
 
   it('folds all six missing relations at once into empty, not failed', () => {
@@ -137,6 +141,7 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
     expect(
       closingConditionsForItem(
         SALES_GENERAL_TRADE,
+        'SAMB',
         rowsOf(missing.stepItems),
         rowsOf(missing.needs),
         rowsOf(missing.steps),
@@ -202,13 +207,13 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
 
   it('shows all 118 rows unfiltered', () => {
     expect(
-      registerRows(needs, steps, { track: 'ALL', status: ALL_STATUS, kind: ALL_KIND }),
+      registerRows(needs, steps, { track: 'ALL', status: ALL_STATUS, kind: ALL_KIND }, SHARED),
     ).toHaveLength(118);
   });
 
   it('drops rows of steps outside the jalur filter', () => {
-    const trade = registerRows(needs, steps, { track: 'TRADE', status: ALL_STATUS, kind: ALL_KIND });
-    const lp = registerRows(needs, steps, { track: 'LP', status: ALL_STATUS, kind: ALL_KIND });
+    const trade = registerRows(needs, steps, { track: 'TRADE', status: ALL_STATUS, kind: ALL_KIND }, SHARED);
+    const lp = registerRows(needs, steps, { track: 'LP', status: ALL_STATUS, kind: ALL_KIND }, SHARED);
     expect(trade.length).toBeLessThan(118);
     expect(lp.length).toBeLessThan(118);
     expect(trade.every((row) => row.step.track !== 'LP')).toBe(true);
@@ -216,11 +221,16 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
   });
 
   it('applies status and kind toggles together', () => {
-    const rows = registerRows(needs, steps, {
-      track: 'ALL',
-      status: { ...ALL_STATUS, ADA: false, SEBAGIAN: false },
-      kind: { ...ALL_KIND, TRANSAKSI: false },
-    });
+    const rows = registerRows(
+      needs,
+      steps,
+      {
+        track: 'ALL',
+        status: { ...ALL_STATUS, ADA: false, SEBAGIAN: false },
+        kind: { ...ALL_KIND, TRANSAKSI: false },
+      },
+      SHARED,
+    );
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.every((row) => row.need.status === 'BELUM' && row.need.kind !== 'TRANSAKSI')).toBe(
       true,
@@ -228,15 +238,15 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
   });
 
   it('summarizes the proportion bar over the jalur population, not the toggle slice', () => {
-    const all = summarizeNeeds(needs, steps, 'ALL');
+    const all = summarizeNeeds(needs, steps, 'ALL', SHARED);
     expect(all.total).toBe(118);
     expect(all.ada + all.sebagian + all.belum).toBe(118);
-    expect(summarizeNeeds(needs, steps, 'TRADE').total).toBeLessThan(118);
+    expect(summarizeNeeds(needs, steps, 'TRADE', SHARED).total).toBeLessThan(118);
   });
 
   it('groups per owner sorted by BELUM count first — the request-composing order', () => {
     const groups = groupByOwner(
-      registerRows(needs, steps, { track: 'ALL', status: ALL_STATUS, kind: ALL_KIND }),
+      registerRows(needs, steps, { track: 'ALL', status: ALL_STATUS, kind: ALL_KIND }, SHARED),
     );
     expect(groups.length).toBeGreaterThan(1);
     for (let i = 1; i < groups.length; i += 1) {
@@ -257,16 +267,16 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
   const stepItems = fixtureStepItems();
 
   it('returns null for a row no step feeds — that is what hides the block', () => {
-    expect(closingConditionsForItem('not-mapped', stepItems, needs, steps)).toBeNull();
+    expect(closingConditionsForItem('not-mapped', 'SAMB', stepItems, needs, steps)).toBeNull();
     // A real Finish line row that is deliberately unmapped: the Margin
     // layering twin of Storing cost.
     expect(
-      closingConditionsForItem('0a948b6d-e7c3-4482-a4d2-207f8d2cadff', stepItems, needs, steps),
+      closingConditionsForItem('0a948b6d-e7c3-4482-a4d2-207f8d2cadff', 'SAMB', stepItems, needs, steps),
     ).toBeNull();
   });
 
   it('collects every need of every feeding step, grouped BELUM → SEBAGIAN → ADA', () => {
-    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, stepItems, needs, steps);
+    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, 'SAMB', stepItems, needs, steps);
     expect(closing).not.toBeNull();
     if (!closing) return;
     expect(closing.stepCount).toBe(4);
@@ -284,7 +294,7 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
   });
 
   it('carries the step label on every row so each need is traceable back', () => {
-    const closing = closingConditionsForItem(STORING_COST, stepItems, needs, steps);
+    const closing = closingConditionsForItem(STORING_COST, 'SAMB', stepItems, needs, steps);
     expect(closing?.stepCount).toBe(6);
     const labels = new Set(
       closing?.groups.flatMap((group) => group.rows.map((row) => row.stepLabel)),
@@ -299,14 +309,14 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
     const rowsFedBy9 = stepItems.filter((edge) => edge.stepId === '9');
     expect(rowsFedBy9).toHaveLength(5);
     for (const edge of rowsFedBy9) {
-      const closing = closingConditionsForItem(edge.itemId, stepItems, needs, steps);
+      const closing = closingConditionsForItem(edge.itemId, 'SAMB', stepItems, needs, steps);
       expect(closing?.stepCount).toBe(stepsForItem(edge.itemId, stepItems, steps).length);
     }
   });
 
   it('still returns a value when feeding steps carry no needs', () => {
     const bare: ProcessNeed[] = [];
-    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, stepItems, bare, steps);
+    const closing = closingConditionsForItem(SALES_GENERAL_TRADE, 'SAMB', stepItems, bare, steps);
     expect(closing).toMatchObject({ stepCount: 4, groups: [] });
     expect(closing?.counts).toEqual({ ADA: 0, SEBAGIAN: 0, BELUM: 0 });
   });
