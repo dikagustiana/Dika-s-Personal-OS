@@ -23,7 +23,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../data/repository';
 import { okRows, readFailure, type ReadResult } from '../../data/readResult';
-import type { FinishLineItem } from '../../data/types';
+import type { FinishLineItem, ProcessReference } from '../../data/types';
 import {
   fixtureGates,
   fixtureLanes,
@@ -49,6 +49,7 @@ function seededRepository(): Repository {
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
     listProcessTracks: async () => okRows(fixtureTracks()),
+    listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
@@ -64,6 +65,7 @@ function missingRelationRepository(): Repository {
     listProcessNeeds: async () => gone('listProcessNeeds'),
     listProcessStepItems: async () => gone('listProcessStepItems'),
     listProcessTracks: async () => gone('listProcessTracks'),
+    listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
 }
