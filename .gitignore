@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+# This project is pnpm. pnpm-lock.yaml is the tracked lockfile and CI installs
+# with --frozen-lockfile, so an npm lockfile is not a second opinion — it is
+# the residue of running the wrong package manager, and committing one lets
+# package.json and pnpm-lock.yaml drift apart until CI catches it.
+package-lock.json
 
 # Build output
 dist/
