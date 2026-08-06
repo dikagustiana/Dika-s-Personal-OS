@@ -833,7 +833,28 @@ export interface SharedView {
  */
 
 /** KEDUANYA = shared backbone steps; their cost pools are split, not doubled. */
-export type ProcessTrack = 'TRADE' | 'LP' | 'KEDUANYA';
+/**
+ * A track CODE. Since the vocabulary moved into os_process_tracks this is an
+ * open string, not a union: SAMB uses TRADE/LP/KEDUANYA, ARBI uses
+ * FORWARD/REVERSE/KEDUANYA, and a future entity brings its own words without
+ * a type change. What a code MEANS for an entity lives in ProcessTrackDef.
+ */
+export type ProcessTrack = string;
+
+/**
+ * One row of the per-entity track vocabulary (os_process_tracks). Branch
+ * tracks (isShared=false) are the filter buttons and the walk roots, ordered
+ * by ordinal; the one isShared track per entity is the shared backbone that
+ * joins every walk — KEDUANYA in both current entities, displayed as its
+ * label (BERSAMA).
+ */
+export interface ProcessTrackDef {
+  entityCode: string;
+  code: string;
+  label: string;
+  ordinal: number;
+  isShared: boolean;
+}
 
 /**
  * DATA = waiting on someone else; DECISION = waiting on the process owner;
@@ -846,8 +867,13 @@ export type ProcessNeedKind = 'MASTER' | 'TRANSAKSI' | 'PARAMETER' | 'REFERENSI'
 
 export type ProcessNeedStatus = 'ADA' | 'SEBAGIAN' | 'BELUM';
 
-/** A swimlane row. A table, never an enum — the frontend must not hardcode lanes. */
+/**
+ * A swimlane row. A table, never an enum — the frontend must not hardcode
+ * lanes. Identity is (entityCode, key): ARBI's WAREHOUSE and SAMB's
+ * WAREHOUSE share a key and nothing else.
+ */
 export interface ProcessLane {
+  entityCode: string;
   key: string;
   label: string;
   description?: string;
@@ -856,9 +882,10 @@ export interface ProcessLane {
   isExternal: boolean;
 }
 
-/** A ribbon segment. Phases tile slot 1..max(slot) exactly once. */
+/** A ribbon segment. Phases tile slot 1..max(slot) exactly once per entity. */
 export interface ProcessPhase {
   id: string;
+  entityCode: string;
   name: string;
   slotFrom: number;
   slotTo: number;
@@ -876,6 +903,7 @@ export interface ProcessCoaRef {
  */
 export interface ProcessStep {
   id: string;
+  entityCode: string;
   label: string;
   slot: number;
   laneKey: string;
@@ -893,6 +921,14 @@ export interface ProcessStep {
 
 export interface ProcessGate {
   id: string;
+  /**
+   * Which entity's blocker register this gate belongs to. Optional on
+   * purpose, mirroring the nullable column: a future cross-entity gate
+   * (B04 is the seam to SAMB's LP track) must not be forced to pick a side.
+   * Gate ids are already namespaced by prefix (G../B..), so lookups stay by
+   * bare id.
+   */
+  entityCode?: string;
   type: ProcessGateType;
   title: string;
   sub?: string;

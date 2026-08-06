@@ -38,6 +38,7 @@ import type {
   ProcessPhase,
   ProcessStep,
   ProcessStepItem,
+  ProcessTrackDef,
   IeltsError,
   IeltsResult,
   IeltsSession,
@@ -808,12 +809,17 @@ export class MockRepository implements Repository {
    * mock renders the same empty state a database without the migration does —
    * the two agree. Tests seed the private stores via a cast.
    */
+  private readonly processTracks: ProcessTrackDef[] = [];
   private readonly processLanes: ProcessLane[] = [];
   private readonly processPhases: ProcessPhase[] = [];
   private readonly processSteps: ProcessStep[] = [];
   private readonly processGates: ProcessGate[] = [];
   private readonly processNeeds = new Map<string, ProcessNeed>();
   private readonly processStepItems: ProcessStepItem[] = [];
+
+  async listProcessTracks(): Promise<ReadResult<ProcessTrackDef>> {
+    return okRows(clone([...this.processTracks].sort((a, b) => a.ordinal - b.ordinal)));
+  }
 
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
     return okRows(clone([...this.processLanes].sort((a, b) => a.ordinal - b.ordinal)));
