@@ -5,6 +5,17 @@
  * writable field anywhere in the feature is a need's requested_on, edited in
  * the detail panel.
  *
+ * THE CANVAS SHOWS SHAPE; THE PANEL SHOWS DETAIL. That split is the design
+ * decision everything else follows from. The first cut attached the whole
+ * matrix to the boxes — six blocks of text per box, ~250px tall, and the
+ * flow the view exists to show disappeared behind the reading material. Now
+ * no density ever puts prose on the canvas: `risk`, `control` and `note`
+ * live only in the panel, boxes carry at most two one-line items per matrix
+ * group, and everything past the cap is a "+N" that the box-click answers.
+ * The old five controls (tempel + four column toggles) collapse into one
+ * three-position density switch, with column choice as a popover that only
+ * exists at the densest setting.
+ *
  * THE SILENT FAILURE THIS FILE GUARDS AGAINST (§6.6): if measurement fails,
  * nothing throws — the arrows just vanish and the swimlane degrades into a
  * grid of boxes that LOOKS fine. Hence: boxes are measured with
@@ -33,6 +44,7 @@ import type {
   ProcessGate,
   ProcessLane,
   ProcessNeed,
+  ProcessNeedStatus,
   ProcessPhase,
   ProcessStep,
   ProcessStepItem,
@@ -52,6 +64,7 @@ import {
   buildProcessModel,
   finishLineRowsForStep,
   stepLabelsForItem,
+  type EmptyCause,
 } from '../../logic/processModel';
 import {
   BOX_W,
@@ -79,6 +92,32 @@ const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 
 const SCOPE_SUBTITLE =
   'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.';
 
+/**
+ * Two causes, two sentences — never one. See EmptyCause in processModel.ts:
+ * a table that is not there and a table that is there and empty are different
+ * facts, and for one August afternoon they were different people's problems.
+ */
+const CANVAS_EMPTY: Record<EmptyCause, string> = {
+  absent: 'Kanvas belum bisa digambar — tabel os_process_* belum ada di database.',
+  unseeded: 'Tabel os_process_steps ada dan terbaca, tapi nol baris — seed-nya belum masuk.',
+};
+
+/**
+ * The density ladder. Each step ADDS a bounded amount; none adds prose.
+ *   ringkas — identity, counts, markers. The default: the diagram as a shape.
+ *   sedang  — plus the two highest-signal data needs (BELUM first), because
+ *             the register is the reason this feature exists.
+ *   lengkap — plus every selected matrix group, capped at two one-line items
+ *             each. The column popover exists only here.
+ */
+type Density = 'ringkas' | 'sedang' | 'lengkap';
+
+const DENSITY_OPTIONS: Array<{ id: Density; label: string }> = [
+  { id: 'ringkas', label: 'Ringkas' },
+  { id: 'sedang', label: 'Sedang' },
+  { id: 'lengkap', label: 'Lengkap' },
+];
+
 type AttachColumn = 'docs' | 'coa' | 'drivers' | 'needs';
 
 const ATTACH_COLUMNS: Array<{ id: AttachColumn; label: string }> = [
@@ -88,8 +127,15 @@ const ATTACH_COLUMNS: Array<{ id: AttachColumn; label: string }> = [
   { id: 'needs', label: 'Kebutuhan data' },
 ];
 
+/** At most this many one-line items per matrix group on the canvas — ever. */
+const GROUP_ITEM_CAP = 2;
+
+/** BELUM outranks SEBAGIAN outranks ADA when a box can only show two needs. */
+const NEED_SIGNAL: Record<ProcessNeedStatus, number> = { BELUM: 0, SEBAGIAN: 1, ADA: 2 };
+
 const ZOOM_MIN = 0.22;
 const ZOOM_MAX = 1.5;
+const MINIMAP_H = 88;
 
 export function FinishLineSwimlane({
   /**
@@ -122,13 +168,14 @@ export function FinishLineSwimlane({
   const [loaded, setLoaded] = useState(false);
 
   // View state — none of it persisted (§6.8).
-  const [attach, setAttach] = useState(false);
+  const [density, setDensity] = useState<Density>('ringkas');
   const [showCol, setShowCol] = useState<Record<AttachColumn, boolean>>({
     docs: true,
     coa: true,
     drivers: true,
     needs: true,
   });
+  const [columnsOpen, setColumnsOpen] = useState(false);
   const [onlyGap, setOnlyGap] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
@@ -234,6 +281,8 @@ export function FinishLineSwimlane({
     wires: Wire[];
     width: number;
     height: number;
+    /** The measured box rects, kept for the minimap — same pass, same truth. */
+    boxes: Array<{ label: string; rect: BoxRect }>;
   } | null>(null);
   const [drawFailed, setDrawFailed] = useState(false);
 
@@ -268,16 +317,21 @@ export function FinishLineSwimlane({
     }
     retryRef.current = 0;
     setDrawFailed(false);
-    setGeometry({ wires: computeWires(wireEdges, rects), width, height });
+    setGeometry({
+      wires: computeWires(wireEdges, rects),
+      width,
+      height,
+      boxes: [...rects.entries()].map(([label, rect]) => ({ label, rect })),
+    });
   }, [wireEdges]);
 
   // After layout — never during render — and again on every input that can
-  // change box sizes: filter, tempel mode, column toggles.
+  // change box sizes: filter, density, column choice.
   useLayoutEffect(() => {
     retryRef.current = 0;
     const frame = requestAnimationFrame(measure);
     return () => cancelAnimationFrame(frame);
-  }, [measure, attach, showCol, model.kind]);
+  }, [measure, density, showCol, model.kind]);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -299,6 +353,56 @@ export function FinishLineSwimlane({
     };
   }, [measure]);
 
+  // --- the minimap's view of the scroll position ----------------------------
+  // Tracked in UNZOOMED grid coordinates so the viewport rectangle and the
+  // box rects share one space; rAF-throttled because scroll fires per frame.
+  const [view, setView] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+
+  useEffect(() => {
+    const canvas = scrollRef.current;
+    if (!canvas || !geometry) return undefined;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setView({
+        left: canvas.scrollLeft / zoom,
+        top: canvas.scrollTop / zoom,
+        width: canvas.clientWidth / zoom,
+        height: canvas.clientHeight / zoom,
+      });
+    };
+    const request = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    canvas.addEventListener('scroll', request, { passive: true });
+    const observer = new ResizeObserver(request);
+    observer.observe(canvas);
+    return () => {
+      canvas.removeEventListener('scroll', request);
+      observer.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [geometry, zoom]);
+
+  const jumpTo = useCallback(
+    (gridX: number, gridY: number) => {
+      const canvas = scrollRef.current;
+      if (!canvas) return;
+      canvas.scrollTo({
+        left: gridX * zoom - canvas.clientWidth / 2,
+        top: gridY * zoom - canvas.clientHeight / 2,
+        behavior: 'auto',
+      });
+    },
+    [zoom],
+  );
+
   // --- deep link from the register / Finish line panel ----------------------
   useEffect(() => {
     if (!prosesFocus || model.kind !== 'ready') return;
@@ -314,6 +418,26 @@ export function FinishLineSwimlane({
     setProsesFocus(null);
   }, [prosesFocus, model, setProsesFocus]);
 
+  // --- the column popover (lengkap only) ------------------------------------
+  const columnsRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!columnsOpen) return undefined;
+    const onDown = (event: MouseEvent) => {
+      if (!columnsRef.current?.contains(event.target as Node)) setColumnsOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setColumnsOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [columnsOpen]);
+
+  const shownColumnCount = ATTACH_COLUMNS.filter((column) => showCol[column.id]).length;
+
   // --- zoom (§6.7): scale the grid, compensate margins, never re-measure ----
   const applyZoomStyle = geometry
     ? {
@@ -323,19 +447,6 @@ export function FinishLineSwimlane({
         marginBottom: `${geometry.height * (zoom - 1)}px`,
       }
     : undefined;
-
-  const fitZoom = () => {
-    const canvas = scrollRef.current;
-    if (!canvas || !geometry) return;
-    setZoom(Math.min(1, Math.max(ZOOM_MIN, (canvas.clientWidth - 44) / geometry.width)));
-  };
-
-  const toggleColumn = (column: AttachColumn) => {
-    setShowCol((current) => ({ ...current, [column]: !current[column] }));
-    // Turning a column on while tempel is off must turn tempel on — the
-    // button would otherwise appear to do nothing (§6.8).
-    if (!attach) setAttach(true);
-  };
 
   const selectedStep = selectedLabel
     ? shown.find((step) => step.label === selectedLabel) ?? null
@@ -387,10 +498,7 @@ export function FinishLineSwimlane({
         <Checking label="Proses SAMB" />
       ) : model.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow
-            label="Swimlane"
-            clause="Kanvas belum bisa digambar — migration proses belum diterapkan."
-          />
+          <EmptyRow label="Swimlane" clause={CANVAS_EMPTY[model.cause]} />
         </div>
       ) : model.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">
@@ -398,43 +506,102 @@ export function FinishLineSwimlane({
         </div>
       ) : (
         <>
+          {/* The toolbar: four segments with real separation, not twelve
+              buttons in a row. Jalur | kepadatan (+kolom) | sorot | zoom, and
+              the stats line pushed to the right edge. Every control is a
+              toggle — zero filled-primary buttons on this view (§9.1). */}
           <div
-            className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2"
+            className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2"
             role="group"
             aria-label="Kontrol swimlane"
           >
             <TrackFilterGroup />
-            <button
-              type="button"
-              aria-pressed={attach}
-              onClick={() => setAttach((current) => !current)}
-              className={filterButtonClass(attach)}
+            <div
+              className="flex items-center gap-1 border-l border-border-subtle pl-5"
+              role="group"
+              aria-label="Kepadatan kotak"
             >
-              Tempel matriks
-            </button>
-            <div className="flex items-center gap-1">
-              <span className="surface-label mr-1">Yang ditempel</span>
-              {ATTACH_COLUMNS.map((column) => (
+              <span className="surface-label mr-1">Kepadatan</span>
+              {DENSITY_OPTIONS.map((option) => (
                 <button
-                  key={column.id}
+                  key={option.id}
                   type="button"
-                  aria-pressed={attach && showCol[column.id]}
-                  onClick={() => toggleColumn(column.id)}
-                  className={filterButtonClass(attach && showCol[column.id])}
+                  aria-pressed={density === option.id}
+                  onClick={() => {
+                    setDensity(option.id);
+                    if (option.id !== 'lengkap') setColumnsOpen(false);
+                  }}
+                  className={filterButtonClass(density === option.id)}
                 >
-                  {column.label}
+                  {option.label}
                 </button>
               ))}
+              {density === 'lengkap' && (
+                <div ref={columnsRef} className="relative">
+                  <button
+                    type="button"
+                    aria-expanded={columnsOpen}
+                    aria-haspopup="true"
+                    onClick={() => setColumnsOpen((current) => !current)}
+                    className={filterButtonClass(columnsOpen)}
+                  >
+                    Kolom · {shownColumnCount}
+                  </button>
+                  {columnsOpen && (
+                    <div
+                      role="group"
+                      aria-label="Kolom yang ditampilkan"
+                      className="absolute left-0 top-full z-10 mt-1 w-48 rounded-md border border-border bg-card p-1.5 shadow-card"
+                    >
+                      {ATTACH_COLUMNS.map((column) => (
+                        <button
+                          key={column.id}
+                          type="button"
+                          aria-pressed={showCol[column.id]}
+                          onClick={() =>
+                            setShowCol((current) => ({
+                              ...current,
+                              [column.id]: !current[column.id],
+                            }))
+                          }
+                          className={cn(
+                            'flex min-h-8 w-full items-center justify-between rounded-sm px-2 text-left text-[11px] font-semibold transition-colors duration-150',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                            showCol[column.id]
+                              ? 'text-foreground'
+                              : 'text-foreground-muted hover:text-foreground-secondary',
+                          )}
+                        >
+                          {column.label}
+                          <span
+                            aria-hidden="true"
+                            className={cn(
+                              'ml-2 inline-block size-1.5 rounded-full',
+                              showCol[column.id] ? 'bg-primary' : 'bg-border',
+                            )}
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-            <button
-              type="button"
-              aria-pressed={onlyGap}
-              onClick={() => setOnlyGap((current) => !current)}
-              className={filterButtonClass(onlyGap)}
+            <div className="flex items-center gap-1 border-l border-border-subtle pl-5">
+              <button
+                type="button"
+                aria-pressed={onlyGap}
+                onClick={() => setOnlyGap((current) => !current)}
+                className={filterButtonClass(onlyGap)}
+              >
+                Sorot yang ada gap
+              </button>
+            </div>
+            <div
+              className="flex items-center gap-1 border-l border-border-subtle pl-5"
+              role="group"
+              aria-label="Zoom"
             >
-              Sorot yang ada gap
-            </button>
-            <div className="flex items-center gap-1" role="group" aria-label="Zoom">
               <button
                 type="button"
                 onClick={() => setZoom((current) => Math.max(ZOOM_MIN, current - 0.1))}
@@ -442,9 +609,6 @@ export function FinishLineSwimlane({
                 aria-label="Perkecil"
               >
                 −
-              </button>
-              <button type="button" onClick={fitZoom} className={filterButtonClass(false)}>
-                pas
               </button>
               <button
                 type="button"
@@ -455,7 +619,7 @@ export function FinishLineSwimlane({
                 +
               </button>
             </div>
-            <span className="text-xs tabular-nums text-foreground-muted">
+            <span className="ml-auto text-xs tabular-nums text-foreground-muted">
               {stats.visible}/{stats.total} step ·{' '}
               <span className="font-semibold text-foreground">{stats.handoffCount}</span> handoff ·{' '}
               {stats.needCount} kebutuhan data ·{' '}
@@ -485,132 +649,169 @@ export function FinishLineSwimlane({
           )}
 
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
-            <div
-              ref={scrollRef}
-              className="min-w-0 flex-1 overflow-auto rounded-lg border border-border bg-card pb-10 shadow-card"
-            >
+            <div className="min-w-0 flex-1">
+              {/* The minimap replaces the old `pas` zoom: the whole shape at
+                  a glance without shrinking the text past legibility. Click
+                  scrolls the canvas; the outline is the current viewport. */}
+              {geometry && !drawFailed && (
+                <Minimap
+                  boxes={geometry.boxes}
+                  width={geometry.width}
+                  height={geometry.height}
+                  view={view}
+                  onJump={jumpTo}
+                />
+              )}
               <div
-                ref={gridRef}
-                className="relative grid items-start px-4 pt-3"
-                style={{ gridTemplateColumns, ...applyZoomStyle }}
+                ref={scrollRef}
+                className="min-w-0 overflow-auto rounded-lg border border-border bg-card pb-10 shadow-card"
               >
-                {/* Wires overlay: absolute inside the grid so it scales with
-                    zoom; z-3 sits above lane bands and boxes so an arrow is
-                    visible up to the box edge. */}
-                {geometry && (
-                  <svg
-                    className="pointer-events-none absolute left-0 top-0 z-[3]"
-                    style={{ overflow: 'visible' }}
-                    width={geometry.width}
-                    height={geometry.height}
-                    aria-hidden="true"
-                  >
-                    <defs>
-                      <marker
-                        id="proses-arrow-lane"
-                        viewBox="0 0 9 9"
-                        refX="8"
-                        refY="4.5"
-                        markerWidth="8"
-                        markerHeight="8"
-                        orient="auto"
-                      >
-                        <path d="M0,1 L8,4.5 L0,8 z" className="fill-foreground-secondary" />
-                      </marker>
-                      <marker
-                        id="proses-arrow-handoff"
-                        viewBox="0 0 9 9"
-                        refX="8"
-                        refY="4.5"
-                        markerWidth="9"
-                        markerHeight="9"
-                        orient="auto"
-                      >
-                        <path d="M0,1 L8,4.5 L0,8 z" className="fill-foreground" />
-                      </marker>
-                    </defs>
-                    {geometry.wires.map((wire) => (
-                      <g key={wire.key}>
-                        <path
-                          d={wire.d}
-                          fill="none"
-                          strokeWidth={wire.cross ? 2 : 1.5}
-                          className={cn(
-                            wire.cross
-                              ? 'stroke-foreground'
-                              : 'stroke-foreground-secondary opacity-70',
+                <div
+                  ref={gridRef}
+                  className="relative grid items-start px-4 pt-3"
+                  style={{ gridTemplateColumns, ...applyZoomStyle }}
+                >
+                  {/* Wires overlay: absolute inside the grid so it scales with
+                      zoom; z-3 sits above lane bands and boxes so an arrow is
+                      visible up to the box edge. */}
+                  {geometry && (
+                    <svg
+                      className="pointer-events-none absolute left-0 top-0 z-[3]"
+                      style={{ overflow: 'visible' }}
+                      width={geometry.width}
+                      height={geometry.height}
+                      aria-hidden="true"
+                    >
+                      <defs>
+                        <marker
+                          id="proses-arrow-lane"
+                          viewBox="0 0 9 9"
+                          refX="8"
+                          refY="4.5"
+                          markerWidth="8"
+                          markerHeight="8"
+                          orient="auto"
+                        >
+                          <path d="M0,1 L8,4.5 L0,8 z" className="fill-foreground-secondary" />
+                        </marker>
+                        <marker
+                          id="proses-arrow-handoff"
+                          viewBox="0 0 9 9"
+                          refX="8"
+                          refY="4.5"
+                          markerWidth="9"
+                          markerHeight="9"
+                          orient="auto"
+                        >
+                          <path d="M0,1 L8,4.5 L0,8 z" className="fill-foreground" />
+                        </marker>
+                      </defs>
+                      {geometry.wires.map((wire) => (
+                        <g key={wire.key}>
+                          <path
+                            d={wire.d}
+                            fill="none"
+                            strokeWidth={wire.cross ? 2.25 : 1.5}
+                            className={cn(
+                              wire.cross ? 'stroke-foreground' : 'stroke-foreground-secondary',
+                            )}
+                            markerEnd={`url(#${wire.cross ? 'proses-arrow-handoff' : 'proses-arrow-lane'})`}
+                          />
+                          {/* The handoff is a graphic event now, not a text
+                              capsule: an 11px diamond at the lane crossing,
+                              anti-stacked by computeWires exactly as the
+                              capsule was. The word lives in the legend and in
+                              this hover title. */}
+                          {wire.capsule && (
+                            <g data-handoff-marker className="pointer-events-auto">
+                              <title>{`HANDOFF · ${wire.key.replace('>', ' → ')}`}</title>
+                              <path
+                                d={`M${wire.capsule.x},${wire.capsule.y - 5.5} L${wire.capsule.x + 5.5},${wire.capsule.y} L${wire.capsule.x},${wire.capsule.y + 5.5} L${wire.capsule.x - 5.5},${wire.capsule.y} Z`}
+                                className="fill-foreground stroke-background"
+                                strokeWidth={1.5}
+                              />
+                            </g>
                           )}
-                          markerEnd={`url(#${wire.cross ? 'proses-arrow-handoff' : 'proses-arrow-lane'})`}
-                        />
-                        {wire.capsule && (
-                          <g>
-                            <rect
-                              x={wire.capsule.x - 27}
-                              y={wire.capsule.y - 8}
-                              width={54}
-                              height={16}
-                              rx={8}
-                              className="fill-foreground"
-                            />
-                            <text
-                              x={wire.capsule.x}
-                              y={wire.capsule.y + 3}
-                              textAnchor="middle"
-                              className="fill-background text-[8px] font-bold"
-                              style={{ letterSpacing: '0.13em' }}
-                            >
-                              HANDOFF
-                            </text>
-                          </g>
-                        )}
-                      </g>
-                    ))}
-                  </svg>
-                )}
+                        </g>
+                      ))}
+                    </svg>
+                  )}
 
-                {/* Phase ribbon (row 1); the top-left corner stays empty. */}
-                <div style={{ gridColumn: 1, gridRow: 1 }} />
-                {phases.map((phase) => (
-                  <div
-                    key={phase.id}
-                    className="z-[2] pb-2"
-                    style={{
-                      gridRow: 1,
-                      gridColumn: `${2 + (phase.slotFrom - 1) * 2} / ${2 + (phase.slotTo - 1) * 2 + 1}`,
-                    }}
-                  >
-                    <div className="h-1 rounded-sm bg-foreground opacity-15" />
-                    <p className="pt-1.5 text-[9px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-secondary">
-                      {phase.name}
-                    </p>
-                  </div>
-                ))}
+                  {/* Phase ribbon (row 1); the top-left corner stays empty. */}
+                  <div style={{ gridColumn: 1, gridRow: 1 }} />
+                  {phases.map((phase) => (
+                    <div
+                      key={phase.id}
+                      className="z-[2] pb-2"
+                      style={{
+                        gridRow: 1,
+                        gridColumn: `${2 + (phase.slotFrom - 1) * 2} / ${2 + (phase.slotTo - 1) * 2 + 1}`,
+                      }}
+                    >
+                      <div className="h-1 rounded-sm bg-foreground opacity-15" />
+                      <p className="pt-1.5 text-[9px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-secondary">
+                        {phase.name}
+                      </p>
+                    </div>
+                  ))}
 
-                {lanes.map((lane, laneIndex) => {
-                  const laneRow = laneIndex + 2;
-                  const hasVisibleStep = shown.some((step) => step.laneKey === lane.key);
-                  return (
-                    <LaneRow
-                      key={lane.key}
-                      lane={lane}
-                      laneRow={laneRow}
-                      odd={laneIndex % 2 === 1}
-                      dimmedLabel={!hasVisibleStep}
-                      cells={cells}
-                      gatesById={gatesById}
-                      needsByStep={needsByStep}
-                      attach={attach}
-                      showCol={showCol}
-                      onlyGap={onlyGap}
-                      highlighted={highlighted}
-                      selectedLabel={selectedLabel}
-                      onSelect={(label) =>
-                        setSelectedLabel((current) => (current === label ? null : label))
-                      }
-                    />
-                  );
-                })}
+                  {lanes.map((lane, laneIndex) => {
+                    const laneRow = laneIndex + 2;
+                    const hasVisibleStep = shown.some((step) => step.laneKey === lane.key);
+                    return (
+                      <LaneRow
+                        key={lane.key}
+                        lane={lane}
+                        laneRow={laneRow}
+                        odd={laneIndex % 2 === 1}
+                        dimmedLabel={!hasVisibleStep}
+                        cells={cells}
+                        gatesById={gatesById}
+                        needsByStep={needsByStep}
+                        density={density}
+                        showCol={showCol}
+                        onlyGap={onlyGap}
+                        highlighted={highlighted}
+                        selectedLabel={selectedLabel}
+                        onSelect={(label) =>
+                          setSelectedLabel((current) => (current === label ? null : label))
+                        }
+                      />
+                    );
+                  })}
+                </div>
               </div>
+              {/* The legend carries the words the canvas no longer does. */}
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] leading-4 text-foreground-muted">
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="18" height="8" aria-hidden="true">
+                    <line
+                      x1="0"
+                      y1="4"
+                      x2="18"
+                      y2="4"
+                      strokeWidth="1.5"
+                      className="stroke-foreground-secondary"
+                    />
+                  </svg>
+                  alur dalam lane
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <svg width="18" height="12" aria-hidden="true">
+                    <line
+                      x1="0"
+                      y1="6"
+                      x2="18"
+                      y2="6"
+                      strokeWidth="2.25"
+                      className="stroke-foreground"
+                    />
+                    <path d="M9,1.5 L13,6 L9,10.5 L5,6 Z" className="fill-foreground stroke-background" strokeWidth="1" />
+                  </svg>
+                  handoff antar lane
+                </span>
+                <span>klik kotak untuk risiko, kontrol, dan detail lainnya</span>
+              </p>
             </div>
 
             {selectedStep && (
@@ -640,6 +841,96 @@ export function FinishLineSwimlane({
   );
 }
 
+// --- minimap ----------------------------------------------------------------
+
+/**
+ * The whole diagram as a strip: every box as a small rect, the viewport as an
+ * outline, click to move. It replaces fit-zoom, which shrank the canvas until
+ * the text stopped being text — the minimap shows shape without pretending
+ * the labels survive at 10% scale. Not focusable on purpose: it duplicates
+ * the scrollbars, which remain the accessible path.
+ */
+function Minimap({
+  boxes,
+  width,
+  height,
+  view,
+  onJump,
+}: {
+  boxes: Array<{ label: string; rect: BoxRect }>;
+  width: number;
+  height: number;
+  view: { left: number; top: number; width: number; height: number } | null;
+  onJump: (gridX: number, gridY: number) => void;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [wrapWidth, setWrapWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return undefined;
+    setWrapWidth(wrap.clientWidth);
+    const observer = new ResizeObserver(() => setWrapWidth(wrap.clientWidth));
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, []);
+
+  if (width <= 0 || height <= 0) return null;
+  const scale = Math.min(
+    MINIMAP_H / height,
+    // Below ~24px of wrapper there is no strip worth drawing to; fall back to
+    // the height scale rather than let the width term go negative.
+    wrapWidth > 24 ? (wrapWidth - 12) / width : MINIMAP_H / height,
+  );
+  const mapW = Math.max(1, Math.round(width * scale));
+  const mapH = Math.max(1, Math.round(height * scale));
+
+  return (
+    <div
+      ref={wrapRef}
+      className="mb-2 overflow-hidden rounded-md border border-border-subtle bg-surface-2 px-1.5 py-1.5"
+    >
+      <svg
+        role="img"
+        aria-label="Peta mini swimlane — klik untuk menggeser kanvas"
+        width={mapW}
+        height={mapH}
+        className="block cursor-pointer"
+        onClick={(event) => {
+          const svgRect = event.currentTarget.getBoundingClientRect();
+          onJump(
+            (event.clientX - svgRect.left) / scale,
+            (event.clientY - svgRect.top) / scale,
+          );
+        }}
+      >
+        {boxes.map(({ label, rect }) => (
+          <rect
+            key={label}
+            x={rect.x * scale}
+            y={rect.y * scale}
+            width={Math.max(2, rect.w * scale)}
+            height={Math.max(2, rect.h * scale)}
+            rx={1.5}
+            className="fill-foreground-secondary/50"
+          />
+        ))}
+        {view && (
+          <rect
+            x={Math.max(0, view.left * scale)}
+            y={Math.max(0, view.top * scale)}
+            width={Math.min(mapW, view.width * scale)}
+            height={Math.min(mapH, view.height * scale)}
+            rx={2}
+            className="fill-primary/10 stroke-primary"
+            strokeWidth={1.5}
+          />
+        )}
+      </svg>
+    </div>
+  );
+}
+
 // --- lane -------------------------------------------------------------------
 
 function LaneRow({
@@ -650,7 +941,7 @@ function LaneRow({
   cells,
   gatesById,
   needsByStep,
-  attach,
+  density,
   showCol,
   onlyGap,
   highlighted,
@@ -664,7 +955,7 @@ function LaneRow({
   cells: Map<string, ProcessStep[]>;
   gatesById: Map<string, ProcessGate>;
   needsByStep: Map<string, ProcessNeed[]>;
-  attach: boolean;
+  density: Density;
   showCol: Record<AttachColumn, boolean>;
   onlyGap: boolean;
   /** null = no pre-filter. A set = these labels stay lit, the rest dim. */
@@ -729,7 +1020,7 @@ function LaneRow({
               step={step}
               gate={step.gateId ? gatesById.get(step.gateId) : undefined}
               needs={needsByStep.get(step.id) ?? []}
-              attach={attach}
+              density={density}
               showCol={showCol}
               // Two independent reasons to recede, and either is enough:
               // the gap spotlight, and the row pre-filter.
@@ -749,11 +1040,42 @@ function LaneRow({
 const COUNT_CHIP =
   'inline-flex shrink-0 items-center rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-foreground-muted';
 
+/**
+ * The gate, demoted to an annotation: a coloured dot and the id, no fill, no
+ * words. The full red pill — with "nunggu data" and the unblock text — lives
+ * in the panel, where it does not compete with the structure. Hue still says
+ * type (DATA waits on someone else, DECISION on the owner), and the dot is a
+ * second channel beside the G-id so the meaning never rides on colour alone.
+ */
+function GateMarker({ gate }: { gate: ProcessGate }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[9px] font-bold tracking-[0.08em] text-foreground-secondary">
+      <span
+        aria-hidden="true"
+        className={cn(
+          'size-1.5 rounded-full',
+          gate.type === 'DATA' ? 'bg-destructive' : 'bg-primary',
+        )}
+      />
+      {gate.id}
+    </span>
+  );
+}
+
+/**
+ * One box. The hierarchy, heaviest first: label + name (the identity), then
+ * track, then counts or capped group lines, then the gate and the presence
+ * markers. NO PROSE AT ANY DENSITY — risk, control and note appear only as
+ * the words "risiko/kontrol/catatan" in the marker row; their text is the
+ * panel's. Every group line is one truncated line; everything past
+ * GROUP_ITEM_CAP is a "+N di panel", and the whole box is the affordance
+ * that opens it.
+ */
 function StepBox({
   step,
   gate,
   needs,
-  attach,
+  density,
   showCol,
   dim,
   selected,
@@ -762,43 +1084,60 @@ function StepBox({
   step: ProcessStep;
   gate?: ProcessGate;
   needs: ProcessNeed[];
-  attach: boolean;
+  density: Density;
   showCol: Record<AttachColumn, boolean>;
   dim: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
   const belum = needs.filter((need) => need.status === 'BELUM').length;
+  const orderedNeeds = [...needs].sort(
+    (a, b) => NEED_SIGNAL[a.status] - NEED_SIGNAL[b.status],
+  );
+  const presence = [
+    step.risk && 'risiko',
+    step.control && 'kontrol',
+    step.note && 'catatan',
+  ].filter(Boolean) as string[];
+
   return (
     <button
       type="button"
       data-step-label={step.label}
+      data-dim={dim || undefined}
       onClick={onSelect}
       aria-pressed={selected}
       className={cn(
-        'w-full rounded-md border bg-card p-2.5 text-left shadow-card transition-colors duration-150',
+        'w-full rounded-md border bg-card p-2.5 text-left shadow-card',
+        // The one transition on this view: the sorotan dim, plus the border
+        // it shares a declaration with. Nothing else moves.
+        'transition-[opacity,border-color] duration-150',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         selected ? 'border-primary ring-2 ring-primary/25' : 'border-border hover:border-primary',
         dim && 'opacity-30',
       )}
     >
-      <span className="flex items-center gap-1.5">
-        {/* Step identity pill — neutral inverse, deliberately NOT a lane
-            colour: lane identity must never read as a status (§9.1). */}
+      {/* Identity first: pill + name on one line, the heaviest thing here.
+          The pill is neutral inverse, deliberately NOT a lane colour: lane
+          identity must never read as a status (§9.1). */}
+      <span className="flex items-start gap-1.5">
         <span className="inline-flex min-w-5 shrink-0 items-center justify-center rounded-full bg-foreground px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-background">
           {step.label}
         </span>
+        <span className="line-clamp-2 text-xs font-bold leading-snug text-foreground">
+          {step.name}
+        </span>
+      </span>
+      <span className="mt-1.5 flex items-center gap-1.5">
         <TrackChip track={step.track} />
         {step.co && (
-          <span className="ml-auto truncate text-[9px] font-semibold uppercase tracking-[0.1em] text-foreground-muted">
+          <span className="min-w-0 truncate text-[9px] font-semibold uppercase tracking-[0.1em] text-foreground-muted">
             {step.co}
           </span>
         )}
       </span>
-      <span className="mt-1.5 block text-xs font-bold leading-snug text-foreground">
-        {step.name}
-      </span>
-      {!attach ? (
+
+      {density === 'ringkas' ? (
         <span className="mt-2 flex flex-wrap items-center gap-1">
           {step.docs.length > 0 && <span className={COUNT_CHIP}>{step.docs.length} dok</span>}
           {step.coa.length > 0 && <span className={COUNT_CHIP}>{step.coa.length} akun</span>}
@@ -811,96 +1150,99 @@ function StepBox({
               {belum} belum
             </span>
           )}
-          {gate && gate.type !== 'OOS' && <GateChip gate={gate} />}
         </span>
       ) : (
         <span className="mt-2 block border-t border-border-subtle pt-2">
-          {showCol.docs && step.docs.length > 0 && (
-            <AttachGroup title="Dokumen & sistem">
-              {step.docs.map((doc) => (
-                <li key={doc}>{doc}</li>
+          {density === 'lengkap' && showCol.docs && step.docs.length > 0 && (
+            <BoxGroup title="Dokumen & sistem" total={step.docs.length}>
+              {step.docs.slice(0, GROUP_ITEM_CAP).map((doc) => (
+                <li key={doc} className="truncate" title={doc}>
+                  {doc}
+                </li>
               ))}
-            </AttachGroup>
+            </BoxGroup>
           )}
-          {showCol.coa && step.coa.length > 0 && (
-            <AttachGroup title="Akun COA / FSLI">
-              {step.coa.map((entry) => (
-                <li key={`${entry.code}-${entry.label}`}>
+          {density === 'lengkap' && showCol.coa && step.coa.length > 0 && (
+            <BoxGroup title="Akun COA / FSLI" total={step.coa.length}>
+              {step.coa.slice(0, GROUP_ITEM_CAP).map((entry) => (
+                <li
+                  key={`${entry.code}-${entry.label}`}
+                  className="truncate"
+                  title={`${entry.code} ${entry.label}`}
+                >
                   <span className="font-semibold tabular-nums text-foreground-secondary">
                     {entry.code}
                   </span>{' '}
                   {entry.label}
                 </li>
               ))}
-            </AttachGroup>
+            </BoxGroup>
           )}
-          {showCol.drivers && step.drivers.length > 0 && (
-            <AttachGroup title="Driver alokasi">
-              {step.drivers.map((driver) => (
-                <li key={driver}>{driver}</li>
-              ))}
-            </AttachGroup>
-          )}
-          {showCol.needs && needs.length > 0 && (
-            <AttachGroup title="Data yang dibutuhkan">
-              {needs.map((need) => (
-                <li key={need.id}>
-                  <span className="mr-1 inline-flex flex-wrap gap-1 align-middle">
-                    <NeedStatusChip status={need.status} />
-                    <NeedKindChip kind={need.kind} />
-                  </span>
-                  {need.item}
-                  {(need.owner || need.src) && (
-                    <span className="block text-foreground-muted">
-                      {[need.owner, need.src].filter(Boolean).join(' · ')}
-                    </span>
-                  )}
+          {density === 'lengkap' && showCol.drivers && step.drivers.length > 0 && (
+            <BoxGroup title="Driver alokasi" total={step.drivers.length}>
+              {step.drivers.slice(0, GROUP_ITEM_CAP).map((driver) => (
+                <li key={driver} className="truncate" title={driver}>
+                  {driver}
                 </li>
               ))}
-            </AttachGroup>
+            </BoxGroup>
           )}
-          {step.risk && (
-            <AttachProse title="Risiko" body={step.risk} />
-          )}
-          {step.control && (
-            <AttachProse title="Kontrol" body={step.control} />
-          )}
-          {gate && gate.type !== 'OOS' && (
-            <span className="mt-2 block">
-              <GateChip gate={gate} detail />
-            </span>
-          )}
-          {step.note && (
-            <span className="mt-2 block border-l-2 border-border pl-2 text-[10px] leading-4 text-foreground-secondary">
-              {step.note}
-            </span>
+          {(density === 'sedang' || showCol.needs) && needs.length > 0 && (
+            <BoxGroup title="Kebutuhan data" total={needs.length}>
+              {orderedNeeds.slice(0, GROUP_ITEM_CAP).map((need) => (
+                <li key={need.id} className="flex items-center gap-1" title={need.item}>
+                  <NeedStatusChip status={need.status} />
+                  <span className="min-w-0 truncate">{need.item}</span>
+                </li>
+              ))}
+            </BoxGroup>
           )}
         </span>
       )}
+
+      {(gate && gate.type !== 'OOS') || presence.length > 0 ? (
+        <span className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {gate && gate.type !== 'OOS' && <GateMarker gate={gate} />}
+          {presence.length > 0 && (
+            <span className="text-[9px] leading-4 text-foreground-muted">
+              {presence.join(' · ')}
+            </span>
+          )}
+        </span>
+      ) : null}
     </button>
   );
 }
 
-function AttachGroup({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * One matrix group inside a box: a counted title, at most GROUP_ITEM_CAP
+ * one-line items, and a "+N di panel" for the rest. The cap is what keeps a
+ * row of boxes reading as a row — heights converge because content cannot
+ * diverge.
+ */
+function BoxGroup({
+  title,
+  total,
+  children,
+}: {
+  title: string;
+  total: number;
+  children: ReactNode;
+}) {
+  const overflow = total - GROUP_ITEM_CAP;
   return (
     <span className="mb-2 block last:mb-0">
       <span className="block text-[8px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-muted">
-        {title}
+        {title} · {total}
       </span>
       <ul className="mt-0.5 list-none space-y-0.5 text-[10px] leading-4 text-foreground-secondary">
         {children}
       </ul>
-    </span>
-  );
-}
-
-function AttachProse({ title, body }: { title: string; body: string }) {
-  return (
-    <span className="mb-2 block last:mb-0">
-      <span className="block text-[8px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-muted">
-        {title}
-      </span>
-      <span className="mt-0.5 block text-[10px] leading-4 text-foreground-secondary">{body}</span>
+      {overflow > 0 && (
+        <span className="mt-0.5 block text-[9px] leading-4 text-foreground-muted">
+          +{overflow} di panel
+        </span>
+      )}
     </span>
   );
 }
@@ -908,7 +1250,9 @@ function AttachProse({ title, body }: { title: string; body: string }) {
 // --- detail panel (§6.4) ----------------------------------------------------
 // Read-only except requested_on per need row. Opens beside the canvas on
 // wide screens, below it on narrow ones; no overlay, no animation — the
-// drawer stays the app's only animation.
+// drawer stays the app's only animation. This is where the prose lives:
+// risk, control and note render in full here and ONLY here, and the gate
+// gets its red pill back.
 
 function StepPanel({
   step,

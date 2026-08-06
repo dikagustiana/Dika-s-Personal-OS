@@ -9,7 +9,7 @@ import {
   type CellWriteOrigin,
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
-import { okRows, readFailure, type ReadResult } from './readResult';
+import { okRows, readAbsence, readFailure, type ReadResult } from './readResult';
 import type { ProjectTaskWrite, Repository } from './repository';
 import type {
   DailyLog,
@@ -1426,13 +1426,22 @@ class SupabaseRepository implements Repository {
   // empty state. The structure is read-only in the app; the ONE write is
   // requested_on on a need, and nothing in this section touches
   // os_finish_line_cells.
+  //
+  // READ ABSENCE, NOT "MISSING RELATION" — the classifier here is deliberately
+  // readAbsence and not readFailure. readFailure's predicate also swallows a
+  // renamed column (42703) and an unresolvable embed (PGRST200) as "not
+  // deployed yet", which would render a WRONG QUERY as an ordinary empty
+  // state: no error, no console line, just zero. These six tables are a
+  // diagram plus a register, and a diagram that silently loses its register
+  // looks finished. Only 42P01 and PGRST205 — the relation genuinely is not
+  // there — fold to the empty state; everything else surfaces.
 
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
     const { data, error } = await this.client
       .from('os_process_lanes')
       .select('key, label, description, ordinal, is_external')
       .order('ordinal', { ascending: true });
-    if (error) return readFailure('listProcessLanes', error);
+    if (error) return readAbsence('listProcessLanes', error);
     return okRows((data as ProcessLaneRow[]).map(rowToProcessLane));
   }
 
@@ -1441,7 +1450,7 @@ class SupabaseRepository implements Repository {
       .from('os_process_phases')
       .select('id, name, slot_from, slot_to')
       .order('slot_from', { ascending: true });
-    if (error) return readFailure('listProcessPhases', error);
+    if (error) return readAbsence('listProcessPhases', error);
     return okRows(
       (data as { id: string; name: string; slot_from: number; slot_to: number }[]).map((row) => ({
         id: row.id,
@@ -1457,7 +1466,7 @@ class SupabaseRepository implements Repository {
       .from('os_process_steps')
       .select(PROCESS_STEP_COLUMNS)
       .order('slot', { ascending: true });
-    if (error) return readFailure('listProcessSteps', error);
+    if (error) return readAbsence('listProcessSteps', error);
     return okRows((data as ProcessStepRow[]).map(rowToProcessStep));
   }
 
@@ -1466,7 +1475,7 @@ class SupabaseRepository implements Repository {
       .from('os_process_gates')
       .select('id, type, title, sub, owner, unblock')
       .order('id', { ascending: true });
-    if (error) return readFailure('listProcessGates', error);
+    if (error) return readAbsence('listProcessGates', error);
     return okRows((data as ProcessGateRow[]).map(rowToProcessGate));
   }
 
@@ -1474,7 +1483,7 @@ class SupabaseRepository implements Repository {
     const { data, error } = await this.client
       .from('os_process_needs')
       .select(PROCESS_NEED_COLUMNS);
-    if (error) return readFailure('listProcessNeeds', error);
+    if (error) return readAbsence('listProcessNeeds', error);
     return okRows((data as ProcessNeedRow[]).map(rowToProcessNeed));
   }
 
@@ -1482,7 +1491,7 @@ class SupabaseRepository implements Repository {
     const { data, error } = await this.client
       .from('os_process_step_items')
       .select('step_id, item_id');
-    if (error) return readFailure('listProcessStepItems', error);
+    if (error) return readAbsence('listProcessStepItems', error);
     return okRows(
       (data as { step_id: string; item_id: string }[]).map((row) => ({
         stepId: row.step_id,

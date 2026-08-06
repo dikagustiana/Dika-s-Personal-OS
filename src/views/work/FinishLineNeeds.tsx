@@ -23,10 +23,11 @@ import { okRows, rowsOf, type ReadResult } from '../../data/readResult';
 import type { ProcessNeed, ProcessNeedKind, ProcessNeedStatus, ProcessStep } from '../../data/types';
 import { useMutation } from '../../hooks/useMutation';
 import {
-  foldProcessReads,
+  buildRegisterState,
   groupByOwner,
   registerRows,
   summarizeNeeds,
+  type EmptyCause,
   type RegisterRow,
 } from '../../logic/processModel';
 import { useAppStore } from '../../store/appStore';
@@ -40,6 +41,18 @@ import {
 } from './processUi';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
+
+/**
+ * One sentence per cause, and they must stay different sentences. `absent` is
+ * a migration that has not run; `unseeded` is a table that answered and had
+ * nothing in it. Reading the second and being told the first is what sent a
+ * half-applied seed looking for a frontend bug.
+ */
+const REGISTER_EMPTY: Record<EmptyCause, string> = {
+  absent: 'Tabel os_process_needs belum ada di database — migration proses belum diterapkan.',
+  unseeded:
+    'Tabel os_process_needs ada dan terbaca, tapi nol baris — seed-nya belum masuk, bukan migration-nya.',
+};
 
 const STATUSES: ProcessNeedStatus[] = ['ADA', 'SEBAGIAN', 'BELUM'];
 const KINDS: ProcessNeedKind[] = ['MASTER', 'TRANSAKSI', 'PARAMETER', 'REFERENSI'];
@@ -87,7 +100,7 @@ export function FinishLineNeeds({
 
   const steps = rowsOf(stepsRead);
   const needs = rowsOf(needsRead);
-  const fold = foldProcessReads([stepsRead, needsRead]);
+  const state = buildRegisterState(stepsRead, needsRead);
 
   const summary = useMemo(() => summarizeNeeds(needs, steps, track), [needs, steps, track]);
   const rows = useMemo(
@@ -119,18 +132,15 @@ export function FinishLineNeeds({
 
       {!loaded ? (
         <Checking label="Kebutuhan data" />
-      ) : fold.kind === 'empty' || (fold.kind === 'ok' && needs.length === 0) ? (
+      ) : state.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow
-            label="Kebutuhan data"
-            clause="Register belum ada di database — migration proses belum diterapkan."
-          />
+          <EmptyRow label="Kebutuhan data" clause={REGISTER_EMPTY[state.cause]} />
         </div>
-      ) : fold.kind === 'failed' ? (
+      ) : state.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">
           <CouldNotCheck
             label="Kebutuhan data"
-            failure={{ reason: 'failed', detail: fold.detail }}
+            failure={{ reason: 'failed', detail: state.detail }}
           />
         </div>
       ) : (

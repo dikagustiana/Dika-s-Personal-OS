@@ -1,4 +1,4 @@
-import { isMissingRelation, type RelationError } from './missingRelation';
+import { isAbsentRelation, isMissingRelation, type RelationError } from './missingRelation';
 
 /**
  * THREE OUTCOMES FOR A READ, NEVER TWO.
@@ -57,6 +57,24 @@ export function okRows<T>(rows: T[]): ReadResult<T> {
 export function readFailure(label: string, error: RelationError): ReadFailure {
   const detail = error.message ?? error.code ?? 'unknown error';
   return isMissingRelation(error)
+    ? { ok: false, reason: 'missing-relation', detail: `${label}: ${detail}` }
+    : { ok: false, reason: 'failed', detail: `${label}: ${detail}` };
+}
+
+/**
+ * The same classification, through the NARROW predicate: only a genuinely
+ * absent relation (42P01 / PGRST205) is 'missing-relation'; a broken query
+ * against a relation that exists — a renamed column (42703), an unresolvable
+ * embed (PGRST200) — comes back 'failed' and reaches the surface.
+ *
+ * Used by every os_process_* read. See the header of isAbsentRelation for why
+ * the generous predicate is the wrong one there: it turns a wrong query into
+ * an empty state, which is indistinguishable from a table that has not shipped
+ * yet, and neither says anything to the console.
+ */
+export function readAbsence(label: string, error: RelationError): ReadFailure {
+  const detail = error.message ?? error.code ?? 'unknown error';
+  return isAbsentRelation(error)
     ? { ok: false, reason: 'missing-relation', detail: `${label}: ${detail}` }
     : { ok: false, reason: 'failed', detail: `${label}: ${detail}` };
 }

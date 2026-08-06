@@ -25,8 +25,29 @@ import type {
 } from '../data/types';
 import { stepVisible, type TrackFilter } from './process';
 
+/**
+ * ===========================================================================
+ * WHY EMPTY CARRIES A CAUSE.
+ * ===========================================================================
+ * "The table is not there" and "the table is there and has no rows" are two
+ * different facts about the world, and for most of a day in August they
+ * pointed at two different people: the first is a migration nobody applied,
+ * the second is a seed that landed in halves. Both rendered the SAME sentence
+ * — "migration proses belum diterapkan" — so the view accused the migration of
+ * a fault the seed had committed, and the register that read 0 of 118 rows
+ * said so in the confident voice of a known state.
+ *
+ * Neither of them is a failure and neither may show a number, so they stay one
+ * `kind`. But they must never again share a sentence.
+ */
+export type EmptyCause =
+  /** A relation is genuinely absent (42P01 / PGRST205) — pre-migration. */
+  | 'absent'
+  /** Every relation answered; the tables are there and hold no rows. */
+  | 'unseeded';
+
 export type ProcessModel =
-  | { kind: 'empty' }
+  | { kind: 'empty'; cause: EmptyCause }
   | { kind: 'failed'; detail: string }
   | {
       kind: 'ready';
@@ -59,9 +80,11 @@ export function foldProcessReads(reads: ReadResult<unknown>[]): ProcessReadFold 
 }
 
 /**
- * Fold the five reads into one canvas decision. Missing relation / failure
- * per foldProcessReads; zero steps → empty (a diagram with lanes but no
- * boxes would read as a broken render, not an empty dataset).
+ * Fold the six reads into one canvas decision. Absent relation / failure per
+ * foldProcessReads; zero steps → empty (a diagram with lanes but no boxes
+ * would read as a broken render, not an empty dataset) — but tagged
+ * `unseeded`, because that is a different fact from `absent` and the view owes
+ * the reader the difference.
  */
 export function buildProcessModel(input: {
   lanes: ReadResult<ProcessLane>;
@@ -79,7 +102,8 @@ export function buildProcessModel(input: {
     input.needs,
     input.stepItems,
   ]);
-  if (folded.kind !== 'ok') return folded;
+  if (folded.kind === 'failed') return folded;
+  if (folded.kind === 'empty') return { kind: 'empty', cause: 'absent' };
   if (
     !input.lanes.ok ||
     !input.phases.ok ||
@@ -88,9 +112,9 @@ export function buildProcessModel(input: {
     !input.needs.ok ||
     !input.stepItems.ok
   ) {
-    return { kind: 'empty' }; // unreachable; narrows the types below
+    return { kind: 'empty', cause: 'absent' }; // unreachable; narrows the types below
   }
-  if (input.steps.rows.length === 0) return { kind: 'empty' };
+  if (input.steps.rows.length === 0) return { kind: 'empty', cause: 'unseeded' };
   return {
     kind: 'ready',
     lanes: input.lanes.rows,
@@ -103,6 +127,36 @@ export function buildProcessModel(input: {
 }
 
 // --- the register ----------------------------------------------------------
+
+export type RegisterState =
+  | { kind: 'empty'; cause: EmptyCause }
+  | { kind: 'failed'; detail: string }
+  | { kind: 'ready' };
+
+/**
+ * The register's three-way decision, extracted from the view so the case that
+ * actually shipped is testable.
+ *
+ * THE BUG THIS REPLACES: the tab rendered "Register belum ada di database —
+ * migration proses belum diterapkan" whenever `needs` was empty, whatever the
+ * reason. On 6 August os_process_needs existed, answered 200, and held zero
+ * rows because the seed had been applied in two transactions and the second
+ * had not run yet — so the app confidently blamed a migration that was in
+ * fact applied, and the true state (table present, seed half-landed) had no
+ * way to be said. A read that SUCCEEDED and returned nothing is a fact worth
+ * its own sentence; it is not the same as a table that is not there.
+ */
+export function buildRegisterState(
+  steps: ReadResult<ProcessStep>,
+  needs: ReadResult<ProcessNeed>,
+): RegisterState {
+  const folded = foldProcessReads([steps, needs]);
+  if (folded.kind === 'failed') return folded;
+  if (folded.kind === 'empty') return { kind: 'empty', cause: 'absent' };
+  if (!steps.ok || !needs.ok) return { kind: 'empty', cause: 'absent' }; // unreachable
+  if (needs.rows.length === 0) return { kind: 'empty', cause: 'unseeded' };
+  return { kind: 'ready' };
+}
 
 export interface RegisterFilters {
   track: TrackFilter;
