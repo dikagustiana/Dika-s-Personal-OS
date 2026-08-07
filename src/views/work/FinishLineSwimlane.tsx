@@ -141,6 +141,7 @@ const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 
 const SCOPE_SUBTITLES: Record<string, string> = {
   SAMB: 'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.',
   ARBI: 'Rantai B2C ARBI: setup master & harga → pengadaan → inbound & penyimpanan → order marketplace → outbound → pengiriman kurir → retur → settlement & kas. Jalur retur masuk lewat pintu inbound sebagai ASN Return. Seam ke jalur LP SAMB belum ditetapkan — lihat B04.',
+  KGR: 'Pengadaan live bird → produksi & yield → costing per batch → dua stream fresh dan frozen → penjualan → EOD settlement → penagihan, pembayaran, pelaporan. Toll fee tidak ada: seluruh pemotongan internal.',
 };
 
 /** §4.6's one visible line for the pre-52 window. */
