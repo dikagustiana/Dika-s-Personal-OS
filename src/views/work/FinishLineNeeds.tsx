@@ -333,7 +333,16 @@ export function FinishLineNeeds({
             </span>
           </div>
 
-          <section className="rounded-lg border border-border bg-card shadow-card">
+          {/* canvas-bleed: seven columns, and `item` is the one that carries
+              the meaning — it truncates first and hardest at 1076px. Lower
+              priority than the swimlane canvas but the same direction, and
+              the same floor: at narrow widths this resolves to today's
+              layout exactly. The filter row and the summary above stay in
+              the measure; they are prose. */}
+          <section
+            data-needs-table
+            className="canvas-bleed rounded-lg border border-border bg-card shadow-card"
+          >
             {rows.length === 0 ? (
               <div className="px-4">
                 <EmptyRow

@@ -201,6 +201,44 @@ button {
   }
 }
 
+/* ===========================================================================
+   ESCAPING THE MEASURE, FOR CANVASES ONLY.
+   ===========================================================================
+   1140px is the right measure for reading, and every page in the app uses it
+   — Dashboard, Today, Week, Monthly close, Escalations, Projects, Ielts,
+   Initiative, Research and Finish line all mount .page-shell. So it does not
+   move. What moves is the one thing inside it that is not reading material:
+   the swimlane canvas, which needs roughly 4000px for SAMB and more for ARBI
+   and was being handed 1076px on a 1444px column.
+
+   The element BLEEDS out of the shell with negative inline margins instead.
+   `100cqi` measures .app-main — the column after the fixed sidebar — so the
+   width is the real available space, never the viewport (which would include
+   the 256px sidebar and the scrollbar, and `100vw` would overflow by the
+   scrollbar's width on every scrolled page).
+
+   `max(100%, …)` is the floor, and it is the point: at any width where the
+   shell is already at or below the available column, this resolves to 100%
+   and the margins to 0 — byte-for-byte today's layout. Narrow screens cannot
+   get worse, only wide ones get better.
+
+   The 100rem cap is a judgement, not a constraint: the canvas scrolls
+   anyway, so unbounded is defensible, but the toolbar and minimap bleed with
+   it and past ~1600px their controls separate further than the eye tracks
+   while the canvas still scrolls regardless.
+
+   NOT for prose. Scope text, notice rows, the references block and the step
+   detail panel all stay inside the measure — see FinishLineSwimlane.tsx. */
+.app-main {
+  container-type: inline-size;
+}
+
+.canvas-bleed {
+  --canvas-width: max(100%, min(100cqi - 4rem, 100rem));
+  width: var(--canvas-width);
+  margin-inline: calc((100% - var(--canvas-width)) / 2);
+}
+
 /* Eyebrow label — Plus Jakarta 11/1 600, 0.08em; at most one per card.
    Muted by design: the accent colour is reserved for done/positive states. */
 .page-kicker,

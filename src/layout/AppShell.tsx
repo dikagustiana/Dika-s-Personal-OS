@@ -398,7 +398,13 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <main className="pb-24 lg:ml-64 lg:pb-0">{children}</main>
+      {/* app-main only declares `container-type: inline-size` so a canvas
+          inside can measure THIS column — the viewport minus the fixed
+          sidebar — with 100cqi. Nothing else reads it, and it changes no
+          layout of its own. Safe because nothing inside <main> is
+          position: fixed (the toast viewport mounts in main.tsx, beside
+          <App/>), so the containment this implies has nothing to capture. */}
+      <main className="app-main pb-24 lg:ml-64 lg:pb-0">{children}</main>
 
       <nav
         className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-border-subtle bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
