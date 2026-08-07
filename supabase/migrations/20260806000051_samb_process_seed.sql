@@ -9,10 +9,34 @@
 -- ordering (21 → 23 → 22) and parallel labels (6a/6b, 15b) are identities,
 -- not sequence errors. Contains no financial figures.
 --
--- Idempotent: lanes and gates upsert on their natural PKs, steps on the
--- unique label, phases and needs insert only when absent, and the bridge
--- upserts on its composite PK — so a re-run never duplicates rows and never
--- touches hand-entered requested_on dates.
+-- ===========================================================================
+-- ONE-SHOT. THIS FILE IS NO LONGER IDEMPOTENT, AND CANNOT BE MADE SO.
+-- ===========================================================================
+-- It was written as idempotent — lanes and gates upserting on their natural
+-- PKs, steps on the unique label, phases and needs inserting only when
+-- absent, the bridge upserting on its composite PK. Two of those guards
+-- match on TEXT, and since 20260806000055 that text is editable from the app:
+--
+--   phases  matched (name, slot_from, slot_to) — `name` is editable
+--   needs   matches (step_id, item)            — `item` is editable
+--
+-- Edit one word of a phase name or a need item, re-run this, and the guard
+-- misses: the row inserts a second time, with no error and no notice. The
+-- phases guard below is now keyed on (entity_code, slot_from, slot_to) —
+-- geometry, which the app cannot touch — so that section is safe again. The
+-- NEEDS guard is deliberately left as it was, because there is no stable
+-- natural key to move it to: item, kind, src, owner and status are all
+-- editable, and one step has many needs. Adding a seed-key column to carry
+-- this one case is schema cost for a hazard whose trigger is manual.
+--
+-- So the file is guarded at the TOP instead: if SAMB steps already exist it
+-- raises and the whole migration rolls back. Loud refusal beats silent
+-- duplication.
+--
+-- This file also cannot run for a second, independent reason: 20260806000052
+-- made os_process_phases.entity_code NOT NULL with no default, and section 3
+-- below does not supply it. That would abort with a not-null violation — a
+-- true failure, but one that says nothing about why. The guard speaks first.
 --
 -- Section 6 maps steps to Finish line rows by LITERAL UUID, read from the
 -- live table on 6 August. It is not a label lookup and must not become one:
@@ -28,6 +52,30 @@
 --
 -- Down-migration:
 -- supabase/migrations/down/20260806000051_samb_process_seed_down.sql
+
+-- 0. One-shot guard ---------------------------------------------------------
+-- BEFORE ANY STATEMENT. A migration runs in one transaction, so raising here
+-- rolls the whole thing back and nothing below is reached. The message names
+-- the reason rather than just "already seeded": whoever hits this needs to
+-- know that a re-run duplicates SILENTLY, not that it is merely redundant.
+--
+-- NO `where entity_code = 'SAMB'` HERE, unlike the ARBI seed's guard, and the
+-- difference is load-bearing. This file's ONLY legitimate execution is on a
+-- fresh database between 20260806000050 and 20260806000052 — and entity_code
+-- does not exist yet at that point; 52 is the migration that adds it. Naming
+-- the column would make the guard raise `42703 undefined column` on exactly
+-- the one run that is supposed to work, which is the rebuild path the file
+-- still exists for. `any step at all` is the same test in that window (the
+-- table is single-entity until 52) and strictly stricter afterwards, where
+-- this file must not run regardless of which entity's rows are present.
+do $$
+begin
+  if exists (select 1 from public.os_process_steps) then
+    raise exception
+      'Rantai proses % sudah terseed. File ini sekali pakai: penjaga section phases dan needs mencocokkan teks yang kini bisa diedit dari app, jadi menjalankannya ulang akan menduplikasi baris tanpa error. Jalankan down-migration lebih dulu kalau benar-benar mau reseed.', 'SAMB';
+  end if;
+end
+$$;
 
 -- 1. Lanes ------------------------------------------------------------------
 insert into public.os_process_lanes (key, label, description, ordinal, is_external) values
@@ -70,9 +118,19 @@ from (values
   ('PENAGIHAN', 16, 18),
   ('KAS & ELIMINASI', 19, 21)
 ) as v(name, slot_from, slot_to)
+-- KEYED ON GEOMETRY, NOT ON THE NAME. `name` is editable from the app since
+-- 20260806000055; slot_from and slot_to are not, and a phase IS its span.
+-- Matching on the name meant a renamed phase re-inserted as a second row
+-- covering the same slots — which then breaks the ribbon's tiling invariant
+-- without any error to say so.
+--
+-- NO entity_code IN THIS PREDICATE, unlike the ARBI seed's, for the same
+-- reason section 0 does not name it: 20260806000052 is what adds the column,
+-- and this file's only legitimate run is BEFORE that. The table is
+-- single-entity in that window, so the slot span alone is the whole key.
 where not exists (
   select 1 from public.os_process_phases p
-  where p.name = v.name and p.slot_from = v.slot_from and p.slot_to = v.slot_to
+  where p.slot_from = v.slot_from and p.slot_to = v.slot_to
 );
 
 -- 4. Steps ------------------------------------------------------------------
@@ -293,6 +351,14 @@ from (values
   ('26', 'Markup di atas biaya per jenis layanan', 'PARAMETER', 'LP02 Rate Card vs biaya aktual', 'PF', 'BELUM')
 ) as v(step_label, item, kind, src, owner, status)
 join public.os_process_steps s on s.label = v.step_label
+-- DELIBERATELY UNCHANGED, and this is the reason the file needed a top-level
+-- guard at all. `item` is editable from the app, so this predicate can miss
+-- and insert a duplicate — but there is nothing better to move it to: item,
+-- kind, src, owner and status are ALL editable, and one step carries many
+-- needs, so no combination of them is a stable natural key. A seed-key column
+-- would fix it and is not worth a schema change for a hazard whose only
+-- trigger is someone re-running an applied migration by hand. Section 0
+-- makes that impossible instead.
 where not exists (
   select 1 from public.os_process_needs n
   where n.step_id = s.id and n.item = v.item

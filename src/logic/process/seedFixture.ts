@@ -29,14 +29,16 @@ import type {
 import seed from './sambProcessSeed.json';
 
 /**
- * The step → Finish line bridge, as seeded by section 6 of migration
- * 20260806000051. The uuids were read from the live os_finish_line_items on
- * 6 August; three Finish line labels are duplicated across sections, so this
- * mapping is by id and must never become a label match.
+ * The step → Finish line bridge, as the repo's migrations leave it: section 6
+ * of 20260806000051 (45 pairs) PLUS 20260806000056 (one more, 18b → Sales —
+ * Logistic provider) = 46 pairs over 17 rows. The uuids were read from the
+ * live os_finish_line_items on 6 August; three Finish line labels are
+ * duplicated across sections, so this mapping is by id and must never become
+ * a label match.
  *
- * This is the app-side copy, and processModel.test.ts parses the migration
- * and asserts the two agree — so an edit to one that misses the other fails
- * the suite rather than drifting silently.
+ * This is the app-side copy, and processModel.test.ts parses BOTH migrations
+ * and asserts the three agree — so an edit to any one of them that misses the
+ * others fails the suite rather than drifting silently.
  */
 export const STEP_ITEM_MAP: Array<{
   itemId: string;
@@ -45,7 +47,10 @@ export const STEP_ITEM_MAP: Array<{
   stepLabels: string[];
 }> = [
   { itemId: '634e675f-4681-4307-b831-6cad1e7d80fa', row: 'Sales — General Trade', section: 'Laba rugi', stepLabels: ['2', '10', '18a', '19'] },
-  { itemId: '2b7394bf-92f4-4900-b2a6-03353dbe6d98', row: 'Sales — Logistic provider', section: 'Laba rugi', stepLabels: ['1', '20', '21'] },
+  // 18b joins 1/20/21 via migration 20260806000056, not via the seed: 18b's
+  // driver is "SJ terselesaikan per klien → konfirmasi konsumsi layanan", and
+  // that confirmation is what feeds measurement at 20 and revenue at 21.
+  { itemId: '2b7394bf-92f4-4900-b2a6-03353dbe6d98', row: 'Sales — Logistic provider', section: 'Laba rugi', stepLabels: ['1', '18b', '20', '21'] },
   { itemId: '2e4c8392-8c03-488b-b30c-d633b5b00ea3', row: 'COGS — General Trade', section: 'Laba rugi', stepLabels: ['7a', '9'] },
   { itemId: '768beb21-1151-4a1f-924a-c1c3f5001348', row: 'COGS — Logistic provider', section: 'Laba rugi', stepLabels: ['5', '6b', '7b', '20', '21'] },
   { itemId: '10b151a5-5c45-454c-a13b-ffbc786ec645', row: 'Storing cost', section: 'Laba rugi', stepLabels: ['6a', '8', '9', '13', '14', '15a'] },

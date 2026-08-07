@@ -24,10 +24,34 @@
 -- foreign-key violation and aborts the whole migration; that is the
 -- intended failure, not a robustness gap.
 --
--- Idempotent: tracks, lanes and gates upsert on their PKs, steps on
--- (entity_code, label), phases and needs insert only when absent, the
--- bridge upserts on its composite PK — so a re-run never duplicates rows
--- and never touches hand-entered requested_on dates.
+-- ===========================================================================
+-- ONE-SHOT. THIS IS THE FILE THAT WAS ACTUALLY EXPOSED.
+-- ===========================================================================
+-- It was written as idempotent — tracks, lanes and gates upserting on their
+-- PKs, steps on (entity_code, label), phases and needs inserting only when
+-- absent, the bridge upserting on its composite PK. Two of those guards match
+-- on TEXT, and since 20260806000055 that text is editable from the app:
+--
+--   phases  matched (entity_code, name, slot_from, slot_to) — `name` editable
+--   needs   matches (step_id, item)                         — `item` editable
+--
+-- SAMB's seed is protected by accident: 20260806000052 made
+-- os_process_phases.entity_code NOT NULL and that file does not supply it, so
+-- it aborts. THIS FILE SUPPLIES entity_code EVERYWHERE, so it stays perfectly
+-- runnable — and that makes it the real hazard. Edit one need's `item` in the
+-- app, re-run this, and 112 becomes 113: no error, no notice, no way to see
+-- it except by counting.
+--
+-- The phases guard below now keys on (entity_code, slot_from, slot_to) —
+-- geometry, which the app cannot touch. The NEEDS guard is left exactly as it
+-- was, because there is no stable natural key to move it to: item, kind, src,
+-- owner and status are all editable and one step has many needs. Adding a
+-- seed-key column to carry this one case is schema cost for a hazard whose
+-- trigger is manual.
+--
+-- So the file is guarded at the TOP instead: if ARBI steps already exist it
+-- raises and the whole migration rolls back. Loud refusal beats silent
+-- duplication.
 --
 -- NOT APPLIED. Apply via the Supabase apply_migration tool AFTER
 -- 20260806000052, per the APPLY BEFORE DEPLOY block in the PR that
@@ -36,6 +60,20 @@
 --
 -- Down-migration:
 -- supabase/migrations/down/20260806000053_arbi_process_seed_down.sql
+
+-- 0. One-shot guard ---------------------------------------------------------
+-- BEFORE ANY STATEMENT. A migration runs in one transaction, so raising here
+-- rolls the whole thing back and nothing below is reached. The message names
+-- the reason rather than just "already seeded": whoever hits this needs to
+-- know that a re-run duplicates SILENTLY, not that it is merely redundant.
+do $$
+begin
+  if exists (select 1 from public.os_process_steps where entity_code = 'ARBI') then
+    raise exception
+      'Rantai proses % sudah terseed. File ini sekali pakai: penjaga section phases dan needs mencocokkan teks yang kini bisa diedit dari app, jadi menjalankannya ulang akan menduplikasi baris tanpa error. Jalankan down-migration lebih dulu kalau benar-benar mau reseed.', 'ARBI';
+  end if;
+end
+$$;
 
 -- 1. Tracks -----------------------------------------------------------------
 insert into public.os_process_tracks (entity_code, code, label, ordinal, is_shared) values
@@ -82,10 +120,15 @@ from (values
   ('RETUR', 18, 19),
   ('SETTLEMENT & KAS', 20, 23)
 ) as v(name, slot_from, slot_to)
+-- KEYED ON GEOMETRY, NOT ON THE NAME. `name` is editable from the app since
+-- 20260806000055; slot_from and slot_to are not, and a phase IS its span.
+-- Matching on the name meant a renamed phase re-inserted as a second row
+-- covering the same slots — which then breaks the ribbon's tiling invariant
+-- without any error to say so.
 where not exists (
   select 1 from public.os_process_phases p
   where p.entity_code = 'ARBI'
-    and p.name = v.name and p.slot_from = v.slot_from and p.slot_to = v.slot_to
+    and p.slot_from = v.slot_from and p.slot_to = v.slot_to
 );
 
 -- 5. Steps ------------------------------------------------------------------
@@ -279,6 +322,14 @@ from (values
   ('23', 'Tarif jasa dari SAMB kalau gudang atau armada dipakai', 'PARAMETER', 'Perjanjian intercompany', 'Kamu + FAT', 'BELUM')
 ) as v(step_label, item, kind, src, owner, status)
 join public.os_process_steps s on s.entity_code = 'ARBI' and s.label = v.step_label
+-- DELIBERATELY UNCHANGED, and this is the reason the file needed a top-level
+-- guard at all. `item` is editable from the app, so this predicate can miss
+-- and insert a duplicate — but there is nothing better to move it to: item,
+-- kind, src, owner and status are ALL editable, and one step carries many
+-- needs, so no combination of them is a stable natural key. A seed-key column
+-- would fix it and is not worth a schema change for a hazard whose only
+-- trigger is someone re-running an applied migration by hand. Section 0
+-- makes that impossible instead.
 where not exists (
   select 1 from public.os_process_needs n
   where n.step_id = s.id and n.item = v.item

@@ -92,7 +92,7 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
     const model = buildProcessModel(ready());
     expect(model.kind).toBe('ready');
     expect(model.kind === 'ready' && model.steps).toHaveLength(30);
-    expect(model.kind === 'ready' && model.stepItems).toHaveLength(45);
+    expect(model.kind === 'ready' && model.stepItems).toHaveLength(46);
   });
 
   // The tests above force 42P01 one read at a time. THIS is the actual live
@@ -150,12 +150,12 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
   });
 });
 
-describe('§4 the bridge is 45 pairs over 17 rows, and the SQL says the same', () => {
-  it('carries 45 edges across 17 distinct Finish line rows', () => {
+describe('§4 the bridge is 46 pairs over 17 rows, and the SQL says the same', () => {
+  it('carries 46 edges across 17 distinct Finish line rows', () => {
     const edges = fixtureStepItems();
-    expect(edges).toHaveLength(45);
+    expect(edges).toHaveLength(46);
     expect(new Set(edges.map((edge) => edge.itemId)).size).toBe(17);
-    expect(new Set(edges.map((edge) => `${edge.stepId}|${edge.itemId}`)).size).toBe(45);
+    expect(new Set(edges.map((edge) => `${edge.stepId}|${edge.itemId}`)).size).toBe(46);
   });
 
   it('references only step labels that exist in the seed', () => {
@@ -163,28 +163,53 @@ describe('§4 the bridge is 45 pairs over 17 rows, and the SQL says the same', (
     for (const edge of fixtureStepItems()) expect(labels.has(edge.stepId)).toBe(true);
   });
 
-  it('leaves steps 4, 11, 12, 18b, 22 and 26 feeding no row — recorded, not forgotten', () => {
+  /**
+   * FIVE, not six. 18b left this list via migration 20260806000056: its twin
+   * 18a feeds `Sales — General Trade` as the recognition trigger, and 18b
+   * feeding nothing while its own driver reads "konfirmasi konsumsi layanan"
+   * was an inconsistency rather than a decision. The five that remain are
+   * deliberate — 4/11/12 plan without posting, 22 is a compliance artefact
+   * with no metric, 26 is consolidation that maps to no single row.
+   */
+  it('leaves steps 4, 11, 12, 22 and 26 feeding no row — recorded, not forgotten', () => {
     const fed = new Set(fixtureStepItems().map((edge) => edge.stepId));
     const unfed = fixtureSteps()
       .map((step) => step.label)
       .filter((label) => !fed.has(label));
-    expect(unfed).toEqual(['4', '11', '12', '18b', '22', '26']);
+    expect(unfed).toEqual(['4', '11', '12', '22', '26']);
   });
 
-  it('matches migration 20260806000051 pair for pair — the anti-drift tripwire', () => {
-    // Parses section 6's VALUES rows straight out of the migration. If the SQL
-    // and this fixture are edited apart, this fails instead of the app quietly
-    // showing a mapping the database does not have.
-    const sql = readFileSync(
+  it('matches migrations 20260806000051 + 20260806000056 pair for pair — the anti-drift tripwire', () => {
+    // Parses section 6's VALUES rows straight out of the seed, then adds the
+    // one pair migration 56 records. If SQL and fixture are edited apart, this
+    // fails instead of the app quietly showing a mapping the database does not
+    // have. Reading BOTH files is the point: the repo's bridge is their sum,
+    // and a fixture that modelled only the seed would model a database that
+    // has not existed since 56 was applied.
+    const seed = readFileSync(
       new URL('../../supabase/migrations/20260806000051_samb_process_seed.sql', import.meta.url),
       'utf8',
     );
-    const section = sql.slice(sql.indexOf('insert into public.os_process_step_items'));
+    const section = seed.slice(seed.indexOf('insert into public.os_process_step_items'));
     const fromSql = [...section.matchAll(/^ {2}\('([^']+)', '([0-9a-f-]{36})'\),?$/gm)].map(
       ([, label, itemId]) => `${label}|${itemId}`,
     );
     expect(fromSql).toHaveLength(45);
-    expect([...fromSql].sort()).toEqual(
+
+    // Migration 56 resolves its step by (entity_code, label) rather than by a
+    // hardcoded uuid, so the label and the item uuid are read separately.
+    const extra = readFileSync(
+      new URL('../../supabase/migrations/20260806000056_samb_bridge_18b.sql', import.meta.url),
+      'utf8',
+    );
+    const statement = extra.slice(extra.indexOf('insert into public.os_process_step_items'));
+    const label = /label = '([^']+)'/.exec(statement)?.[1];
+    const itemId = /'([0-9a-f-]{36})'::uuid/.exec(statement)?.[1];
+    expect(label).toBe('18b');
+    expect(itemId).toBe('2b7394bf-92f4-4900-b2a6-03353dbe6d98');
+    expect(/entity_code = 'SAMB'/.test(statement)).toBe(true);
+
+    expect([...fromSql, `${label}|${itemId}`].sort()).toEqual(
       fixtureStepItems()
         .map((edge) => `${edge.stepId}|${edge.itemId}`)
         .sort(),
