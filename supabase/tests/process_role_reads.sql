@@ -125,28 +125,38 @@ where result <> '0';
 
 -- ===========================================================================
 -- 2. THE OWNER SEES EVERYTHING. The §1 ledger numbers, pinned.
---    53 steps = SAMB 30 + ARBI 23. 230 needs. 83 bridge pairs = SAMB 46
---    (45 from the seed + the 18b pair recorded by migration 56) + ARBI 37.
+--    86 steps = SAMB 30 + ARBI 23 + KGR 33. 331 needs = 118 + 112 + 101.
+--    83 bridge pairs = SAMB 46 (45 from the seed + the 18b pair recorded by
+--    migration 56) + ARBI 37 + KGR 0 — KGR's bridge is DELIBERATELY absent
+--    until the poultry rows exist, so 83 not moving when its seed landed is
+--    itself part of the ledger.
 -- ===========================================================================
 select 'owner: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
-  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '53'  as expected
+  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '86'  as expected
   union all select 'steps SAMB',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='SAMB'$q$), '30'
   union all select 'steps ARBI',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='ARBI'$q$), '23'
-  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '230'
+  union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '33'
+  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '331'
   union all select 'bridge',      pg_temp.as_owner('select count(*) from public.os_process_step_items'),           '83'
-  union all select 'lanes',       pg_temp.as_owner('select count(*) from public.os_process_lanes'),                '12'
-  union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '14'
-  union all select 'tracks',      pg_temp.as_owner('select count(*) from public.os_process_tracks'),               '6'
-  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '27'
+  union all select 'bridge KGR',  pg_temp.as_owner($q$select count(*) from public.os_process_step_items i
+                                                      join public.os_process_steps s on s.id = i.step_id
+                                                      where s.entity_code='KGR'$q$),                               '0'
+  union all select 'lanes',       pg_temp.as_owner('select count(*) from public.os_process_lanes'),                '21'
+  union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '24'
+  union all select 'tracks',      pg_temp.as_owner('select count(*) from public.os_process_tracks'),               '9'
+  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '67'
   union all select 'text_history',pg_temp.as_owner('select count(*) from public.os_process_text_history'),         '1'
 ) t
 where got <> expected;
 
 -- ===========================================================================
--- 3. A MEMBER OF ALL FIVE ENTITIES READS WHAT THE OWNER READS — for eight of
---    the nine tables. Only SAMB and ARBI have chains, so "all five" and "all
---    there is" are the same set.
+-- 3. A MEMBER OF THE FIVE ORIGINAL ENTITIES READS LESS THAN THE OWNER NOW.
+--    Until KGR's chain landed, "all five" and "all there is" were the same
+--    set and these numbers equalled the owner's. They no longer do: KGR has
+--    a chain and this member does NOT hold KGR (nobody is granted a new
+--    column automatically), so every count here is the owner's MINUS the
+--    KGR rows. If these ever equal section 2 again, a membership leaked.
 -- ===========================================================================
 select 'five-entity member: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
@@ -172,6 +182,31 @@ where got <> expected;
 select 'five-entity member read ' || got
        || ' rows from os_process_text_history (expected 0, without error)' as problem
 from (select pg_temp.as_member5('select count(*) from public.os_process_text_history') as got) t
+where got <> '0';
+
+-- ===========================================================================
+-- 3c. THE FIVE-ENTITY MEMBER SEES ZERO KGR ROWS, NAMED PER TABLE. Section 3's
+--     totals already imply it, but a leak deserves a row that says WHICH
+--     table handed out another entity's chain — the same reason section 4
+--     spells out zero SAMB rows for the ARBI member.
+-- ===========================================================================
+select 'five-entity member saw ' || got || ' KGR rows in ' || tbl || ' (expected 0)' as problem
+from (
+  select 'os_process_steps' as tbl,
+         pg_temp.as_member5($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$) as got
+  union all select 'os_process_lanes',
+         pg_temp.as_member5($q$select count(*) from public.os_process_lanes where entity_code='KGR'$q$)
+  union all select 'os_process_phases',
+         pg_temp.as_member5($q$select count(*) from public.os_process_phases where entity_code='KGR'$q$)
+  union all select 'os_process_tracks',
+         pg_temp.as_member5($q$select count(*) from public.os_process_tracks where entity_code='KGR'$q$)
+  union all select 'os_process_gates',
+         pg_temp.as_member5($q$select count(*) from public.os_process_gates where entity_code='KGR'$q$)
+  union all select 'os_process_needs',
+         pg_temp.as_member5($q$select count(*) from public.os_process_needs n
+                            join public.os_process_steps s on s.id = n.step_id
+                            where s.entity_code='KGR'$q$)
+) t
 where got <> '0';
 
 -- ===========================================================================
@@ -214,6 +249,27 @@ from (
          pg_temp.as_arbi($q$select count(*) from public.os_process_step_items i
                             join public.os_process_steps s on s.id = i.step_id
                             where s.entity_code='SAMB'$q$)
+) t
+where got <> '0';
+
+-- And zero KGR rows, the same way — the ARBI member predates KGR's chain and
+-- holds no membership on it, so the one-entity picker must stay one entity.
+select 'ARBI-only member saw ' || got || ' KGR rows in ' || tbl || ' (expected 0)' as problem
+from (
+  select 'os_process_steps' as tbl,
+         pg_temp.as_arbi($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$) as got
+  union all select 'os_process_lanes',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_lanes where entity_code='KGR'$q$)
+  union all select 'os_process_phases',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_phases where entity_code='KGR'$q$)
+  union all select 'os_process_tracks',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_tracks where entity_code='KGR'$q$)
+  union all select 'os_process_gates',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_gates where entity_code='KGR'$q$)
+  union all select 'os_process_needs',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_needs n
+                            join public.os_process_steps s on s.id = n.step_id
+                            where s.entity_code='KGR'$q$)
 ) t
 where got <> '0';
 
