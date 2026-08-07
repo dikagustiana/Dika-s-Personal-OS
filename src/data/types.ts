@@ -826,10 +826,21 @@ export interface SharedView {
  * READ-ONLY toward cells — nothing in the process feature writes cell state,
  * which still changes only through an explicit human edit.
  *
- * The structure (lanes, phases, steps, gates, needs) is seeded by migration
- * 20260806000051 and composed OUTSIDE the app — there is no in-app editor,
- * importer or exporter for it. The single editable field in the whole
- * feature is ProcessNeed.requestedOn.
+ * The rows are seeded by migration (20260806000051 for SAMB, 20260806000053
+ * for ARBI) and there is still no importer or exporter, and no way to add or
+ * delete a row from the app. What the app CAN edit is the TEXT on a row that
+ * already exists: names, prose, docs/coa/drivers, gate references, lane
+ * labels, phase names — the map is a written artefact and revising a word
+ * should not cost a migration.
+ *
+ * The line runs at topology: `slot`, `laneKey`, `track`, `entityCode` and
+ * every id stay migration-only, because getting one wrong has no symptom —
+ * the canvas still draws, the counts just quietly stop being the pinned
+ * ones. logic/processTextEdit.ts is where that line is enforced, and it is
+ * enforced by the write TYPES rather than by a disabled input: a patch that
+ * names a structural column does not compile. Every text edit is logged to
+ * os_process_text_history (migration 20260806000055), one row per changed
+ * field, append-only.
  */
 
 /** KEDUANYA = shared backbone steps; their cost pools are split, not doubled. */

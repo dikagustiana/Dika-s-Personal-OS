@@ -2,10 +2,15 @@
  * The Finish line's Swimlane tab (/finish-line/swimlane): one entity's
  * operational chain — SAMB or ARBI today, whichever ?entity= and the picker
  * say; entities appear as their chains are seeded, with no code change.
- * Read-only — no add/remove/move step, no lane edit, no drag; the structure
- * changes often and is revised OUTSIDE the app. The one writable field
- * anywhere in the feature is a need's requested_on, edited in the detail
- * panel.
+ * TEXT IS EDITABLE HERE; STRUCTURE IS NOT. Names, prose, the three list
+ * columns, a step's gate reference, lane labels and phase names are edited in
+ * the panels — the map is a written artefact and revising one word should not
+ * cost a migration. What stays migration-only is everything that decides the
+ * diagram's TOPOLOGY: no add/remove/move step, no drag, and no way to reach
+ * `slot`, `lane_key`, `track`, `entity_code` or any id from the app. Those
+ * cannot break loudly — the canvas would still draw, the counts would just
+ * quietly stop being the pinned ones — so the write types cannot even name
+ * them (logic/processTextEdit.ts).
  *
  * ENTITY IS PAGE-LEVEL CONTEXT, NOT A TOOLBAR FILTER: it decides WHICH chain
  * renders, while every toolbar control is a view option within one chain, so
@@ -99,6 +104,20 @@ import {
   ReferencesToggle,
   referencesState,
 } from './ProcessReferences';
+import { EditTrigger } from './ProcessTextEditor';
+import {
+  GateTextForm,
+  LaneTextForm,
+  NeedTextForm,
+  PhaseTextForm,
+  StepTextForm,
+} from './ProcessTextForms';
+import type {
+  ProcessGateTextWrite,
+  ProcessNeedTextWrite,
+  ProcessStepTextWrite,
+  TextHistoryRow,
+} from '../../logic/processTextEdit';
 import { Checking, CouldNotCheck } from './finishLineUi';
 import {
   EntityScopeRow,
@@ -226,6 +245,11 @@ export function FinishLineSwimlane({
   const [onlyGap, setOnlyGap] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [selectedLabel, setSelectedLabel] = useState<string | null>(null);
+  // Lanes and phases had no detail panel of their own — the brief's editable
+  // list includes their text, so they get one, opened from the thing itself
+  // (the sticky lane label, the phase name) rather than from an admin page.
+  const [selectedLaneKey, setSelectedLaneKey] = useState<string | null>(null);
+  const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [lanes, phases, steps, gates, needs, stepItems, tracks, references, items] =
@@ -551,6 +575,32 @@ export function FinishLineSwimlane({
   const selectedStep = selectedLabel
     ? shown.find((step) => step.label === selectedLabel) ?? null
     : null;
+
+  /**
+   * THE ONE SAVE PATH for process text. Write first, THEN append the audit
+   * rows: an edit must never be lost because its log could not be written,
+   * and appendProcessTextHistory returns false (rather than throwing) when
+   * migration 20260806000055 has not been applied yet.
+   *
+   * `load()` afterwards rather than patching state by hand — the canvas
+   * derives arrows, cells and counts from these rows, and a hand-patched
+   * copy that drifts from the database is exactly the silent kind of wrong
+   * this feature keeps guarding against.
+   */
+  const saveText = async <T,>(
+    label: string,
+    write: () => Promise<T>,
+    history: TextHistoryRow[],
+  ): Promise<boolean> => {
+    const written = await run(label, async () => {
+      const result = await write();
+      await repository.appendProcessTextHistory(history);
+      return result;
+    });
+    if (written === undefined || written === null) return false;
+    await load();
+    return true;
+  };
 
   const saveRequestedOn = async (id: string, value: string) => {
     const saved = await run('Simpan tanggal diminta', () =>
@@ -884,9 +934,17 @@ export function FinishLineSwimlane({
                       }}
                     >
                       <div className="h-1 rounded-sm bg-foreground opacity-15" />
-                      <p className="pt-1.5 text-[9px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-secondary">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedPhaseId(phase.id);
+                          setSelectedLaneKey(null);
+                          setSelectedLabel(null);
+                        }}
+                        className="block pt-1.5 text-left text-[9px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
                         {phase.name}
-                      </p>
+                      </button>
                     </div>
                   ))}
 
@@ -909,9 +967,16 @@ export function FinishLineSwimlane({
                         onlyGap={onlyGap}
                         highlighted={highlighted}
                         selectedLabel={selectedLabel}
-                        onSelect={(label) =>
-                          setSelectedLabel((current) => (current === label ? null : label))
-                        }
+                        onSelect={(label) => {
+                          setSelectedPhaseId(null);
+                          setSelectedLaneKey(null);
+                          setSelectedLabel((current) => (current === label ? null : label));
+                        }}
+                        onSelectLane={() => {
+                          setSelectedLabel(null);
+                          setSelectedPhaseId(null);
+                          setSelectedLaneKey(lane.key);
+                        }}
                       />
                     );
                   })}
@@ -950,9 +1015,61 @@ export function FinishLineSwimlane({
               </p>
             </div>
 
+            {selectedLaneKey && (
+              <LanePhasePanel
+                title={`Lane ${selectedLaneKey}`}
+                onClose={() => setSelectedLaneKey(null)}
+              >
+                {(() => {
+                  const lane = lanes.find((candidate) => candidate.key === selectedLaneKey);
+                  if (!lane) return null;
+                  return (
+                    <LaneTextForm
+                      lane={lane}
+                      context={{
+                        isPending,
+                        submit: (patch, history) =>
+                          saveText(
+                            'Simpan lane',
+                            () => repository.updateProcessLaneText(lane.entityCode, lane.key, patch),
+                            history,
+                          ),
+                      }}
+                      onDone={() => setSelectedLaneKey(null)}
+                    />
+                  );
+                })()}
+              </LanePhasePanel>
+            )}
+
+            {selectedPhaseId && (
+              <LanePhasePanel title="Fase" onClose={() => setSelectedPhaseId(null)}>
+                {(() => {
+                  const phase = phases.find((candidate) => candidate.id === selectedPhaseId);
+                  if (!phase) return null;
+                  return (
+                    <PhaseTextForm
+                      phase={phase}
+                      context={{
+                        isPending,
+                        submit: (patch, history) =>
+                          saveText(
+                            'Simpan fase',
+                            () => repository.updateProcessPhaseText(phase.id, patch),
+                            history,
+                          ),
+                      }}
+                      onDone={() => setSelectedPhaseId(null)}
+                    />
+                  );
+                })()}
+              </LanePhasePanel>
+            )}
+
             {selectedStep && (
               <StepPanel
                 step={selectedStep}
+                gates={gates}
                 trackDefByCode={trackDefByCode}
                 laneLabel={
                   lanes.find((lane) => lane.key === selectedStep.laneKey)?.label ??
@@ -967,6 +1084,15 @@ export function FinishLineSwimlane({
                 )}
                 isPending={isPending}
                 onSaveRequestedOn={saveRequestedOn}
+                onSaveStep={(patch, history) =>
+                  saveText('Simpan teks step', () => repository.updateProcessStepText(selectedStep.id, patch), history)
+                }
+                onSaveNeed={(id, patch, history) =>
+                  saveText('Simpan kebutuhan data', () => repository.updateProcessNeedText(id, patch), history)
+                }
+                onSaveGate={(id, patch, history) =>
+                  saveText('Simpan gate', () => repository.updateProcessGateText(id, patch), history)
+                }
                 onOpenFinishLineItem={onOpenMatrix}
                 onClose={() => setSelectedLabel(null)}
               />
@@ -1085,6 +1211,7 @@ function LaneRow({
   highlighted,
   selectedLabel,
   onSelect,
+  onSelectLane,
 }: {
   lane: ProcessLane;
   laneRow: number;
@@ -1101,6 +1228,7 @@ function LaneRow({
   highlighted: ReadonlySet<string> | null;
   selectedLabel: string | null;
   onSelect: (label: string) => void;
+  onSelectLane: () => void;
 }) {
   const laneCells = [...cells.entries()].filter(([key]) => key.startsWith(`${lane.key}:`));
   return (
@@ -1131,9 +1259,13 @@ function LaneRow({
             dimmedLabel && 'opacity-40',
           )}
         >
-          <p className="text-[11px] font-bold uppercase leading-4 tracking-[0.1em] text-foreground">
+          <button
+            type="button"
+            onClick={onSelectLane}
+            className="block w-full text-left text-[11px] font-bold uppercase leading-4 tracking-[0.1em] text-foreground hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
             {lane.label}
-          </p>
+          </button>
           {lane.description && (
             <p className="mt-1 text-[11px] leading-4 text-foreground-muted">{lane.description}</p>
           )}
@@ -1390,8 +1522,41 @@ function BoxGroup({
   );
 }
 
+/**
+ * The shell lanes and phases share. They carry one and two editable fields
+ * respectively — far too little to justify a StepPanel of their own, and far
+ * too much to justify an admin page. Same aside, same close button, opened
+ * from the object itself.
+ */
+function LanePhasePanel({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <aside
+      className="w-full shrink-0 self-start rounded-lg border border-border bg-card shadow-card lg:sticky lg:top-4 lg:w-[380px]"
+      aria-label={title}
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-border-subtle px-4 py-3">
+        <p className="surface-label">{title}</p>
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Tutup panel">
+          <X className="size-4" />
+        </Button>
+      </div>
+      <div className="max-h-[70vh] overflow-y-auto px-4 py-3">{children}</div>
+    </aside>
+  );
+}
+
 // --- detail panel (§6.4) ----------------------------------------------------
-// Read-only except requested_on per need row. Opens beside the canvas on
+// Opens READING, and switches one object at a time into a form — see
+// ProcessTextEditor.tsx for why nothing here is an input until asked for.
+// Opens beside the canvas on
 // wide screens, below it on narrow ones; no overlay, no animation — the
 // drawer stays the app's only animation. This is where the prose lives:
 // risk, control and note render in full here and ONLY here, and the gate
@@ -1399,6 +1564,7 @@ function BoxGroup({
 
 function StepPanel({
   step,
+  gates,
   trackDefByCode,
   laneLabel,
   needs,
@@ -1406,10 +1572,14 @@ function StepPanel({
   finishLineRows,
   isPending,
   onSaveRequestedOn,
+  onSaveStep,
+  onSaveNeed,
+  onSaveGate,
   onOpenFinishLineItem,
   onClose,
 }: {
   step: ProcessStep;
+  gates: ProcessGate[];
   trackDefByCode: Map<string, ProcessTrackDef>;
   laneLabel: string;
   needs: ProcessNeed[];
@@ -1417,9 +1587,25 @@ function StepPanel({
   finishLineRows: FinishLineItem[];
   isPending: boolean;
   onSaveRequestedOn: (id: string, value: string) => Promise<void>;
+  onSaveStep: (patch: ProcessStepTextWrite, history: TextHistoryRow[]) => Promise<boolean>;
+  onSaveNeed: (
+    id: string,
+    patch: ProcessNeedTextWrite,
+    history: TextHistoryRow[],
+  ) => Promise<boolean>;
+  onSaveGate: (
+    id: string,
+    patch: ProcessGateTextWrite,
+    history: TextHistoryRow[],
+  ) => Promise<boolean>;
   onOpenFinishLineItem: (itemId: string) => void;
   onClose: () => void;
 }) {
+  // Read first. One affordance per editable object switches that object into
+  // a form; nothing becomes an input just because the panel opened.
+  const [editing, setEditing] = useState<
+    { kind: 'step' } | { kind: 'need'; id: string } | { kind: 'gate' } | null
+  >(null);
   return (
     <aside
       className="w-full shrink-0 self-start rounded-lg border border-border bg-card shadow-card lg:sticky lg:top-4 lg:w-[380px]"
@@ -1440,12 +1626,27 @@ function StepPanel({
             )}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={onClose} aria-label="Tutup panel">
-          <X className="size-4" />
-        </Button>
+        <span className="flex shrink-0 items-center gap-2">
+          {editing === null && <EditTrigger onClick={() => setEditing({ kind: 'step' })} />}
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Tutup panel">
+            <X className="size-4" />
+          </Button>
+        </span>
       </div>
 
       <div className="max-h-[70vh] overflow-y-auto px-4 py-3 lg:max-h-[calc(100vh-8rem)]">
+        {editing?.kind === 'step' ? (
+          <StepTextForm
+            step={step}
+            gates={gates}
+            context={{
+              isPending,
+              submit: (patch, history) => onSaveStep(patch, history),
+            }}
+            onDone={() => setEditing(null)}
+          />
+        ) : (
+          <>
         {step.risk && <PanelProse title="Risiko" body={step.risk} />}
         {step.control && <PanelProse title="Kontrol" body={step.control} />}
         {step.note && <PanelProse title="Catatan" body={step.note} />}
@@ -1484,11 +1685,29 @@ function StepPanel({
         {needs.length > 0 && (
           <PanelSection title="Data yang dibutuhkan">
             <ul className="divide-y divide-border-subtle">
-              {needs.map((need) => (
+              {needs.map((need) =>
+                editing?.kind === 'need' && editing.id === need.id ? (
+                  <li key={need.id} className="py-2 first:pt-0 last:pb-0">
+                    <NeedTextForm
+                      need={need}
+                      context={{
+                        isPending,
+                        submit: (patch, history) => onSaveNeed(need.id, patch, history),
+                      }}
+                      onDone={() => setEditing(null)}
+                    />
+                  </li>
+                ) : (
                 <li key={need.id} className="py-2 first:pt-0 last:pb-0">
                   <p className="flex flex-wrap items-center gap-1">
                     <NeedStatusChip status={need.status} />
                     <NeedKindChip kind={need.kind} />
+                    <span className="ml-auto">
+                      <EditTrigger
+                        onClick={() => setEditing({ kind: 'need', id: need.id })}
+                        label="Edit"
+                      />
+                    </span>
                   </p>
                   <p className="mt-1 text-xs font-medium leading-5 text-foreground">{need.item}</p>
                   {(need.owner || need.src) && (
@@ -1508,12 +1727,25 @@ function StepPanel({
                     />
                   </label>
                 </li>
-              ))}
+                ),
+              )}
             </ul>
           </PanelSection>
         )}
 
-        {gate && (
+        {gate && editing?.kind === 'gate' && (
+          <PanelSection title="Gate">
+            <GateTextForm
+              gate={gate}
+              context={{
+                isPending,
+                submit: (patch, history) => onSaveGate(gate.id, patch, history),
+              }}
+              onDone={() => setEditing(null)}
+            />
+          </PanelSection>
+        )}
+        {gate && editing?.kind !== 'gate' && (
           <PanelSection title="Gate">
             <p className="flex flex-wrap items-center gap-1.5">
               <GateChip gate={gate} detail />
@@ -1528,6 +1760,9 @@ function StepPanel({
             {gate.unblock && (
               <p className="mt-1.5 text-xs leading-5 text-foreground-secondary">{gate.unblock}</p>
             )}
+            <p className="mt-1.5">
+              <EditTrigger onClick={() => setEditing({ kind: 'gate' })} label="Edit gate" />
+            </p>
           </PanelSection>
         )}
 
@@ -1547,6 +1782,8 @@ function StepPanel({
               ))}
             </ul>
           </PanelSection>
+        )}
+          </>
         )}
       </div>
     </aside>

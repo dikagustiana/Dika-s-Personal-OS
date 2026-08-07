@@ -1,7 +1,12 @@
 /**
- * The process feature's ONE write, tested through the repository — and the
- * shape guarantee that every process read is a ReadResult, so a missing
+ * requested_on — the process feature's first write, and still the only one
+ * reachable without opening a panel — tested through the repository, plus the
+ * shape guarantee that every process read is a ReadResult so a missing
  * relation can never silently become [].
+ *
+ * The text writes added alongside it live in views/work/processTextEditing.
+ * test.tsx and logic/processTextEdit.test.ts; the owner-only rule asserted
+ * below covers them too, since they go through the same assertOwnerWrite.
  */
 import { describe, expect, it } from 'vitest';
 import { MockRepository } from './mockRepository';
@@ -27,7 +32,7 @@ const CONTRIBUTOR = {
   entityCodes: ['SAMB'],
 };
 
-describe('requested_on is the only writable field, and only for the owner', () => {
+describe('requested_on writes, and only for the owner', () => {
   it('sets and clears the date through the repository', async () => {
     const repo = new MockRepository();
     seedNeeds(repo, [need('n1')]);
@@ -63,6 +68,56 @@ describe('requested_on is the only writable field, and only for the owner', () =
     await expect(repo.setProcessNeedRequestedOn('ghost', '2026-08-06')).rejects.toThrow(
       'Need not found: ghost',
     );
+  });
+});
+
+describe('the text writes carry the same owner-only rule', () => {
+  const patch = {
+    item: 'Diubah',
+    kind: 'TRANSAKSI',
+    src: null,
+    owner: null,
+    status: 'BELUM',
+    requestedOn: null,
+  };
+
+  it('rejects a contributor loudly, exactly as requested_on does', async () => {
+    const repo = new MockRepository();
+    seedNeeds(repo, [need('n1')]);
+    repo.setViewer(CONTRIBUTOR);
+    await expect(repo.updateProcessNeedText('n1', patch)).rejects.toThrow(/row-level security/);
+  });
+
+  it('leaves the row untouched when the write is rejected', async () => {
+    const repo = new MockRepository();
+    seedNeeds(repo, [need('n1', { item: 'Asli' })]);
+    repo.setViewer(CONTRIBUTOR);
+    await expect(repo.updateProcessNeedText('n1', patch)).rejects.toThrow();
+    repo.setViewer({ kind: 'owner' });
+    const rows = await repo.listProcessNeeds();
+    expect(rows.ok && rows.rows[0].item).toBe('Asli');
+  });
+
+  it('fails loudly for an unknown row rather than writing nothing quietly', async () => {
+    const repo = new MockRepository();
+    await expect(repo.updateProcessNeedText('ghost', patch)).rejects.toThrow(
+      'Need not found: ghost',
+    );
+  });
+
+  /**
+   * The history table ships AFTER the frontend, so a missing log must cost the
+   * audit line and nothing else — never the edit. `false` rather than a throw
+   * is what lets the caller tell those two apart.
+   */
+  it('reports a missing history relation as false, not as a failure', async () => {
+    const repo = new MockRepository();
+    const rows = [
+      { tableName: 'os_process_needs', rowId: 'n1', field: 'item', oldValue: 'a', newValue: 'b' },
+    ];
+    expect(await repo.appendProcessTextHistory(rows)).toBe(true);
+    (repo as unknown as { processHistoryTableExists: boolean }).processHistoryTableExists = false;
+    expect(await repo.appendProcessTextHistory(rows)).toBe(false);
   });
 });
 

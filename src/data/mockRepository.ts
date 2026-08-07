@@ -52,6 +52,14 @@ import type {
   TaskStatus,
   WeeklyPlan,
 } from './types';
+import type {
+  ProcessGateTextWrite,
+  ProcessLaneTextWrite,
+  ProcessNeedTextWrite,
+  ProcessPhaseTextWrite,
+  ProcessStepTextWrite,
+  TextHistoryRow,
+} from '../logic/processTextEdit';
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -854,9 +862,10 @@ export class MockRepository implements Repository {
   }
 
   /**
-   * The ONE write in the process feature. requested_on only — the structure
-   * is composed outside the app, and cell state is not reachable from here
-   * at all.
+   * requested_on, kept as its own method because the register edits it inline
+   * without entering the panel's edit mode. The broader TEXT writes are
+   * below; STRUCTURE is still unreachable from here by construction — the
+   * patch types cannot name label, slot, lane_key, track or entity_code.
    */
   async setProcessNeedRequestedOn(id: string, requestedOn: string | null): Promise<ProcessNeed> {
     this.assertOwnerWrite('setProcessNeedRequestedOn');
@@ -867,6 +876,119 @@ export class MockRepository implements Repository {
     else delete next.requestedOn;
     this.processNeeds.set(id, clone(next));
     return clone(next);
+  }
+
+  // --- process TEXT writes -------------------------------------------------
+  //
+  // Mirrors the Supabase path: text only, mutating the same private stores the
+  // reads serve, so a test can save and read back. Cell state stays
+  // unreachable from every one of them.
+
+  private readonly processTextHistory: TextHistoryRow[] = [];
+  /** Test seam: set false to simulate migration 20260806000055 not applied. */
+  private processHistoryTableExists = true;
+
+  async updateProcessStepText(id: string, patch: ProcessStepTextWrite): Promise<ProcessStep> {
+    this.assertOwnerWrite('updateProcessStepText');
+    const index = this.processSteps.findIndex((step) => step.id === id);
+    if (index < 0) throw new Error(`Step not found: ${id}`);
+    const current = this.processSteps[index];
+    const next: ProcessStep = {
+      ...current,
+      name: patch.name,
+      docs: patch.docs,
+      coa: patch.coa,
+      drivers: patch.drivers,
+    };
+    // Empty means absent, the same rule rowToProcessStep applies on read.
+    for (const [key, value] of [
+      ['co', patch.co],
+      ['risk', patch.risk],
+      ['control', patch.control],
+      ['note', patch.note],
+      ['gateId', patch.gateId],
+    ] as const) {
+      const bag = next as unknown as Record<string, unknown>;
+      if (value) bag[key] = value;
+      else delete bag[key];
+    }
+    this.processSteps[index] = clone(next);
+    return clone(next);
+  }
+
+  async updateProcessNeedText(id: string, patch: ProcessNeedTextWrite): Promise<ProcessNeed> {
+    this.assertOwnerWrite('updateProcessNeedText');
+    const current = this.processNeeds.get(id);
+    if (!current) throw new Error(`Need not found: ${id}`);
+    const next: ProcessNeed = {
+      ...current,
+      item: patch.item,
+      kind: patch.kind as ProcessNeed['kind'],
+      status: patch.status as ProcessNeed['status'],
+    };
+    for (const [key, value] of [
+      ['src', patch.src],
+      ['owner', patch.owner],
+      ['requestedOn', patch.requestedOn],
+    ] as const) {
+      const bag = next as unknown as Record<string, unknown>;
+      if (value) bag[key] = value;
+      else delete bag[key];
+    }
+    this.processNeeds.set(id, clone(next));
+    return clone(next);
+  }
+
+  async updateProcessGateText(id: string, patch: ProcessGateTextWrite): Promise<ProcessGate> {
+    this.assertOwnerWrite('updateProcessGateText');
+    const index = this.processGates.findIndex((gate) => gate.id === id);
+    if (index < 0) throw new Error(`Gate not found: ${id}`);
+    const next: ProcessGate = { ...this.processGates[index], title: patch.title };
+    for (const [key, value] of [
+      ['sub', patch.sub],
+      ['owner', patch.owner],
+      ['unblock', patch.unblock],
+    ] as const) {
+      const bag = next as unknown as Record<string, unknown>;
+      if (value) bag[key] = value;
+      else delete bag[key];
+    }
+    this.processGates[index] = clone(next);
+    return clone(next);
+  }
+
+  async updateProcessLaneText(
+    entityCode: string,
+    key: string,
+    patch: ProcessLaneTextWrite,
+  ): Promise<ProcessLane> {
+    this.assertOwnerWrite('updateProcessLaneText');
+    const index = this.processLanes.findIndex(
+      (lane) => lane.entityCode === entityCode && lane.key === key,
+    );
+    if (index < 0) throw new Error(`Lane not found: ${entityCode}/${key}`);
+    const next: ProcessLane = { ...this.processLanes[index], label: patch.label };
+    if (patch.description) next.description = patch.description;
+    else delete next.description;
+    this.processLanes[index] = clone(next);
+    return clone(next);
+  }
+
+  async updateProcessPhaseText(id: string, patch: ProcessPhaseTextWrite): Promise<ProcessPhase> {
+    this.assertOwnerWrite('updateProcessPhaseText');
+    const index = this.processPhases.findIndex((phase) => phase.id === id);
+    if (index < 0) throw new Error(`Phase not found: ${id}`);
+    const next: ProcessPhase = { ...this.processPhases[index], name: patch.name };
+    this.processPhases[index] = clone(next);
+    return clone(next);
+  }
+
+  async appendProcessTextHistory(rows: TextHistoryRow[]): Promise<boolean> {
+    if (rows.length === 0) return true;
+    // The missing-relation path: the log is skipped, the edit already stood.
+    if (!this.processHistoryTableExists) return false;
+    this.processTextHistory.push(...clone(rows));
+    return true;
   }
 
   // --- tasks + the project-membership axis (slice 1) ------------------------
