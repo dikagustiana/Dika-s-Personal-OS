@@ -1,5 +1,16 @@
-import { Check, Copy, Lock, RefreshCw, UserPlus, UserX, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import {
+  Check,
+  Copy,
+  Eye,
+  EyeOff,
+  Link2,
+  Lock,
+  RefreshCw,
+  UserPlus,
+  UserX,
+  X,
+} from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -8,6 +19,17 @@ import {
   provisionCollaborator,
   type ProvisionedUser,
 } from '../../data/supabaseRepository';
+import {
+  collabLinkStatus,
+  describeCollabLink,
+  forgetCollabLink,
+  maskCollabLink,
+  normalizeVaultEmail,
+  recallAllCollabLinks,
+  rememberCollabLink,
+  type CollabLinkVault,
+  type StoredCollabLink,
+} from '../../data/collabLinkVault';
 import type { Engagement, FinishLineEntity, Project } from '../../data/types';
 import { useAppStore } from '../../store/appStore';
 import { cn } from '../../lib/utils';
@@ -41,6 +63,26 @@ import { cn } from '../../lib/utils';
  * Revoke removes MEMBERSHIP ON BOTH AXES — server-side, one audited action —
  * not the auth user: history rows keep their actor, and a membershipless
  * session reads nothing from its next query on.
+ *
+ * ---------------------------------------------------------------------------
+ * THE MINTED LINK IS THE FRAGILE THING, AND IT IS TREATED AS ONE.
+ *
+ * A minted link used to live in component state, so navigating off Finish
+ * line destroyed it. That is not a cosmetic loss: auth.one_time_tokens holds
+ * a UNIQUE index on (user_id, token_type), so there is exactly ONE live token
+ * per person and minting a replacement KILLS the one already handed over.
+ * Losing a link therefore meant cutting off whoever was holding it. Four
+ * rules follow, and each one is load-bearing:
+ *
+ *   1. A minted link is written to the vault (sessionStorage) and can be
+ *      RE-OPENED from its row for as long as it is valid — no re-mint.
+ *   2. It renders MASKED. This panel gets screenshotted and sent over chat;
+ *      five links in cleartext is five accounts handed out. Reveal and copy
+ *      are separate actions, and copy does not require reveal.
+ *   3. The panel closes only on a deliberate press, never on a timer.
+ *   4. "Tautan baru" says the old link dies BEFORE it runs, not after.
+ *
+ * No url or token is ever passed to console, a notice, or an error string.
  */
 
 const ENGAGEMENT_GROUPS: Array<{ engagement: Engagement; label: string; caution: boolean }> = [
@@ -52,6 +94,11 @@ const ENGAGEMENT_GROUPS: Array<{ engagement: Engagement; label: string; caution:
   // shared) but separated so Decks / Meta / PMO are never a mis-click away.
   { engagement: 'internal', label: 'INTERNAL — proyek pribadi pemilik, cek dua kali', caution: true },
 ];
+
+/** How often the "berlaku N menit lagi" line re-reads the clock. A countdown
+ *  that silently goes stale is worse than no countdown: it would still read
+ *  "47 menit lagi" an hour after the link died. */
+const CLOCK_TICK_MS = 30_000;
 
 export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] }) {
   const repository = useAppStore((state) => state.repository);
@@ -69,10 +116,25 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
   // Per-user project picker: which row is open, and which projects are ticked.
   const [grantingFor, setGrantingFor] = useState<string | null>(null);
   const [pendingProjects, setPendingProjects] = useState<Set<string>>(new Set());
-  // The freshly minted link, per email — shown once with a copy button, like
-  // the share-link card: what leaves this panel is the owner's to carry.
-  const [link, setLink] = useState<{ email: string; url: string; expiry: string } | null>(null);
+  // Every link this tab still holds, keyed by address. Seeded from the vault
+  // on mount, which is the whole point: the panel survives navigation now.
+  const [vault, setVault] = useState<CollabLinkVault>(() => recallAllCollabLinks());
+  // Which address's link panel is open. Opening one NEVER mints — it reads
+  // what is already held.
+  const [openFor, setOpenFor] = useState<string | null>(null);
+  const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  // One clock for every countdown on the card. It also re-prunes the vault,
+  // so an expired link stops being offered without anyone touching the page.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+      setVault(recallAllCollabLinks());
+    }, CLOCK_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const call = useCallback(
     async <T,>(fn: (appKey: string) => Promise<T>): Promise<T | undefined> => {
@@ -121,6 +183,15 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     void refresh();
   }, [refresh]);
 
+  /** Records a freshly minted link and opens it, masked. */
+  const holdLink = (target: string, url: string, expiresAt?: number) => {
+    const stored = rememberCollabLink({ email: target, url, expiresAt });
+    setVault(recallAllCollabLinks());
+    setOpenFor(stored.email);
+    setRevealed(false);
+    setCopied(false);
+  };
+
   const create = async () => {
     const trimmed = email.trim();
     if (!trimmed || codes.size === 0) return;
@@ -136,15 +207,30 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       setNotice(result.error ?? 'Tidak ada tautan yang dihasilkan.');
       return;
     }
-    setLink({ email: result.email ?? trimmed, url: result.link, expiry: result.expiry ?? '' });
-    setCopied(false);
+    holdLink(result.email ?? trimmed, result.link, expiryFrom(result.expiresAt));
     setEmail('');
     setCodes(new Set());
     setCreating(false);
     await refresh();
   };
 
+  /**
+   * Mints a REPLACEMENT link. The confirmation is not ceremony: the unique
+   * index on auth.one_time_tokens means the previous token dies the instant
+   * this succeeds, so anyone already holding it is cut off. The owner has to
+   * know that before the call, which is why this is the only place in the
+   * panel where a read-shaped button asks first.
+   */
   const makeLink = async (target: string) => {
+    if (
+      !window.confirm(
+        `Buat tautan masuk baru untuk ${target}?\n\n` +
+          'Tautan lama untuk alamat ini LANGSUNG BATAL. Kalau tautan itu sudah ' +
+          'dikirim dan belum dipakai, orangnya akan gagal masuk dan perlu ' +
+          'dikirimi yang baru.',
+      )
+    )
+      return;
     const result = await call((appKey) =>
       provisionCollaborator(appKey, { action: 'link', email: target }),
     );
@@ -153,7 +239,19 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       setNotice(result.error ?? 'Tidak ada tautan yang dihasilkan.');
       return;
     }
-    setLink({ email: target, url: result.link, expiry: result.expiry ?? '' });
+    holdLink(target, result.link, expiryFrom(result.expiresAt));
+  };
+
+  /** Re-opens a link already held. Mints nothing, so it is always safe. */
+  const showLink = (target: string) => {
+    setOpenFor(normalizeVaultEmail(target));
+    setRevealed(false);
+    setCopied(false);
+  };
+
+  const closeLink = () => {
+    setOpenFor(null);
+    setRevealed(false);
     setCopied(false);
   };
 
@@ -172,7 +270,14 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       setNotice(result.error);
       return;
     }
-    if (link?.email === target) setLink(null);
+    // The grants are gone, so any link we still hold opens nothing. Dropping
+    // it is the one case where discarding a link loses nothing. A DEAD OWNER
+    // SESSION is deliberately NOT such a case: clearing there would recreate
+    // the original bug at the worst moment, forcing a re-mint that cuts off
+    // whoever is holding the current link.
+    forgetCollabLink(target);
+    setVault(recallAllCollabLinks());
+    if (openFor === normalizeVaultEmail(target)) closeLink();
     await refresh();
   };
 
@@ -232,15 +337,27 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     workProjects.find((project) => project.id === projectId)?.title ??
     `proyek ${projectId.slice(0, 8)}`;
 
+  const openEntry: StoredCollabLink | null = openFor ? (vault[openFor] ?? null) : null;
+
   const copyLink = async () => {
-    if (!link) return;
+    if (!openEntry) return;
     try {
-      await navigator.clipboard.writeText(link.url);
+      // The REAL url, whether or not it is on screen. Copying must never
+      // require revealing — that is the entire point of the masked default.
+      await navigator.clipboard.writeText(openEntry.url);
       setCopied(true);
     } catch {
-      setNotice('Salin manual dari kolom di bawah.');
+      setNotice('Tidak bisa menyalin otomatis — buka tautannya lalu salin manual.');
     }
   };
+
+  const openStatus = useMemo(() => {
+    if (!openEntry) return null;
+    const user = users?.find(
+      (candidate) => normalizeVaultEmail(candidate.email) === openEntry.email,
+    );
+    return collabLinkStatus(openEntry, user?.lastSignInAt ?? null, now);
+  }, [openEntry, users, now]);
 
   return (
     <Card className="mt-5">
@@ -315,19 +432,60 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
           </div>
         )}
 
-        {link && (
+        {/* THE MASKED LINK PANEL. Closed by a press, never by a timer, and
+            masked until asked otherwise — this card gets screenshotted. The
+            destination stays legible while the secret does not, so "is this
+            pointing at my own site?" costs nothing to check. */}
+        {openEntry && (
           <div className="mt-3 rounded-md border border-primary/40 bg-primary/5 p-3">
-            <p className="text-[11px] font-semibold text-foreground">
-              Tautan masuk untuk {link.email}
-            </p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <Input readOnly value={link.url} aria-label="Tautan masuk kolaborator" />
+            <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+              <p className="min-w-0 break-words text-[11px] font-semibold text-foreground">
+                Tautan masuk untuk {openEntry.email}
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={closeLink}
+                aria-label="Tutup panel tautan"
+              >
+                <X className="size-3.5" />
+                Tutup
+              </Button>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-2">
+              <Input
+                readOnly
+                className="min-w-0 flex-1"
+                value={revealed ? openEntry.url : maskCollabLink(openEntry.url)}
+                aria-label={
+                  revealed
+                    ? 'Tautan masuk kolaborator, sedang ditampilkan'
+                    : 'Tautan masuk kolaborator, tersembunyi — pakai tombol Salin atau Lihat'
+                }
+              />
+              {/* Copy is the heaviest control here: it is the reason the panel
+                  is open. Reveal steps down to ghost — it is an escape hatch
+                  for manual copying, not the main path. */}
               <Button variant="secondary" size="sm" onClick={() => void copyLink()}>
                 <Copy className="size-4" />
                 {copied ? 'Tersalin' : 'Salin'}
               </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRevealed((current) => !current)}
+                aria-pressed={revealed}
+              >
+                {revealed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                {revealed ? 'Sembunyikan' : 'Lihat'}
+              </Button>
             </div>
-            <p className="mt-1.5 text-[10px] leading-4 text-foreground-muted">{link.expiry}</p>
+            <p className="mt-1.5 text-[10px] leading-4 tabular-nums text-foreground-muted">
+              {openStatus && openStatus.kind !== 'none'
+                ? `${describeCollabLink(openStatus)} · `
+                : ''}
+              Sekali pakai. Membuat tautan baru untuk alamat ini membatalkan yang ini.
+            </p>
           </div>
         )}
 
@@ -345,8 +503,17 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                 const grantable = workProjects.filter(
                   (project) => !grantedIds.has(project.id),
                 );
-                const hasAccess = user.entityCodes.length > 0 || user.projectIds.length > 0;
+                // TWO DIFFERENT QUESTIONS, and conflating them was a bug. The
+                // server refuses to mint for a user with no ENTITY membership
+                // (a link into zero entities signs them straight back out), so
+                // the link gate must ask exactly that. Revoke, meanwhile, has
+                // something to do whenever EITHER axis holds a grant.
+                const canLink = user.entityCodes.length > 0;
+                const canRevoke = user.entityCodes.length > 0 || user.projectIds.length > 0;
                 const pickerOpen = grantingFor === user.userId;
+                const held = vault[normalizeVaultEmail(user.email)] ?? null;
+                const status = collabLinkStatus(held, user.lastSignInAt, now);
+                const statusLine = describeCollabLink(status);
                 return (
                   <li key={user.userId} className="py-2">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -358,15 +525,29 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                           ? `masuk ${user.lastSignInAt.slice(0, 16).replace('T', ' ')}`
                           : 'belum pernah masuk'}
                       </span>
+                      {/* Only rendered when a link is actually held, so its
+                          presence is itself the signal that one can be
+                          recovered without minting. */}
+                      {status.kind === 'live' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => showLink(user.email)}
+                          title="Buka lagi tautan yang sudah dibuat — tidak membuat yang baru"
+                        >
+                          <Link2 className="size-3.5" />
+                          Lihat tautan
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => void makeLink(user.email)}
-                        disabled={busy || sessionDead || !hasAccess}
+                        disabled={busy || sessionDead || !canLink}
                         title={
-                          hasAccess
-                            ? 'Hasilkan tautan masuk baru'
-                            : 'Tanpa akses — beri entitas atau proyek dulu'
+                          canLink
+                            ? 'Buat tautan masuk baru — tautan lama untuk alamat ini langsung batal'
+                            : 'Tanpa entitas — tautan tidak akan membuka apa pun'
                         }
                       >
                         <RefreshCw className="size-3.5" />
@@ -376,13 +557,31 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                         variant="ghost"
                         size="sm"
                         onClick={() => void revoke(user.email)}
-                        disabled={busy || sessionDead || !hasAccess}
-                        title="Hapus keanggotaan entitas DAN proyek; akun dan riwayatnya tetap"
+                        disabled={busy || sessionDead || !canRevoke}
+                        title={
+                          canRevoke
+                            ? 'Hapus keanggotaan entitas DAN proyek; akun dan riwayatnya tetap'
+                            : 'Tidak ada akses yang bisa dicabut'
+                        }
                       >
                         <UserX className="size-3.5" />
                         Cabut
                       </Button>
                     </div>
+                    {statusLine && (
+                      <p className="mt-1 text-[10px] leading-4 tabular-nums text-foreground-secondary">
+                        {statusLine}
+                      </p>
+                    )}
+                    {/* The dimmed row, explained in the open rather than in a
+                        tooltip. A disabled control whose reason is invisible
+                        reads as broken software. */}
+                    {!canLink && (
+                      <p className="mt-1 text-[10px] leading-4 text-foreground-muted">
+                        Tanpa entitas, tautan masuk tidak dibuat: sesi tanpa keanggotaan
+                        langsung dikeluarkan lagi. Beri entitas dulu.
+                      </p>
+                    )}
                     {/* Two grant sets, labelled apart: entity access is the
                         Finish line column, project access is tasks. One chip
                         row each, so they can never be read as one thing. */}
@@ -510,4 +709,15 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * The server's authoritative expiry, when it sends one. It is an ISO string
+ * on the wire; anything unparseable falls back to the client's own default so
+ * the panel is correct with or without an Edge Function redeploy.
+ */
+function expiryFrom(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

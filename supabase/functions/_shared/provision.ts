@@ -20,6 +20,22 @@ const DEFAULT_SITE = 'https://dika-personal-os.vercel.app';
 export const LINK_EXPIRY_NOTE =
   'Sekali pakai; berlaku mengikuti masa OTP email proyek (default Supabase: 1 jam). Kirim segera.';
 
+/**
+ * The assumed life of a minted link, in seconds — the Supabase default OTP
+ * expiry. GoTrue does not report the deadline back through generateLink, so
+ * this is the honest best estimate rather than a reading of the setting; if
+ * the project's OTP expiry is changed, change it here too.
+ *
+ * It exists so the panel can show a real countdown instead of one fixed
+ * sentence. The client treats it as advisory and defaults to the same hour on
+ * its own, so this file and the frontend can ship independently.
+ */
+export const LINK_TTL_SECONDS = 3600;
+
+function expiresAt(): string {
+  return new Date(Date.now() + LINK_TTL_SECONDS * 1000).toISOString();
+}
+
 export type ProvisionOutcome =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; status: number; error: string };
@@ -163,7 +179,14 @@ export async function provisionCreate(
   await audit(admin, 'create', email, granted);
   return {
     ok: true,
-    body: { userId: user.id, email, entityCodes: granted, link, expiry: LINK_EXPIRY_NOTE },
+    body: {
+      userId: user.id,
+      email,
+      entityCodes: granted,
+      link,
+      expiry: LINK_EXPIRY_NOTE,
+      expiresAt: expiresAt(),
+    },
   };
 }
 
@@ -184,7 +207,17 @@ export async function provisionLink(
   }
   const link = await generateAppLink(admin, email, site);
   await audit(admin, 'link', email, codes);
-  return { ok: true, body: { userId: user.id, email, entityCodes: codes, link, expiry: LINK_EXPIRY_NOTE } };
+  return {
+    ok: true,
+    body: {
+      userId: user.id,
+      email,
+      entityCodes: codes,
+      link,
+      expiry: LINK_EXPIRY_NOTE,
+      expiresAt: expiresAt(),
+    },
+  };
 }
 
 export async function provisionRevoke(
