@@ -1,9 +1,10 @@
--- Standing checks for the entity-aware process schema (52) and the two seeds
--- (51 SAMB, 53 ARBI). Same contract as integrity_checks.sql: every query
--- returns ZERO ROWS when healthy; a hit names what drifted. Read-only; no
--- secret needed beyond a connection that can select the os_process_* tables.
+-- Standing checks for the entity-aware process schema (52) and the three
+-- seeds (51 SAMB, 53 ARBI, 20260807000060 KGR). Same contract as
+-- integrity_checks.sql: every query returns ZERO ROWS when healthy; a hit
+-- names what drifted. Read-only; no secret needed beyond a connection that
+-- can select the os_process_* tables.
 --
--- Run after applying 52+53, and again any time the seeds are re-run.
+-- Run after applying 52 and any seed, and again any time a seed is re-run.
 
 -- 1. Per-entity counts pinned by the seeds. A row here means a seed was
 --    partially applied or hand-edited — find out which before re-running
@@ -26,6 +27,15 @@ from (
   union all select 'ARBI', 'steps',  (select count(*) from public.os_process_steps  where entity_code = 'ARBI'), 23
   union all select 'ARBI', 'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'ARBI'), 112
   union all select 'ARBI', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'ARBI'), 37
+  union all select 'KGR',  'lanes',  (select count(*) from public.os_process_lanes  where entity_code = 'KGR'), 9
+  union all select 'KGR',  'phases', (select count(*) from public.os_process_phases where entity_code = 'KGR'), 10
+  union all select 'KGR',  'gates',  (select count(*) from public.os_process_gates  where entity_code = 'KGR'), 40
+  union all select 'KGR',  'steps',  (select count(*) from public.os_process_steps  where entity_code = 'KGR'), 33
+  union all select 'KGR',  'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'KGR'), 101
+  -- 0 is a pin, not a placeholder: KGR's bridge is deliberately absent until
+  -- the poultry rows exist (Kelompok 2 of the reconciliation). A non-zero
+  -- here before that decision means someone authored edges out of order.
+  union all select 'KGR',  'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'KGR'), 0
 ) t
 where n <> expected;
 

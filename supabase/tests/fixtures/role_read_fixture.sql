@@ -33,12 +33,17 @@ values
   ('22222222-2222-4222-8222-222222222222', 'arbi-only-member@example.test')
 on conflict (id) do nothing;
 
--- Contributor A holds all five entities — the shape of the real collaborator
--- who prompted the member policies. Only SAMB and ARBI have process chains,
--- so A should read exactly what the owner reads.
+-- Contributor A holds the five ORIGINAL entities — the shape of the real
+-- collaborator who prompted the member policies. PINNED BY CODE, not read
+-- from os_finish_line_entities: 20260807000059 added MAM and KGR to that
+-- table with deliberately zero memberships (nobody is granted a new column
+-- automatically), and a fixture that selects every entity row would quietly
+-- re-grant them here the moment it replays. With KGR's chain seeded, A now
+-- reads LESS than the owner — SAMB and ARBI, zero KGR — and the suite
+-- asserts exactly that.
 insert into public.os_entity_members (user_id, entity_code)
 select '11111111-1111-4111-8111-111111111111'::uuid, code
-from public.os_finish_line_entities
+from unnest(array['SAMB', 'ASI', 'ARBI', 'KNI', 'KDU']) as code
 on conflict do nothing;
 
 -- Contributor B holds ARBI alone. B is the proof that the entity picker
