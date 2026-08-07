@@ -27,26 +27,32 @@
  */
 import { ChevronRight } from 'lucide-react';
 import type { ProcessReference } from '../../data/types';
+import type { ReadResult } from '../../data/readResult';
 import { cn } from '../../lib/utils';
 
 /** What the two pieces agree about, derived once by the view. */
 export type ReferencesState =
   | { kind: 'hidden' }
   | { kind: 'ready'; rows: ProcessReference[] }
-  | { kind: 'failed' };
+  | { kind: 'failed'; detail: string };
 
 /**
  * Absent relation or zero rows → hidden. A genuine failure stays visible, at
  * the smallest size that is still honest.
+ *
+ * THE FAILURE CARRIES ITS DETAIL NOW. It used to be a bare `{kind:'failed'}`
+ * and the trigger rendered the fixed string "Referensi tidak bisa dimuat" —
+ * which is precisely the summarised-away error §10.2 forbids. A 42501 here
+ * and a network timeout here produced the same five words, so the one case
+ * that is a permissions regression looked exactly like the one that is a bad
+ * wifi connection. The detail already names the operation and the code (see
+ * readResult.ts); this just stops throwing it away.
  */
-export function referencesState(read: {
-  ok: boolean;
-  reason?: 'missing-relation' | 'failed';
-  rows?: ProcessReference[];
-}): ReferencesState {
-  if (!read.ok) return read.reason === 'failed' ? { kind: 'failed' } : { kind: 'hidden' };
-  const rows = read.rows ?? [];
-  return rows.length === 0 ? { kind: 'hidden' } : { kind: 'ready', rows };
+export function referencesState(read: ReadResult<ProcessReference>): ReferencesState {
+  if (!read.ok) {
+    return read.reason === 'failed' ? { kind: 'failed', detail: read.detail } : { kind: 'hidden' };
+  }
+  return read.rows.length === 0 ? { kind: 'hidden' } : { kind: 'ready', rows: read.rows };
 }
 
 /**
@@ -66,9 +72,14 @@ export function ReferencesToggle({
 }) {
   if (state.kind === 'hidden') return null;
   if (state.kind === 'failed') {
+    // Verbatim, including the operation name and the SQLSTATE. It wraps
+    // rather than truncates: this only renders when a read actually failed,
+    // and a clipped error is a summarised error. `destructive` and not
+    // `escalate` — the surrounding amber means "a gap in the data", and this
+    // is not that; it is the read itself not completing.
     return (
-      <span className="text-[11px] leading-5 text-escalate">
-        Referensi tidak bisa dimuat
+      <span className="text-[11px] leading-5 text-destructive" role="status">
+        {state.detail}
       </span>
     );
   }

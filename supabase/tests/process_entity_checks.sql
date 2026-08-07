@@ -15,7 +15,11 @@ from (
   union all select 'SAMB', 'gates',  (select count(*) from public.os_process_gates  where entity_code = 'SAMB'), 15
   union all select 'SAMB', 'steps',  (select count(*) from public.os_process_steps  where entity_code = 'SAMB'), 30
   union all select 'SAMB', 'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'SAMB'), 118
-  union all select 'SAMB', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'SAMB'), 45
+  -- 46, not the seed's 45: migration 20260806000056 records the SAMB 18b →
+  -- `Sales — Logistic provider` pair that was applied live from another
+  -- session. A cluster with the seed but without 56 reports 45 here, and that
+  -- is a real drift worth a row — it means the replay is incomplete.
+  union all select 'SAMB', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'SAMB'), 46
   union all select 'ARBI', 'lanes',  (select count(*) from public.os_process_lanes  where entity_code = 'ARBI'), 6
   union all select 'ARBI', 'phases', (select count(*) from public.os_process_phases where entity_code = 'ARBI'), 7
   union all select 'ARBI', 'gates',  (select count(*) from public.os_process_gates  where entity_code = 'ARBI'), 12

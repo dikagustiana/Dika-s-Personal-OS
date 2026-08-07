@@ -86,7 +86,6 @@ import {
   buildProcessModel,
   finishLineRowsForStep,
   stepLabelsForItem,
-  type EmptyCause,
 } from '../../logic/processModel';
 import {
   BOX_W,
@@ -126,7 +125,9 @@ import {
   NeedStatusChip,
   TrackChip,
   TrackFilterGroup,
+  entityEmptyClause,
   filterButtonClass,
+  processEmptyClause,
 } from './processUi';
 
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
@@ -147,14 +148,13 @@ const LEGACY_NOTICE =
   'Fitur multi-entitas belum aktif — migration entity-aware belum diterapkan; yang tampil rantai SAMB, seperti sebelumnya.';
 
 /**
- * Two causes, two sentences — never one. See EmptyCause in processModel.ts:
- * a table that is not there and a table that is there and empty are different
- * facts, and for one August afternoon they were different people's problems.
+ * Two causes, two sentences — never one, and never a guessed one. The wording
+ * lives in processEmptyClause so this tab and the register cannot drift: a
+ * contributor once read zero rows here because RLS declined, and this
+ * constant announced that the seed had not landed — while the seed was intact
+ * at 53 steps. The claim was free to make and expensive to disbelieve.
  */
-const CANVAS_EMPTY: Record<EmptyCause, string> = {
-  absent: 'Kanvas belum bisa digambar — tabel os_process_* belum ada di database.',
-  unseeded: 'Tabel os_process_steps ada dan terbaca, tapi nol baris — seed-nya belum masuk.',
-};
+const CANVAS_TABLES = { absent: 'os_process_*', unseeded: 'os_process_steps' };
 
 /**
  * The density ladder. Each step ADDS a bounded amount; none adds prose.
@@ -209,6 +209,9 @@ export function FinishLineSwimlane({
   const repository = useAppStore((state) => state.repository);
   const entity = useAppStore((state) => state.prosesEntity);
   const setEntity = useAppStore((state) => state.setProsesEntity);
+  // Read only to SAY whose access produced a zero — never to decide what to
+  // fetch. RLS is the boundary; this is the label on the observation.
+  const viewer = useAppStore((state) => state.viewer);
   const prosesFocus = useAppStore((state) => state.prosesFocus);
   const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const { run, isPending } = useMutation();
@@ -667,22 +670,24 @@ export function FinishLineSwimlane({
         <Checking label={`Proses ${entity}`} />
       ) : model.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow label="Swimlane" clause={CANVAS_EMPTY[model.cause]} />
+          <EmptyRow
+            label="Swimlane"
+            clause={processEmptyClause(model.cause, viewer, CANVAS_TABLES)}
+          />
         </div>
       ) : model.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">
           <CouldNotCheck label={`Proses ${entity}`} failure={{ reason: 'failed', detail: model.detail }} />
         </div>
       ) : steps.length === 0 ? (
-        // A ready model with no steps for THIS entity: the URL named an
-        // entity whose chain is not seeded (or not offered — the picker only
-        // lists chains that exist). One line, switchable via the picker
-        // above; never an error.
+        // A ready model with no steps for THIS entity — reachable through
+        // ?entity=X. It used to say the entity "belum punya rantai proses",
+        // which is a claim about the database made from a read that only saw
+        // this session's slice of it: for a contributor holding ARBI alone,
+        // ?entity=SAMB produced that sentence about a chain of 30 steps.
+        // One line, never an error.
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow
-            label="Swimlane"
-            clause={`Entitas ${entity} belum punya rantai proses — pilih entitas lain di atas.`}
-          />
+          <EmptyRow label="Swimlane" clause={entityEmptyClause(entity, viewer)} />
         </div>
       ) : (
         <>

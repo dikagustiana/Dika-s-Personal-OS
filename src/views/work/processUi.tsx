@@ -29,6 +29,92 @@ import type {
   ProcessTrackDef,
 } from '../../data/types';
 import { ALL_TRACKS, branchTracks, type TrackFilter } from '../../logic/process';
+import type { EmptyCause } from '../../logic/processModel';
+import type { Viewer } from '../../store/appStore';
+
+// --- empty states -----------------------------------------------------------
+
+/**
+ * ===========================================================================
+ * ZERO ROWS DESCRIBES WHAT WAS SEEN. IT NEVER NAMES A CAUSE.
+ * ===========================================================================
+ * This pattern has now cost this project three separate investigations, and
+ * the second one is the reason this function exists rather than two string
+ * constants:
+ *
+ *   1. Kebutuhan data read zero. A guard swallowed a non-42P01 error and it
+ *      rendered as a legitimate empty list. No message at all.
+ *   2. A contributor's swimlane read zero because RLS declined, and the app
+ *      announced that the seed had not landed — while the seed was intact at
+ *      53 steps. Two people spent minutes chasing a data problem that was a
+ *      permissions problem, because the screen told them which one it was.
+ *   3. `permission denied for function os_member_entities` reached the screen
+ *      verbatim. That one was diagnosed in seconds — and it is the model.
+ *
+ * The rule that falls out: A SUCCESSFUL READ RETURNING ZERO ROWS IS
+ * AMBIGUOUS. It can mean the table is genuinely empty or that RLS filtered
+ * every row, and the frontend cannot tell those apart — the database returns
+ * an empty set for both, with no error either way. So the sentence states the
+ * observation and stops. No "belum di-seed", no "belum diterapkan", no guess.
+ *
+ * What it CAN say, because the app does know it, is whose access produced the
+ * zero: §10.2's "kalau app bisa membedakan pemilik dari anggota". The viewer
+ * is in the store, so the reader learns that zero rows is the answer FOR THIS
+ * SESSION rather than a fact about the database — which is the single most
+ * useful thing to know when the answer is wrong, and it is an observation
+ * rather than a diagnosis.
+ *
+ * `absent` keeps a cause because it HAS one that the read proved: the
+ * relation itself answered 42P01. That is not an inference.
+ *
+ * Shared by both tabs on purpose. The swimlane and the register disagreeing
+ * about what zero rows means is exactly how (2) happened.
+ */
+export function accessLabel(viewer: Viewer): string {
+  if (viewer.kind === 'owner') return 'akses pemilik';
+  const codes = viewer.entityCodes;
+  if (codes.length === 0) return 'akses kontributor (tanpa entitas)';
+  if (codes.length > 3) {
+    return `akses kontributor (${codes.slice(0, 3).join(', ')} +${codes.length - 3})`;
+  }
+  return `akses kontributor (${codes.join(', ')})`;
+}
+
+export function processEmptyClause(
+  cause: EmptyCause,
+  viewer: Viewer,
+  tables: { absent: string; unseeded: string },
+): string {
+  return cause === 'absent'
+    ? `Tabel ${tables.absent} belum ada di database (42P01) — migration proses belum diterapkan di lingkungan ini.`
+    : `${tables.unseeded} terbaca tanpa error dan mengembalikan nol baris untuk ${accessLabel(viewer)}.`;
+}
+
+/**
+ * The per-entity zero: reads succeeded and carried rows, but none for the
+ * entity in view.
+ *
+ * This one said "Entitas SAMB belum punya rantai proses", and for a
+ * contributor holding only ARBI that sentence is FALSE — SAMB has 30 steps,
+ * they are simply not readable with that membership. It is the same failure
+ * as (2) above wearing different words, reachable through ?entity=SAMB, and
+ * it was missed the first time because it does not look like an empty state
+ * about the database.
+ *
+ * For a contributor the honest sentence names the memberships they hold; the
+ * suggestion to switch entity only makes sense when another entity is
+ * actually reachable, so it is dropped when it is not.
+ */
+export function entityEmptyClause(entity: string, viewer: Viewer): string {
+  if (viewer.kind === 'owner') {
+    return `Nol step terbaca untuk entitas ${entity} — pilih entitas lain di atas.`;
+  }
+  const codes = viewer.entityCodes;
+  if (!codes.includes(entity)) {
+    return `Nol step terbaca untuk entitas ${entity} dengan ${accessLabel(viewer)} — entitas ini di luar keanggotaan sesi ini.`;
+  }
+  return `Nol step terbaca untuk entitas ${entity} dengan ${accessLabel(viewer)}.`;
+}
 
 // --- chips ------------------------------------------------------------------
 

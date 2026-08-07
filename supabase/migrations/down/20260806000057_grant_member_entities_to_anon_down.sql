@@ -1,0 +1,24 @@
+-- Down-migration for 20260806000057_grant_member_entities_to_anon.
+--
+-- Run this SECOND when unwinding, AFTER
+-- 20260806000058_process_member_read_policies_down.sql. The order is the
+-- mirror of the up-migrations and it is not a formality: while the eight
+-- `to public` member policies still exist, revoking this grant makes every
+-- os_process_* read throw `permission denied for function
+-- os_member_entities` — for the OWNER as well as for contributors, because
+-- the owner's passphrase requests also run as `anon` and the wrapped
+-- `(select ...)` predicate is an InitPlan that no OR short-circuit can skip.
+-- That is exactly the production outage this pair of files documents. Drop
+-- the policies first and this revoke is inert.
+--
+-- Restores the grant state migration 20260804000037 left behind: EXECUTE for
+-- `authenticated` only. `revoke ... from anon` does not touch the
+-- `authenticated` grant, so contributors holding a JWT keep working under any
+-- `to authenticated` member policies that remain elsewhere in the schema —
+-- the ones added by 20260804000040 on the os_finish_line_* tables.
+--
+-- The per-role suite pins this: supabase/tests/process_role_reads.sql fails
+-- loudly if this revoke is run while 58's policies are in place, which is the
+-- proof that the suite would have caught the original regression.
+
+revoke execute on function public.os_member_entities() from anon;

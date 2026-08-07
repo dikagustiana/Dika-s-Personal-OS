@@ -88,6 +88,26 @@ pnpm test:run
 pnpm build
 ```
 
+### Verifying the database, not just the app
+
+`pnpm test:run` runs against a repository double, so it cannot see an RLS or
+grant regression — that is how `permission denied for function
+os_member_entities` reached production with a green suite. Two checks cover
+the database itself:
+
+```bash
+# Catalog-only, read-only, safe against live. Zero rows = healthy.
+psql "$DATABASE_URL" -f supabase/tests/rls_function_grants.sql
+
+# Throwaway cluster: replays every migration, then reads the nine
+# os_process_* tables as anon, as the owner, and as two contributors.
+scripts/role-read-tests.sh
+```
+
+**Run both after any migration that adds a policy, adds a function, or changes
+a grant.** The rules they enforce — and the outage behind each — are in
+[docs/rls-conventions.md](docs/rls-conventions.md).
+
 ## Writing Finish Line cells (changed 2026-08-04)
 
 Cell writes are guarded by a database trigger: an UPDATE on

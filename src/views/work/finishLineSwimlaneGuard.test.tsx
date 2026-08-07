@@ -37,7 +37,10 @@ import { useAppStore } from '../../store/appStore';
 import { FinishLineSwimlane } from './FinishLineSwimlane';
 
 const WARNING = 'Alur tidak dapat digambar — pengukuran kanvas gagal, panah tidak ditampilkan.';
-const EMPTY = 'Kanvas belum bisa digambar — tabel os_process_* belum ada di database.';
+// Carries the SQLSTATE now: `absent` is the one empty state allowed to name a
+// cause, because the read proved it (42P01) rather than inferring it.
+const EMPTY =
+  'Tabel os_process_* belum ada di database (42P01) — migration proses belum diterapkan di lingkungan ini.';
 
 /** The seven reads FinishLineSwimlane issues, all healthy. */
 function seededRepository(): Repository {

@@ -1,0 +1,99 @@
+-- ===========================================================================
+-- `os_member_entities()` GETS EXECUTE FOR `anon`. ONE GRANT, NO DDL.
+-- ===========================================================================
+--
+-- ===========================================================================
+-- ALREADY APPLIED LIVE. DO NOT APPLY. This file exists to RECORD it.
+-- ===========================================================================
+-- Written straight to production from another session, ledger name
+-- `grant_member_entities_to_anon`. There was no file. This is the file.
+--
+-- `grant` is idempotent by nature, so running this changes nothing about the
+-- database. What it DOES change is the record: a second ledger entry for one
+-- logical change, and the next session reading that ledger cannot tell which
+-- of the two actually did anything. The migration history is the only memory
+-- a session without memory has. Leave it alone.
+--
+-- ORDER MATTERS, AND IN THE LEDGER IT IS WRONG.
+-- Live applied `process_member_read_policies` (20260807041414) BEFORE this
+-- grant (20260807062635) — policy first, grant second. That gap is not
+-- trivia; it IS the outage. Between those two timestamps every read of an
+-- os_process_* table threw `permission denied for function
+-- os_member_entities`, including the owner's. In the repo the two files are
+-- numbered the other way round on purpose — 57 grant, 58 policy — so a replay
+-- into a fresh environment never reproduces the window. Both are applied in
+-- production now, so the live order no longer has any effect; the file order
+-- is for every environment that has not been built yet.
+--
+-- ===========================================================================
+-- WHY `anon` NEEDS IT AT ALL — THE PART THAT IS EASY TO GET WRONG
+-- ===========================================================================
+-- Migration 20260804000037 revoked exactly this grant, and said why:
+--
+--     -- anon can never hold membership, so anon gets no execute. The member
+--     -- policies are `to authenticated`, which is the only role that
+--     -- evaluates this function.
+--
+-- That comment was true when it was written and is FALSE NOW, and nothing in
+-- the repo said so until this file. The eight member policies added by 58 are
+-- `to public`, not `to authenticated`. `public` includes `anon`. So `anon`
+-- evaluates the predicate, the predicate calls the function, and the function
+-- was not callable by `anon`.
+--
+-- The failure could not be dodged by the passphrase policy that DID pass.
+-- Both policies are wrapped as `(select ...)` — the house pattern from
+-- migration 20260728000030, adopted because the unwrapped form is evaluated
+-- per row and produced a live 500 once already. Wrapping makes the call an
+-- InitPlan: evaluated ONCE, before any row is processed, and therefore not
+-- reachable by the OR short-circuit that would otherwise have let the true
+-- `os_key_valid()` branch carry the query. The pattern that is correct for
+-- performance is exactly the pattern that makes this failure unconditional.
+--
+-- ===========================================================================
+-- WHY GRANTING IT TO `anon` IS SAFE
+-- ===========================================================================
+-- The function is SECURITY DEFINER over
+--
+--     select coalesce(array_agg(entity_code), '{}')
+--     from public.os_entity_members
+--     where user_id = (select auth.uid())
+--
+-- For an `anon` caller with no JWT, `auth.uid()` is null, no row matches, and
+-- the result is `'{}'`. Every member predicate then compares against an empty
+-- array and admits nothing. An `anon` caller learns one fact — that it holds
+-- no memberships — which it supplied itself.
+--
+-- The precedent is already in this schema: `os_key_valid()` and
+-- `os_read_key_valid()` have both had EXECUTE for `anon` since
+-- 20260724000002 and 20260729040353, and those two compare the caller's
+-- input against a STORED SECRET. This one does not read a secret at all. If
+-- granting execute on a membership lookup were the risk, the two functions
+-- that gate the entire database on a bcrypt hash would have been the larger
+-- one for far longer.
+--
+-- ===========================================================================
+-- READ STAYS READ. WRITE IS STILL OWNER-ONLY.
+-- ===========================================================================
+-- This grant lets a policy predicate run; it confers nothing by itself. The
+-- INSERT/UPDATE/DELETE policies on every os_process_* table are untouched and
+-- still require `os_key_valid()`, so a contributor remains read-only —
+-- including on `os_process_needs.requested_on`, which the register renders as
+-- an editable input for the owner and which a contributor cannot write.
+--
+-- ===========================================================================
+-- THE RULE THIS FILE EXISTS TO ENFORCE
+-- ===========================================================================
+--   EVERY FUNCTION CALLED IN AN RLS POLICY PREDICATE MUST HAVE EXECUTE FOR
+--   EVERY ROLE THAT CAN REACH THAT TABLE.
+--
+-- "Can reach" is decided by the policy's `to` clause, not by which role the
+-- policy was written for. A policy with no `to` clause is `to public`, which
+-- means every role, which means `anon`. The audit query that checks the whole
+-- database against this rule is supabase/tests/rls_function_grants.sql, and
+-- the rule is written up in docs/rls-conventions.md. Run the audit after any
+-- migration that adds a policy or a function.
+--
+-- Down-migration:
+-- supabase/migrations/down/20260806000057_grant_member_entities_to_anon_down.sql
+
+grant execute on function public.os_member_entities() to anon;
