@@ -14,13 +14,16 @@ import type { ProcessStep } from '../data/types';
 import { deriveEdges, groupCells, handoffs, visibleSteps, type TrackFilter } from './process';
 import { fixtureLanes, fixtureStepItems, fixtureSteps, fixtureTracks } from './process/seedFixture';
 import { stepLabelsForItem } from './processModel';
+import { arbiLanes, arbiSteps, arbiTracks } from './process/arbiFixture';
 import {
   BOX_W,
   GAP_W,
   LABEL_W,
   capsulesCollide,
   computeWires,
+  countWireCrossings,
   type BoxRect,
+  type Capsule,
   type WireEdge,
 } from './processWires';
 
@@ -113,7 +116,13 @@ describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack'
     }
   });
 
-  it('shifts a colliding capsule +22 and rechecks — exactly-22 separation is still a stack', () => {
+  // THE MECHANISM CHANGED IN §7 AND SO DID THESE NUMBERS. A colliding marker
+  // used to shift its wire's ELBOW +22px right, which made the marker decide
+  // where the arrow went. Now corridors decide where the arrow goes and the
+  // marker slides ALONG the wire it belongs to. The clearances themselves are
+  // untouched at 22/18; what moved is 44 → (-14 across, 24 down) here, and
+  // 176 → 154 of corridor spread below.
+  it('slides a colliding capsule along its own wire instead of dragging the arrow', () => {
     const rects = new Map<string, BoxRect>([
       ['a', { x: 0, y: 0, w: 100, h: 60 }],
       ['b', { x: 300, y: 200, w: 100, h: 60 }],
@@ -127,17 +136,21 @@ describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack'
       ],
       rects,
     );
-    const [first, second] = wires.map((wire) => wire.capsule);
+    const [first, second] = wires.map((wire) => wire.capsule as Capsule);
     expect(first).toBeDefined();
     expect(second).toBeDefined();
-    // Raw midpoints are 0px/4px apart — a perfect stack. One +22 shift still
-    // leaves |dx| = 22, which capsulesCollide treats as stacked, so the
-    // second capsule ends 44px away.
-    expect(second && first && second.x - first.x).toBe(44);
-    expect(first && second && capsulesCollide(first, second)).toBe(false);
+    // Raw midpoints sit 4px apart vertically — a perfect stack. Corridors
+    // separate the two wires by one 14px step, which is still inside the 22px
+    // x-clearance, so the second marker also slides one 20px step down its own
+    // vertical run. 24px of vertical daylight clears the 18px y-clearance.
+    expect(second.x - first.x).toBe(-14);
+    expect(second.y - first.y).toBe(24);
+    expect(capsulesCollide(first, second)).toBe(false);
+    // And it is still ON its wire — same x as that wire's corridor.
+    expect(second.x).toBe(wires[1].mid);
   });
 
-  it('gives up after eight shifts instead of looping forever', () => {
+  it('packs a crowded bundle inside the gutter instead of marching out of it', () => {
     const rects = new Map<string, BoxRect>();
     const edges: WireEdge[] = [];
     for (let i = 0; i < 12; i += 1) {
@@ -147,8 +160,22 @@ describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack'
     }
     const wires = computeWires(edges, rects);
     expect(wires.filter((wire) => wire.capsule)).toHaveLength(12);
-    const xs = wires.flatMap((wire) => (wire.capsule ? [wire.capsule.x] : []));
-    expect(Math.max(...xs) - Math.min(...xs)).toBe(8 * 22);
+    // Twelve corridors, one 14px step apart: 11 × 14 = 154 across.
+    const mids = wires.map((wire) => wire.mid as number);
+    expect(Math.max(...mids) - Math.min(...mids)).toBe(154);
+    // Every corridor inside the gutter. The old +22-per-shift walk could add
+    // 176px, carrying an elbow past the target box and folding the arrow back
+    // over itself; a corridor can no longer leave the span it belongs to.
+    for (const mid of mids) {
+      expect(mid).toBeGreaterThanOrEqual(108);
+      expect(mid).toBeLessThanOrEqual(292);
+    }
+    const capsules = wires.flatMap((wire) => (wire.capsule ? [wire.capsule] : []));
+    for (let a = 0; a < capsules.length; a += 1) {
+      for (let b = a + 1; b < capsules.length; b += 1) {
+        expect(capsulesCollide(capsules[a], capsules[b])).toBe(false);
+      }
+    }
   });
 });
 
@@ -253,6 +280,189 @@ describe('§2 the ?item pre-filter dims, it never filters — arrows survive it'
     expect(litOnly.size).toBe(4);
     expect(computeWires(toWireEdges('ALL'), litOnly).length).toBeLessThan(
       computeWires(toWireEdges('ALL'), buildRects('ALL', compact)).length,
+    );
+  });
+});
+
+/**
+ * §7 — the corridor rewrite.
+ *
+ * The complaint was that arrows between SALES and WAREHOUSE could not be
+ * followed. The cause was not crossing but SUPERPOSITION: every elbow turned
+ * at the same gutter midpoint, so pairs ran along identical pixels. On the
+ * SAMB seed four pairs did — 15a>16 and 15b>16 shared 344px of line, 4>6a and
+ * 5>6b 227px, 18a>19 and 18b>20 120px, and 19>23 and 20>21 were superimposed
+ * over their whole run in opposite directions.
+ *
+ * These tests pin the counted result, both entities, both densities. The
+ * number is computed by countWireCrossings rather than eyeballed, and it has
+ * to keep going down, never up.
+ */
+function laneLayout(lanes: ReturnType<typeof fixtureLanes>) {
+  return new Map(
+    [...lanes].sort((a, b) => a.ordinal - b.ordinal).map((lane, index) => [lane.key, index]),
+  );
+}
+
+function chain(
+  chainSteps: ProcessStep[],
+  chainTracks: ReturnType<typeof fixtureTracks>,
+  lanes: ReturnType<typeof fixtureLanes>,
+) {
+  const rows = laneLayout(lanes);
+  const rectsFor = (filter: TrackFilter, heightOf: (step: ProcessStep) => number) => {
+    const shown = visibleSteps(chainSteps, filter, shared);
+    const rowHeight =
+      CELL_PAD * 2 + STACK_GAP + 2 * Math.max(...shown.map((step) => heightOf(step)));
+    const rects = new Map<string, BoxRect>();
+    for (const group of groupCells(shown).values()) {
+      let y = PHASE_H + (rows.get(group[0].laneKey) ?? 0) * rowHeight + CELL_PAD;
+      for (const step of group) {
+        rects.set(step.label, {
+          x: LABEL_W + (step.slot - 1) * (BOX_W + GAP_W),
+          y,
+          w: BOX_W,
+          h: heightOf(step),
+        });
+        y += heightOf(step) + STACK_GAP;
+      }
+    }
+    return rects;
+  };
+  const edgesFor = (filter: TrackFilter): WireEdge[] =>
+    deriveEdges(chainSteps, filter, chainTracks).map((edge) => ({
+      fromLabel: edge.from.label,
+      toLabel: edge.to.label,
+      cross: edge.cross,
+    }));
+  return {
+    wires: (filter: TrackFilter, heightOf: (step: ProcessStep) => number) =>
+      computeWires(edgesFor(filter), rectsFor(filter, heightOf)),
+  };
+}
+
+const samb = chain(steps, tracks, fixtureLanes());
+const arbi = chain(arbiSteps(), arbiTracks(), arbiLanes());
+/** The third density: the seed's own middle setting sits between these two. */
+const medium = (step: ProcessStep) => 96 + step.drivers.length * 18;
+const DENSITIES = [
+  ['ringkas', compact],
+  ['sedang', medium],
+  ['lengkap', tall],
+] as const;
+
+describe('§7.3 the counted crossing result', () => {
+  // Measured on this seed with the shared-midpoint routing this replaced.
+  it('SAMB Semua falls from 5 to 3, and both survivors are true inversions', () => {
+    expect(countWireCrossings(samb.wires('ALL', compact))).toBe(3);
+  });
+
+  it('ARBI Semua falls from 2 to 1', () => {
+    expect(countWireCrossings(arbi.wires('ALL', compact))).toBe(1);
+  });
+
+  it('every single-track view is completely untangled, in both chains', () => {
+    expect(countWireCrossings(samb.wires('TRADE', compact))).toBe(0);
+    expect(countWireCrossings(samb.wires('LP', compact))).toBe(0);
+    expect(countWireCrossings(arbi.wires('FORWARD', compact))).toBe(0);
+    expect(countWireCrossings(arbi.wires('REVERSE', compact))).toBe(0);
+  });
+
+  it.each(DENSITIES)('holds at the same counts in %s density', (_name, heightOf) => {
+    expect(countWireCrossings(samb.wires('ALL', heightOf))).toBe(3);
+    expect(countWireCrossings(arbi.wires('ALL', heightOf))).toBe(1);
+  });
+
+  it('no two elbows in a bundle share a corridor any more — the superposition itself', () => {
+    for (const [, heightOf] of DENSITIES) {
+      for (const [label, wires] of [
+        ['SAMB', samb.wires('ALL', heightOf)],
+        ['ARBI', arbi.wires('ALL', heightOf)],
+      ] as const) {
+        const byGutter = new Map<string, number[]>();
+        for (const wire of wires) {
+          if (wire.mid === undefined) continue;
+          const key = `${wire.x1}:${wire.x2}`;
+          byGutter.set(key, [...(byGutter.get(key) ?? []), wire.mid]);
+        }
+        for (const [gutter, mids] of byGutter) {
+          expect(new Set(mids).size, `${label} ${gutter}`).toBe(mids.length);
+        }
+      }
+    }
+  });
+});
+
+describe('§7.2 what the rewrite was not allowed to touch', () => {
+  it('leaves the edge set and the handoff counts exactly where they were', () => {
+    expect(samb.wires('ALL', compact)).toHaveLength(32);
+    expect(samb.wires('ALL', compact).filter((wire) => wire.capsule)).toHaveLength(12);
+    expect(samb.wires('TRADE', compact).filter((wire) => wire.capsule)).toHaveLength(6);
+    expect(samb.wires('LP', compact).filter((wire) => wire.capsule)).toHaveLength(7);
+    expect(arbi.wires('FORWARD', compact).filter((wire) => wire.capsule)).toHaveLength(8);
+    expect(arbi.wires('REVERSE', compact).filter((wire) => wire.capsule)).toHaveLength(4);
+  });
+
+  it('keeps convergence and divergence readable — 8 takes two in, 17 sends two out', () => {
+    const wires = samb.wires('ALL', compact);
+    const into8 = wires.filter((wire) => wire.key.endsWith('>8'));
+    const outOf17 = wires.filter((wire) => wire.key.startsWith('17>'));
+    expect(into8).toHaveLength(2);
+    expect(outOf17).toHaveLength(2);
+    // Distinct corridors as well as distinct anchors, so the two legs of a
+    // fork are separable for their whole length rather than only at the box.
+    expect(into8[0].mid).not.toBe(into8[1].mid);
+    expect(outOf17[0].mid).not.toBe(outOf17[1].mid);
+  });
+
+  it.each(DENSITIES)('stacks no handoff capsule, both chains, %s density', (_name, heightOf) => {
+    for (const wires of [samb.wires('ALL', heightOf), arbi.wires('ALL', heightOf)]) {
+      const capsules = wires.flatMap((wire) => (wire.capsule ? [wire.capsule] : []));
+      for (let a = 0; a < capsules.length; a += 1) {
+        for (let b = a + 1; b < capsules.length; b += 1) {
+          expect(capsulesCollide(capsules[a], capsules[b])).toBe(false);
+        }
+      }
+    }
+  });
+
+  it.each(DENSITIES)('lands every arrow on a box edge, %s density', (_name, heightOf) => {
+    for (const wires of [samb.wires('ALL', heightOf), arbi.wires('ALL', heightOf)]) {
+      for (const wire of wires) {
+        expect(wire.d.startsWith(`M${wire.x1},${wire.y1} `)).toBe(true);
+        expect(wire.d.endsWith(`L${wire.x2},${wire.y2}`) || wire.mid === undefined).toBe(true);
+      }
+    }
+  });
+
+  it.each(DENSITIES)('keeps every corridor between its two boxes, %s density', (_name, heightOf) => {
+    for (const wires of [samb.wires('ALL', heightOf), arbi.wires('ALL', heightOf)]) {
+      for (const wire of wires) {
+        if (wire.mid === undefined) continue;
+        expect(wire.mid).toBeGreaterThan(Math.min(wire.x1, wire.x2));
+        expect(wire.mid).toBeLessThan(Math.max(wire.x1, wire.x2));
+      }
+    }
+  });
+
+  it('keeps every capsule sitting on the wire it marks', () => {
+    for (const wires of [samb.wires('ALL', compact), arbi.wires('ALL', compact)]) {
+      for (const wire of wires) {
+        if (!wire.capsule) continue;
+        if (wire.mid === undefined) {
+          expect(wire.capsule.y).toBe((wire.y1 + wire.y2) / 2);
+        } else {
+          expect(wire.capsule.x).toBe(wire.mid);
+          expect(wire.capsule.y).toBeGreaterThanOrEqual(Math.min(wire.y1, wire.y2));
+          expect(wire.capsule.y).toBeLessThanOrEqual(Math.max(wire.y1, wire.y2));
+        }
+      }
+    }
+  });
+
+  it('is a pure function of geometry — the same seed routes identically twice', () => {
+    expect(samb.wires('ALL', compact).map((wire) => wire.d)).toEqual(
+      samb.wires('ALL', compact).map((wire) => wire.d),
     );
   });
 });

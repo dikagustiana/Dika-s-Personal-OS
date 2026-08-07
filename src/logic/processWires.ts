@@ -52,6 +52,86 @@ export interface Wire {
   x2: number;
   y2: number;
   capsule?: Capsule;
+  /**
+   * The x of this wire's vertical run — its CORRIDOR. Absent on a level wire,
+   * which is a single horizontal segment. Exposed because the crossing count
+   * is computed from it, and a routing change that does not move the numbers
+   * is a routing change that did nothing.
+   */
+  mid?: number;
+}
+
+export interface WireSegment {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  horizontal: boolean;
+}
+
+/**
+ * The wire as axis-aligned segments. The rounded corners are ignored: at a
+ * radius of ≤10 they cannot change which pairs of wires meet, only where by a
+ * few pixels, and treating the elbow as square keeps the count exact rather
+ * than approximate.
+ */
+export function wireSegments(wire: Wire): WireSegment[] {
+  if (wire.mid === undefined) {
+    return [{ x1: wire.x1, y1: wire.y1, x2: wire.x2, y2: wire.y2, horizontal: true }];
+  }
+  return [
+    { x1: wire.x1, y1: wire.y1, x2: wire.mid, y2: wire.y1, horizontal: true },
+    { x1: wire.mid, y1: wire.y1, x2: wire.mid, y2: wire.y2, horizontal: false },
+    { x1: wire.mid, y1: wire.y2, x2: wire.x2, y2: wire.y2, horizontal: true },
+  ];
+}
+
+const EPS = 0.5;
+const span = (a: number, b: number): [number, number] => (a <= b ? [a, b] : [b, a]);
+/** Strictly inside, so a shared endpoint at a box edge is not a crossing. */
+const within = (value: number, a: number, b: number): boolean => {
+  const [lo, hi] = span(a, b);
+  return value > lo + EPS && value < hi - EPS;
+};
+const overlaps = (a1: number, a2: number, b1: number, b2: number): boolean => {
+  const [aLo, aHi] = span(a1, a2);
+  const [bLo, bHi] = span(b1, b2);
+  return aLo < bHi - EPS && bLo < aHi - EPS;
+};
+
+function segmentsMeet(a: WireSegment, b: WireSegment): boolean {
+  if (a.horizontal && !b.horizontal) {
+    return within(b.x1, a.x1, a.x2) && within(a.y1, b.y1, b.y2);
+  }
+  if (!a.horizontal && b.horizontal) return segmentsMeet(b, a);
+  // Parallel: only collinear runs count, and those are the worst case — two
+  // arrows drawn along the same pixels are not "crossing", they are one line
+  // pretending to be one line.
+  if (a.horizontal) {
+    return Math.abs(a.y1 - b.y1) <= EPS && overlaps(a.x1, a.x2, b.x1, b.x2);
+  }
+  return Math.abs(a.x1 - b.x1) <= EPS && overlaps(a.y1, a.y2, b.y1, b.y2);
+}
+
+/**
+ * How many times the drawn wires meet each other. This is the number §7.3
+ * asks to move, and it is counted rather than eyeballed: a pair contributes
+ * once per pair of segments that intersect or run collinear, so a bundle
+ * sharing one corridor scores heavily — which is exactly the complaint.
+ */
+export function countWireCrossings(wires: Wire[]): number {
+  const segments = wires.map(wireSegments);
+  let total = 0;
+  for (let a = 0; a < wires.length; a += 1) {
+    for (let b = a + 1; b < wires.length; b += 1) {
+      for (const segA of segments[a]) {
+        for (const segB of segments[b]) {
+          if (segmentsMeet(segA, segB)) total += 1;
+        }
+      }
+    }
+  }
+  return total;
 }
 
 /**
@@ -86,6 +166,172 @@ export function capsulesCollide(a: Capsule, b: Capsule): boolean {
   return (
     Math.abs(a.x - b.x) <= CAPSULE_X_CLEARANCE && Math.abs(a.y - b.y) <= CAPSULE_Y_CLEARANCE
   );
+}
+
+/**
+ * Steps that CLEAR the clearances rather than land on them — 20 > 18 and
+ * 24 > 22, because capsulesCollide treats exact-clearance as still stacked.
+ */
+const CAPSULE_SLIDE_Y = 20;
+const CAPSULE_SLIDE_X = 24;
+/** Keeps a slid capsule on the straight part, clear of the ~10px corner. */
+const CAPSULE_RUN_PAD = 12;
+
+/**
+ * A HANDOFF marker sits where its wire crosses between lanes. When two of
+ * them land on top of each other one has to move, and it MOVES ALONG ITS OWN
+ * WIRE: down or up the vertical run for an elbow, left or right for a level
+ * wire.
+ *
+ * This replaces a shift that moved the wire's corridor instead. That had the
+ * marker deciding where the arrow went — the tail wagging the dog — and on a
+ * 40px gutter its eight 22px steps could add 176px, carrying the corridor
+ * past the target box and folding the arrow back over itself. Sliding keeps
+ * the marker on its line, leaves routing alone, and has room to work: a
+ * handoff crosses lanes by definition, so its vertical run is at least one
+ * lane tall (~227px in compact).
+ *
+ * Candidates alternate outward from the midpoint so a marker stays as near
+ * the crossing as it can, and every one is clamped inside the run — a marker
+ * off the end of its own wire is worse than one slightly off-centre.
+ */
+function placeCapsule(
+  along: 'x' | 'y',
+  midX: number,
+  midY: number,
+  from: number,
+  to: number,
+  placed: readonly Capsule[],
+): Capsule {
+  const step = along === 'y' ? CAPSULE_SLIDE_Y : CAPSULE_SLIDE_X;
+  const lo = Math.min(from, to) + CAPSULE_RUN_PAD;
+  const hi = Math.max(from, to) - CAPSULE_RUN_PAD;
+  const base = along === 'y' ? midY : midX;
+  const at = (value: number): Capsule =>
+    along === 'y' ? { x: midX, y: value } : { x: value, y: midY };
+  for (let shift = 0; shift <= CAPSULE_MAX_SHIFTS; shift += 1) {
+    for (const direction of shift === 0 ? [1] : [1, -1]) {
+      const value = base + direction * shift * step;
+      if (lo <= hi && (value < lo || value > hi)) continue;
+      const candidate = at(value);
+      if (!placed.some((existing) => capsulesCollide(existing, candidate))) return candidate;
+    }
+  }
+  return at(base);
+}
+
+// --- per-edge corridors (§7.1) ----------------------------------------------
+//
+// THE DEFECT. Every elbow used to turn at (x1 + x2) / 2 — the middle of the
+// gutter. Two edges spanning the same gutter therefore ran their verticals
+// along IDENTICAL pixels. Measured on the SAMB seed, four pairs did exactly
+// that: 15a>16 and 15b>16 shared 344px of line, 4>6a and 5>6b shared 227px,
+// 18a>19 and 18b>20 shared 120px, and 19>23 and 20>21 were superimposed over
+// their whole 107px run in opposite directions. That is not a crossing to be
+// marked, it is two arrows pretending to be one, and no crossing marker can
+// help a reader follow either of them.
+//
+// THE FIX. Each edge crossing a gutter gets its own x inside it. Ordering is
+// what makes this worth doing rather than merely different:
+//
+//   Corridors are assigned by DESCENDING TARGET y, left to right — the edge
+//   landing lowest turns first.
+//
+// Why that way round: an edge's exit run travels from its own corridor
+// rightward to its target, so it passes every corridor to its right. Give the
+// lowest-landing edge the leftmost corridor and its long exit passes under
+// the others' verticals rather than through them. Two edges then cross only
+// when their source order and target order genuinely disagree — an inversion
+// no routing can remove — and never merely because they shared a gutter.
+//
+// The step is capped by the gutter itself, so a busy gutter packs tighter
+// rather than spilling into the boxes on either side.
+
+const CORRIDOR_STEP = 14;
+/** Keeps a corridor clear of both box edges, so the elbow radius survives. */
+const CORRIDOR_MARGIN = 8;
+
+/** The x range a corridor may occupy: inside the span, off both box walls. */
+function corridorBand(x1: number, x2: number): [number, number] {
+  const lo = Math.min(x1, x2);
+  const hi = Math.max(x1, x2);
+  const margin = Math.min(CORRIDOR_MARGIN, (hi - lo) / 2);
+  return [lo + margin, hi - margin];
+}
+
+/**
+ * Where a corridor wants to sit before its bundle spreads it: the middle of
+ * the span, which for the adjacent-column edges that make up almost all of
+ * both chains is the middle of the gutter.
+ *
+ * COLUMN-SKIPPING EDGES WERE TRIED BOTH OTHER WAYS AND THE MIDDLE WON. A few
+ * edges skip columns (SAMB's 1>5 spans 284px; ARBI reaches six columns), and
+ * their midpoint lands inside an intervening box column rather than a gutter.
+ * Turning them in the gutter just before the target, or just after the source,
+ * both looked more principled and both measured worse on the seed — SAMB's
+ * `Semua` count went 3 → 4 either way, and ARBI's 1 → 3 turning early, because
+ * each variant only trades which long run does the cutting. Leaving them at
+ * the midpoint is the measured answer, not the unexamined default. If this is
+ * revisited, move the number, not the aesthetics.
+ */
+function corridorCentre(x1: number, x2: number): number {
+  return (x1 + x2) / 2;
+}
+
+interface CorridorInput {
+  key: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  level: boolean;
+}
+
+/**
+ * Lowest target first. Source y breaks a tie, and the key breaks that, so the
+ * assignment is a pure function of geometry — the same seed lays out the same
+ * way on every render, which matters because these coordinates come from DOM
+ * measurement and are recomputed on every resize.
+ */
+function byDescendingTarget(a: CorridorInput, b: CorridorInput): number {
+  if (b.y2 !== a.y2) return b.y2 - a.y2;
+  if (b.y1 !== a.y1) return b.y1 - a.y1;
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
+/**
+ * One corridor x per elbow wire. Level wires get none — they are a single
+ * horizontal segment and never occupy a gutter.
+ */
+function assignCorridors(anchors: readonly CorridorInput[]): Map<string, number> {
+  const groups = new Map<number, CorridorInput[]>();
+  for (const anchor of anchors) {
+    if (anchor.level) continue;
+    // Grouped by the corridor they WOULD have shared, so edges of different
+    // column spans that happen to collide are separated too — not only the
+    // same-gutter case.
+    const centre = Math.round(corridorCentre(anchor.x1, anchor.x2));
+    groups.set(centre, [...(groups.get(centre) ?? []), anchor]);
+  }
+
+  const corridor = new Map<string, number>();
+  for (const [centre, group] of groups) {
+    const ordered = [...group].sort(byDescendingTarget);
+    const narrowest = Math.min(
+      ...group.map((anchor) => {
+        const [lo, hi] = corridorBand(anchor.x1, anchor.x2);
+        return hi - lo;
+      }),
+    );
+    const step =
+      ordered.length > 1 ? Math.min(CORRIDOR_STEP, narrowest / (ordered.length - 1)) : 0;
+    ordered.forEach((anchor, index) => {
+      const ideal = centre + (index - (ordered.length - 1) / 2) * step;
+      const [lo, hi] = corridorBand(anchor.x1, anchor.x2);
+      corridor.set(anchor.key, Math.min(hi, Math.max(lo, ideal)));
+    });
+  }
+  return corridor;
 }
 
 /**
@@ -128,9 +374,8 @@ export function computeWires(edges: WireEdge[], rects: ReadonlyMap<string, BoxRe
       .forEach((edge, index) => inIndex.set(`${edge.fromLabel}>${edge.toLabel}`, index));
   }
 
-  const placed: Capsule[] = [];
-  const wires: Wire[] = [];
-  for (const edge of drawable) {
+  // --- pass 1: anchors ------------------------------------------------------
+  const anchors = drawable.map((edge) => {
     const key = `${edge.fromLabel}>${edge.toLabel}`;
     const from = rects.get(edge.fromLabel) as BoxRect;
     const to = rects.get(edge.toLabel) as BoxRect;
@@ -141,26 +386,33 @@ export function computeWires(edges: WireEdge[], rects: ReadonlyMap<string, BoxRe
     const x2 = to.x;
     const y2 =
       anchorY(to) + fanOffset(inIndex.get(key) ?? 0, inCount.get(edge.toLabel) ?? 1, to.h);
+    return { edge, key, x1, y1, x2, y2, level: Math.abs(y1 - y2) < 2 };
+  });
 
+  const corridor = assignCorridors(anchors);
+
+  // --- pass 2: paths --------------------------------------------------------
+  const placed: Capsule[] = [];
+  const wires: Wire[] = [];
+  for (const anchor of anchors) {
+    const { edge, key, x1, y1, x2, y2 } = anchor;
     let d: string;
     let capsule: Capsule | undefined;
-    if (Math.abs(y1 - y2) < 2) {
+    let mid: number | undefined;
+    if (anchor.level) {
       d = `M${x1},${y1} L${x2},${y2}`;
-      if (edge.cross) capsule = { x: (x1 + x2) / 2, y: (y1 + y2) / 2 };
-    } else {
-      let gx = (x1 + x2) / 2;
-      const midY = (y1 + y2) / 2;
       if (edge.cross) {
-        let shifts = 0;
-        while (
-          placed.some((existing) => capsulesCollide(existing, { x: gx, y: midY })) &&
-          shifts < CAPSULE_MAX_SHIFTS
-        ) {
-          gx += CAPSULE_X_CLEARANCE;
-          shifts += 1;
-        }
-        capsule = { x: gx, y: midY };
+        capsule = placeCapsule('x', (x1 + x2) / 2, (y1 + y2) / 2, x1, x2, placed);
       }
+    } else {
+      const gx = corridor.get(key) as number;
+      if (edge.cross) {
+        // Corridors already separate most markers, because each one rides its
+        // own. This handles what corridors cannot: two handoffs at the same x
+        // AND the same height.
+        capsule = placeCapsule('y', gx, (y1 + y2) / 2, y1, y2, placed);
+      }
+      mid = gx;
       // Radius ~10, clamped so a short vertical run or a narrow gutter can
       // never make the curve overshoot its own segment.
       const sign = Math.sign(y2 - y1);
@@ -171,6 +423,7 @@ export function computeWires(edges: WireEdge[], rects: ReadonlyMap<string, BoxRe
     }
     if (capsule) placed.push(capsule);
     const wire: Wire = { key, d, cross: edge.cross, x1, y1, x2, y2 };
+    if (mid !== undefined) wire.mid = mid;
     if (capsule) wire.capsule = capsule;
     wires.push(wire);
   }
