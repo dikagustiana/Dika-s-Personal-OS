@@ -183,7 +183,9 @@ describe('§B.4.4 / §B.4.5 absent or empty renders nothing at all', () => {
       ),
     );
     await waitForLoaded();
-    expect(screen.getByText('Referensi tidak bisa dimuat')).toBeDefined();
+    // Verbatim, naming the operation — not the old fixed five words, which
+    // rendered a permissions regression and a dropped connection identically.
+    expect(screen.getByText(/listProcessReferences: network down/)).toBeDefined();
   });
 });
 

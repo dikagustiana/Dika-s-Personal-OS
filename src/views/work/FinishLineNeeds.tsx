@@ -43,7 +43,6 @@ import {
   groupByOwner,
   registerRows,
   summarizeNeeds,
-  type EmptyCause,
   type RegisterRow,
 } from '../../logic/processModel';
 import {
@@ -59,7 +58,9 @@ import {
   NeedKindChip,
   NeedStatusChip,
   TrackFilterGroup,
+  entityEmptyClause,
   filterButtonClass,
+  processEmptyClause,
 } from './processUi';
 import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
 import {
@@ -71,16 +72,13 @@ import {
 const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 'Not read yet' });
 
 /**
- * One sentence per cause, and they must stay different sentences. `absent` is
- * a migration that has not run; `unseeded` is a table that answered and had
- * nothing in it. Reading the second and being told the first is what sent a
- * half-applied seed looking for a frontend bug.
+ * The two causes stay two sentences — see processEmptyClause, which owns the
+ * wording for both tabs so they cannot drift. `absent` names a cause because
+ * the read proved one (42P01). `unseeded` names none: a successful read of
+ * zero rows is genuinely ambiguous between an empty table and RLS filtering
+ * everything, and this tab used to resolve that ambiguity by guessing.
  */
-const REGISTER_EMPTY: Record<EmptyCause, string> = {
-  absent: 'Tabel os_process_needs belum ada di database — migration proses belum diterapkan.',
-  unseeded:
-    'Tabel os_process_needs ada dan terbaca, tapi nol baris — seed-nya belum masuk, bukan migration-nya.',
-};
+const REGISTER_TABLES = { absent: 'os_process_needs', unseeded: 'os_process_needs' };
 
 const STATUSES: ProcessNeedStatus[] = ['ADA', 'SEBAGIAN', 'BELUM'];
 const KINDS: ProcessNeedKind[] = ['MASTER', 'TRANSAKSI', 'PARAMETER', 'REFERENSI'];
@@ -94,6 +92,9 @@ export function FinishLineNeeds({
   const repository = useAppStore((state) => state.repository);
   const entity = useAppStore((state) => state.prosesEntity);
   const setEntity = useAppStore((state) => state.setProsesEntity);
+  // Read only to SAY whose access produced a zero — never to decide what to
+  // fetch. RLS is the boundary; this is the label on the observation.
+  const viewer = useAppStore((state) => state.viewer);
   const { run, isPending } = useMutation();
 
   // Per-tab local jalur, default Semua — never shared with the swimlane —
@@ -228,7 +229,10 @@ export function FinishLineNeeds({
         <Checking label="Kebutuhan data" />
       ) : state.kind === 'empty' ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow label="Kebutuhan data" clause={REGISTER_EMPTY[state.cause]} />
+          <EmptyRow
+            label="Kebutuhan data"
+            clause={processEmptyClause(state.cause, viewer, REGISTER_TABLES)}
+          />
         </div>
       ) : state.kind === 'failed' ? (
         <div className="rounded-lg border border-border-subtle bg-card p-4">
@@ -239,10 +243,7 @@ export function FinishLineNeeds({
         </div>
       ) : steps.length === 0 ? (
         <div className="rounded-lg border border-border-subtle bg-card px-4">
-          <EmptyRow
-            label="Kebutuhan data"
-            clause={`Entitas ${entity} belum punya rantai proses — pilih entitas lain di atas.`}
-          />
+          <EmptyRow label="Kebutuhan data" clause={entityEmptyClause(entity, viewer)} />
         </div>
       ) : (
         <>

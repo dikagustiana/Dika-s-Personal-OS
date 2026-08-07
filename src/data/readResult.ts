@@ -49,16 +49,54 @@ export function okRows<T>(rows: T[]): ReadResult<T> {
 }
 
 /**
+ * ===========================================================================
+ * THE CODE IS PART OF THE MESSAGE. IT USED TO BE THROWN AWAY.
+ * ===========================================================================
+ * `detail` was `error.message ?? error.code`, so whenever PostgREST supplied
+ * prose — which is almost always — the SQLSTATE was dropped on the floor. The
+ * one failure in this project's history that was diagnosed in seconds rather
+ * than minutes was the one where `permission denied for function
+ * os_member_entities` reached the screen intact. `42501` beside it is what
+ * turns "something went wrong" into a grep.
+ *
+ * So a detail now reads: operation, code, plain-language condition, message.
+ *
+ *   listProcessSteps: 42501 — izin ditolak (RLS atau grant), bukan data kosong
+ *     — permission denied for function os_member_entities
+ *
+ * The named conditions are the ones this codebase has actually been bitten
+ * by. Each states its OWN condition, which is the point: 42P01 and 42703 are
+ * neighbours that mean different things, and a shared sentence for them is
+ * what sent someone hunting a frontend bug for a half-applied migration.
+ */
+const CONDITION: Record<string, string> = {
+  '42P01': 'tabel belum ada di database',
+  '42703': 'kolom belum ada di tabel — migration setengah jalan, bukan data kosong',
+  '42501': 'izin ditolak (RLS atau grant), bukan data kosong',
+  PGRST200: 'relasi embed tidak bisa diresolusi',
+  PGRST201: 'relasi embed ambigu',
+  PGRST205: 'tabel tidak ada di schema cache PostgREST',
+};
+
+function detailOf(label: string, error: RelationError): string {
+  const code = error.code ?? '';
+  const parts = [code, CONDITION[code], error.message].filter(
+    (part): part is string => Boolean(part),
+  );
+  return `${label}: ${parts.length > 0 ? parts.join(' — ') : 'unknown error'}`;
+}
+
+/**
  * Classifies a PostgREST error into the two failure reasons.
  *
  * `isMissingRelation` stays the classifier it always was — this is the layer
  * that stops the classification from collapsing into an empty array.
  */
 export function readFailure(label: string, error: RelationError): ReadFailure {
-  const detail = error.message ?? error.code ?? 'unknown error';
+  const detail = detailOf(label, error);
   return isMissingRelation(error)
-    ? { ok: false, reason: 'missing-relation', detail: `${label}: ${detail}` }
-    : { ok: false, reason: 'failed', detail: `${label}: ${detail}` };
+    ? { ok: false, reason: 'missing-relation', detail }
+    : { ok: false, reason: 'failed', detail };
 }
 
 /**
@@ -73,10 +111,10 @@ export function readFailure(label: string, error: RelationError): ReadFailure {
  * yet, and neither says anything to the console.
  */
 export function readAbsence(label: string, error: RelationError): ReadFailure {
-  const detail = error.message ?? error.code ?? 'unknown error';
+  const detail = detailOf(label, error);
   return isAbsentRelation(error)
-    ? { ok: false, reason: 'missing-relation', detail: `${label}: ${detail}` }
-    : { ok: false, reason: 'failed', detail: `${label}: ${detail}` };
+    ? { ok: false, reason: 'missing-relation', detail }
+    : { ok: false, reason: 'failed', detail };
 }
 
 /** Wraps a thrown read — a caller that catches must not invent a zero either. */

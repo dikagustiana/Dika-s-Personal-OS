@@ -333,8 +333,10 @@ describe('an entity without a chain gets one line, never an error', () => {
     useAppStore.setState({ prosesEntity: 'ASI' });
     const { container } = renderSwimlane(bothEntitiesRepository());
     await waitFor(() => {
+      // States what was observed, not why. "belum punya rantai proses" was a
+      // claim about the database made from one session's slice of it.
       expect(
-        screen.getByText(/Entitas ASI belum punya rantai proses/),
+        screen.getByText(/Nol step terbaca untuk entitas ASI/),
       ).toBeDefined();
     });
     expect(container.querySelectorAll('[data-step-label]').length).toBe(0);
