@@ -346,6 +346,12 @@ export interface ProvisionLinkResult {
   projectIds?: string[];
   link?: string;
   expiry?: string;
+  /**
+   * When the minted link stops working, ISO-8601. Advisory: the panel falls
+   * back to its own one-hour default when this is absent, so a frontend that
+   * ships ahead of an Edge Function redeploy still shows a real countdown.
+   */
+  expiresAt?: string;
   removedEntityCodes?: string[];
   removedProjectIds?: string[];
   users?: ProvisionedUser[];
