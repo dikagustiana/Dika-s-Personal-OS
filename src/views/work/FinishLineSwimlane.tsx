@@ -694,9 +694,13 @@ export function FinishLineSwimlane({
           {/* The toolbar: four segments with real separation, not twelve
               buttons in a row. Jalur | kepadatan (+kolom) | sorot | zoom, and
               the stats line pushed to the right edge. Every control is a
-              toggle — zero filled-primary buttons on this view (§9.1). */}
+              toggle — zero filled-primary buttons on this view (§9.1).
+
+              canvas-bleed: it sits directly above the canvas and reads as its
+              chrome, so it takes the canvas's width rather than the measure's
+              — a 1076px toolbar over a 1380px canvas reads as a mistake. */}
           <div
-            className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2"
+            className="canvas-bleed mb-4 flex flex-wrap items-center gap-x-5 gap-y-2"
             role="group"
             aria-label="Kontrol swimlane"
           >
@@ -833,7 +837,14 @@ export function FinishLineSwimlane({
             </p>
           )}
 
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start">
+          {/* canvas-bleed: the canvas, the minimap and the detail panel. The
+              PANEL's width is untouched (lg:w-[380px]); every pixel the bleed
+              adds goes to flex-1, which is the canvas. With the panel open
+              that is 984px of canvas at a 1700px viewport instead of 680. */}
+          <div
+            data-canvas-row
+            className="canvas-bleed flex flex-col gap-4 lg:flex-row lg:items-start"
+          >
             <div className="min-w-0 flex-1">
               {/* The minimap replaces the old `pas` zoom: the whole shape at
                   a glance without shrinking the text past legibility. Click
