@@ -176,10 +176,14 @@ pgc_standins() {
     echo "  ('SAMB','SAMB (stand-in)',1), ('ARBI','ARBI (stand-in)',2), ('ASI','ASI (stand-in)',3),"
     echo "  ('KNI','KNI (stand-in)',4), ('KDU','KDU (stand-in)',5)"
     echo "on conflict (code) do nothing;"
+    # EVERY migration is scanned, not a named list of three. The list was
+    # 51/53/56 until KGR arrived in 20260807000060 — that seed happens to
+    # carry no bridge pairs, so nothing broke, but the next entity that does
+    # would have failed the replay with a foreign key error pointing at a
+    # file this generator had never heard of. Over-generating stand-ins is
+    # free; missing one costs a confusing replay failure.
     grep -rhoE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' \
-      "$REPO/supabase/migrations/20260806000051_samb_process_seed.sql" \
-      "$REPO/supabase/migrations/20260806000053_arbi_process_seed.sql" \
-      "$REPO/supabase/migrations/20260806000056_samb_bridge_18b.sql" \
+      "$REPO"/supabase/migrations/*.sql \
     | sort -u | while read -r u; do
       # `item` and `kind` are the only NOT NULL columns without a default.
       # kind's vocabulary is section|metric|note — 20260726000021 created it
