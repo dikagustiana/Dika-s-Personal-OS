@@ -1,5 +1,5 @@
 -- Standing checks for the entity-aware process schema (52) and the three
--- seeds (51 SAMB, 53 ARBI, 20260807000060 KGR). Same contract as
+-- seeds (51 SAMB, 53 ARBI, 61 KGR v0.2 — which replaced 60's v0.1). Same contract as
 -- integrity_checks.sql: every query returns ZERO ROWS when healthy; a hit
 -- names what drifted. Read-only; no secret needed beyond a connection that
 -- can select the os_process_* tables.
@@ -29,9 +29,9 @@ from (
   union all select 'ARBI', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'ARBI'), 37
   union all select 'KGR',  'lanes',  (select count(*) from public.os_process_lanes  where entity_code = 'KGR'), 9
   union all select 'KGR',  'phases', (select count(*) from public.os_process_phases where entity_code = 'KGR'), 10
-  union all select 'KGR',  'gates',  (select count(*) from public.os_process_gates  where entity_code = 'KGR'), 40
-  union all select 'KGR',  'steps',  (select count(*) from public.os_process_steps  where entity_code = 'KGR'), 33
-  union all select 'KGR',  'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'KGR'), 101
+  union all select 'KGR',  'gates',  (select count(*) from public.os_process_gates  where entity_code = 'KGR'), 42
+  union all select 'KGR',  'steps',  (select count(*) from public.os_process_steps  where entity_code = 'KGR'), 38
+  union all select 'KGR',  'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'KGR'), 117
   -- 0 is a pin, not a placeholder: KGR's bridge is deliberately absent until
   -- the poultry rows exist (Kelompok 2 of the reconciliation). A non-zero
   -- here before that decision means someone authored edges out of order.

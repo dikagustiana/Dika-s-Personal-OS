@@ -52,15 +52,19 @@ gates_of()  { count "select count(*) from public.os_process_gates where entity_c
 # ---------------------------------------------------------------------------
 # EVERY SEEDED ENTITY, DRIVEN BY A TABLE.
 # ---------------------------------------------------------------------------
-# One row per entity: code, seed file, down-seed file, then the counts the
-# seed is pinned to (steps needs phases lanes gates). KGR was added by
-# 20260807000060 from another session and its guard had never been executed
-# either — a hardcoded SAMB/ARBI pair would have quietly stayed green while a
-# third seed went untested. Adding the next entity is one line.
+# One row per entity: code, the seed file that CURRENTLY defines it, then the
+# counts it is pinned to (steps needs phases lanes gates). KGR arrived from
+# another session and its guard had never been executed either — a hardcoded
+# SAMB/ARBI pair would have quietly stayed green while a third seed went
+# untested. Adding the next entity is one line.
+#
+# KGR points at 61, not 60: v0.2 replaced v0.1 in place, so 60 is history and
+# re-running it would refuse against 38 rows for the wrong reason. Whenever a
+# seed is superseded, this row moves to the file that defines the live shape.
 ENTITIES=(
   "SAMB 20260806000051_samb_process_seed 30 118 7 6 15"
   "ARBI 20260806000053_arbi_process_seed 23 112 7 6 12"
-  "KGR  20260807000060_kgr_process_seed  33 101 10 9 40"
+  "KGR  20260807000061_kgr_process_seed_v2 38 117 10 9 42"
 )
 
 echo ""
