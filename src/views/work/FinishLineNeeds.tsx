@@ -48,6 +48,7 @@ import {
 import {
   ALL_TRACKS,
   sharedTrackCodes,
+  trackFilterDiscriminates,
   type TrackFilter,
 } from '../../logic/process';
 import { useAppStore } from '../../store/appStore';
@@ -100,7 +101,7 @@ export function FinishLineNeeds({
   // Per-tab local jalur, default Semua — never shared with the swimlane —
   // and reset on entity switch, where the old code would name a track the
   // new entity does not have.
-  const [track, setTrack] = useState<TrackFilter>(ALL_TRACKS);
+  const [trackChoice, setTrack] = useState<TrackFilter>(ALL_TRACKS);
   useEffect(() => {
     setTrack(ALL_TRACKS);
   }, [entity]);
@@ -168,6 +169,15 @@ export function FinishLineNeeds({
     [state, entity],
   );
   const shared = useMemo(() => sharedTrackCodes(entityTracks), [entityTracks]);
+
+  // The effective filter, not the stored one — same rule as the swimlane. With
+  // the control hidden there is no way to clear a branch, so a selection
+  // carried in from another chain would silently shorten the request list.
+  const jalurUseful = useMemo(
+    () => trackFilterDiscriminates(steps, entityTracks),
+    [steps, entityTracks],
+  );
+  const track = jalurUseful ? trackChoice : ALL_TRACKS;
 
   const summary = useMemo(
     () => summarizeNeeds(needs, steps, track, shared),
@@ -314,7 +324,12 @@ export function FinishLineNeeds({
                 </button>
               ))}
             </div>
-            <TrackFilterGroup tracks={entityTracks} value={track} onChange={setTrack} />
+            <TrackFilterGroup
+              tracks={entityTracks}
+              steps={steps}
+              value={track}
+              onChange={setTrack}
+            />
             <button
               type="button"
               aria-pressed={byOwner}

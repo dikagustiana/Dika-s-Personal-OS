@@ -79,6 +79,7 @@ import {
   phaseCoverageProblems,
   processStats,
   sharedTrackCodes,
+  trackFilterDiscriminates,
   visibleSteps,
   type TrackFilter,
 } from '../../logic/process';
@@ -220,7 +221,7 @@ export function FinishLineSwimlane({
   // The jalur filter: PER-TAB local state, default Semua, reset when the
   // entity changes — a FORWARD selection is meaningless under SAMB and would
   // silently blank the branch steps.
-  const [track, setTrack] = useState<TrackFilter>(ALL_TRACKS);
+  const [trackChoice, setTrack] = useState<TrackFilter>(ALL_TRACKS);
   useEffect(() => {
     setTrack(ALL_TRACKS);
   }, [entity]);
@@ -345,6 +346,18 @@ export function FinishLineSwimlane({
     () => new Map(entityTracks.map((trackDef) => [trackDef.code, trackDef])),
     [entityTracks],
   );
+
+  // THE EFFECTIVE FILTER, not the stored one. When the jalur control is hidden
+  // for this entity there is no way to clear a branch selection, so a choice
+  // carried over from another chain would silently hide steps with nothing on
+  // screen to explain it. Deriving `track` here rather than at each call site
+  // means every consumer below — the canvas, the stats, the arrows — reads the
+  // same value and none of them can be missed.
+  const jalurUseful = useMemo(
+    () => trackFilterDiscriminates(steps, entityTracks),
+    [steps, entityTracks],
+  );
+  const track = jalurUseful ? trackChoice : ALL_TRACKS;
 
   const shown = useMemo(() => visibleSteps(steps, track, shared), [steps, track, shared]);
   const cells = useMemo(() => groupCells(shown), [shown]);
@@ -710,7 +723,12 @@ export function FinishLineSwimlane({
             role="group"
             aria-label="Kontrol swimlane"
           >
-            <TrackFilterGroup tracks={entityTracks} value={track} onChange={setTrack} />
+            <TrackFilterGroup
+              tracks={entityTracks}
+              steps={steps}
+              value={track}
+              onChange={setTrack}
+            />
             <div
               className="flex items-center gap-1 border-l border-border-subtle pl-5"
               role="group"
