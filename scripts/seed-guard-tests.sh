@@ -49,14 +49,22 @@ phases_of() { count "select count(*) from public.os_process_phases where entity_
 lanes_of()  { count "select count(*) from public.os_process_lanes where entity_code='$1'"; }
 gates_of()  { count "select count(*) from public.os_process_gates where entity_code='$1'"; }
 
+# ---------------------------------------------------------------------------
+# EVERY SEEDED ENTITY, DRIVEN BY A TABLE.
+# ---------------------------------------------------------------------------
+# One row per entity: code, seed file, down-seed file, then the counts the
+# seed is pinned to (steps needs phases lanes gates). KGR was added by
+# 20260807000060 from another session and its guard had never been executed
+# either — a hardcoded SAMB/ARBI pair would have quietly stayed green while a
+# third seed went untested. Adding the next entity is one line.
+ENTITIES=(
+  "SAMB 20260806000051_samb_process_seed 30 118 7 6 15"
+  "ARBI 20260806000053_arbi_process_seed 23 112 7 6 12"
+  "KGR  20260807000060_kgr_process_seed  33 101 10 9 40"
+)
+
 echo ""
 echo "==> baseline after a clean replay"
-printf "    SAMB  steps=%s needs=%s phases=%s lanes=%s gates=%s\n" \
-  "$(steps_of SAMB)" "$(needs_of SAMB)" "$(phases_of SAMB)" "$(lanes_of SAMB)" "$(gates_of SAMB)"
-printf "    ARBI  steps=%s needs=%s phases=%s lanes=%s gates=%s\n" \
-  "$(steps_of ARBI)" "$(needs_of ARBI)" "$(phases_of ARBI)" "$(lanes_of ARBI)" "$(gates_of ARBI)"
-
-# The counts the seeds are pinned to. A drift here means the seed text changed.
 expect() {
   local what="$1" got="$2" want="$3"
   if [ "$got" != "$want" ]; then
@@ -64,17 +72,19 @@ expect() {
   fi
   return 0
 }
-expect "SAMB steps"  "$(steps_of SAMB)"  30 && \
-expect "SAMB needs"  "$(needs_of SAMB)"  118 && \
-expect "SAMB phases" "$(phases_of SAMB)" 7 && \
-expect "SAMB lanes"  "$(lanes_of SAMB)"  6 && \
-expect "SAMB gates"  "$(gates_of SAMB)"  15 && \
-expect "ARBI steps"  "$(steps_of ARBI)"  23 && \
-expect "ARBI needs"  "$(needs_of ARBI)"  112 && \
-expect "ARBI phases" "$(phases_of ARBI)" 7 && \
-expect "ARBI lanes"  "$(lanes_of ARBI)"  6 && \
-expect "ARBI gates"  "$(gates_of ARBI)"  12 && \
-echo "ok    baseline counts match the seeds (30/118 SAMB, 23/112 ARBI)"
+
+for row in "${ENTITIES[@]}"; do
+  read -r code _file want_steps want_needs want_phases want_lanes want_gates <<<"$row"
+  printf "    %-5s steps=%s needs=%s phases=%s lanes=%s gates=%s\n" \
+    "$code" "$(steps_of "$code")" "$(needs_of "$code")" "$(phases_of "$code")" \
+    "$(lanes_of "$code")" "$(gates_of "$code")"
+  expect "$code steps"  "$(steps_of "$code")"  "$want_steps"
+  expect "$code needs"  "$(needs_of "$code")"  "$want_needs"
+  expect "$code phases" "$(phases_of "$code")" "$want_phases"
+  expect "$code lanes"  "$(lanes_of "$code")"  "$want_lanes"
+  expect "$code gates"  "$(gates_of "$code")"  "$want_gates"
+done
+[ $RC -eq 0 ] && echo "ok    baseline counts match every seed"
 
 # ---------------------------------------------------------------------------
 # 1. RE-RUNNING A SEED MUST ABORT, AND MUST NOT DUPLICATE ANYTHING.
@@ -113,8 +123,10 @@ guard_refuses() {
 
 echo ""
 echo "==> re-running each seed against an already-seeded database"
-guard_refuses ARBI "$MIG/20260806000053_arbi_process_seed.sql"
-guard_refuses SAMB "$MIG/20260806000051_samb_process_seed.sql"
+for row in "${ENTITIES[@]}"; do
+  read -r code file _rest <<<"$row"
+  guard_refuses "$code" "$MIG/$file.sql"
+done
 
 # ---------------------------------------------------------------------------
 # 2. THE GUARD IS A GATE, NOT A WALL: down-seed then reseed must work.
