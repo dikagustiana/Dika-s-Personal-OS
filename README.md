@@ -146,6 +146,30 @@ prompt.** Type it, run it, close the editor tab. Everything else — items,
 entities, deps, edges, accounts — is not behind this trigger and behaves as
 before.
 
+## IELTS prep (GROWTH → IELTS)
+
+Five tabs behind one nav entry. **Prep** shows days to the test, sessions in
+the rolling week, and the *binding constraint* — the skill furthest below its
+per-skill floor, never the average. **Log session** records one practice
+attempt and tags what went wrong; for Listening and Reading it derives the
+band from the raw score and lets you override it. **Weakness** ranks those
+tags and links each row to its method. **Method** renders the reference
+content. **Bands & errors** is the pre-existing full-mock band tracker and
+pasted-feedback error log, unchanged.
+
+The reference content lives in the repo as MDX under `content/ielts/`, one
+file per topic, extracted one-time from the Notion *IELTS Mastery Toolkit*.
+**The path after `content/ielts/` is exactly `os_ielts_topic.slug`** — that
+equality is what makes a weakness row a link, and
+[`topicContent.test.ts`](src/logic/ielts/topicContent.test.ts) fails the build
+if any slug lacks a file or any file lacks a slug.
+
+30 of the 45 pages are honest stubs: the Notion sheets name most question
+types without explaining any of them, and no method was invented to fill the
+gap. Stubs are marked in the index and on the weakness rows. Editing content
+means editing the MDX and committing it — there is no CMS, and no write-back
+to Notion. See [REVIEW.md](REVIEW.md) for the extraction report.
+
 ## Data boundary
 
 Every read and write goes through the async [`Repository`](src/data/repository.ts) interface, with the active implementation supplied by the Zustand store. [`MockRepository`](src/data/mockRepository.ts) keeps seeded data in memory and is the no-credentials fallback. [`supabaseRepository.ts`](src/data/supabaseRepository.ts) implements the same interface against Postgres — the swap happens in [`PassphraseGate`](src/components/PassphraseGate.tsx) after the passphrase is verified, and no view or logic code knows the difference. See [REVIEW.md](REVIEW.md) for the schema mapping and the security posture, including residual risk.

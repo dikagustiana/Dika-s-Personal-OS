@@ -1,4 +1,6 @@
 import { MockResearchRepository } from './researchRepository';
+import { IELTS_TOPICS } from '../logic/ielts/topics';
+import { PUBLISHED_BAND_CONVERSION } from '../logic/ielts/bandTable';
 import {
   guardCellNote,
   guardCellState,
@@ -40,7 +42,13 @@ import type {
   ProcessStep,
   ProcessStepItem,
   ProcessTrackDef,
+  IeltsBandConversion,
   IeltsError,
+  IeltsPractice,
+  IeltsPracticeTopic,
+  IeltsPracticeWrite,
+  IeltsPrepConfig,
+  IeltsTopic,
   IeltsResult,
   IeltsSession,
   Project,
@@ -475,6 +483,79 @@ export class MockRepository implements Repository {
     }));
     for (const row of created) this.ieltsSessions.set(row.id, clone(row));
     return clone(created);
+  }
+
+  // --- IELTS prep: the per-question-type tracker ------------------------------
+  //
+  // The TAXONOMY and the CONVERSION TABLE are reference data, not his data, so
+  // the mock serves them in full from the same source the seed migration used
+  // (logic/ielts/topics.ts and the two published tables). A bare clone with no
+  // credentials therefore renders a working Method reader and a working log
+  // form — which is the point of the mock repository.
+  //
+  // The PRACTICE LOG starts empty, like every other personal record here.
+
+  private readonly ieltsPractice = new Map<string, IeltsPractice>();
+  private readonly ieltsPracticeTopics: IeltsPracticeTopic[] = [];
+
+  async listIeltsTopics(): Promise<IeltsTopic[]> {
+    return clone(IELTS_TOPICS as IeltsTopic[]);
+  }
+
+  async listIeltsPractice(): Promise<IeltsPractice[]> {
+    if (this.isContributor()) return [];
+    return clone(
+      [...this.ieltsPractice.values()].sort(
+        (a, b) =>
+          b.attemptedOn.localeCompare(a.attemptedOn) || b.createdAt.localeCompare(a.createdAt),
+      ),
+    );
+  }
+
+  async listIeltsPracticeTopics(): Promise<IeltsPracticeTopic[]> {
+    if (this.isContributor()) return [];
+    return clone(this.ieltsPracticeTopics);
+  }
+
+  async listIeltsBandConversion(): Promise<IeltsBandConversion[]> {
+    return clone(PUBLISHED_BAND_CONVERSION as IeltsBandConversion[]);
+  }
+
+  /**
+   * The same target the seed migration wrote. Duplicated here rather than left
+   * null because the dashboard's whole shape — days remaining, the binding
+   * constraint — depends on having one, and a mock that renders "no target
+   * set" demonstrates nothing.
+   */
+  async getIeltsPrepConfig(): Promise<IeltsPrepConfig | null> {
+    return { testDate: '2026-09-20', targetOverall: 7, targetFloor: 6.5 };
+  }
+
+  async createIeltsPractice(input: IeltsPracticeWrite): Promise<IeltsPractice> {
+    this.assertOwnerWrite('createIeltsPractice');
+    const { topics, ...rest } = input;
+    const created: IeltsPractice = {
+      ...rest,
+      id: createId(),
+      createdAt: new Date().toISOString(),
+    };
+    this.ieltsPractice.set(created.id, clone(created));
+    // Written together, like the RPC the Supabase repository calls — a
+    // practice row with no tags counts as practice and informs no ratio.
+    for (const tag of topics) {
+      this.ieltsPracticeTopics.push(clone({ ...tag, practiceId: created.id }));
+    }
+    return clone(created);
+  }
+
+  async deleteIeltsPractice(id: string): Promise<void> {
+    this.assertOwnerWrite('deleteIeltsPractice');
+    this.ieltsPractice.delete(id);
+    // The database does this with ON DELETE CASCADE; the mock has to do it by
+    // hand, and must, or aggregateWeakness keeps counting a deleted attempt.
+    for (let i = this.ieltsPracticeTopics.length - 1; i >= 0; i -= 1) {
+      if (this.ieltsPracticeTopics[i].practiceId === id) this.ieltsPracticeTopics.splice(i, 1);
+    }
   }
 
   // --- finish line: the entity matrix ----------------------------------------

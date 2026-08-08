@@ -498,3 +498,122 @@ scoped sharing remains share links.
   all four persisted across reload; mobile viewport renders with bottom
   navigation working. 14/14 checks passed. Test residue was cleaned; the
   database holds only the seeded habits and projects.
+
+## IELTS prep surface (added 2026-08-08)
+
+Two things that did not exist before, joined by one identifier: **reference
+content** extracted from Notion into MDX, and a **practice tracker** whose
+weakness rows deep-link into it.
+
+### The join
+
+`os_ielts_topic.slug` is both the table's primary key and the path under
+`content/ielts/`. `reading/matching-headings` is the row *and*
+`content/ielts/reading/matching-headings.mdx`. That is what lets a weakness
+row saying "6 of 10 missed" address its own method page by string
+concatenation — and it is the reason the content had to be split **per
+question type**, not per skill, even though the Notion sheets are written per
+skill.
+
+Parity is enforced in three links, because no single check spans them:
+
+| Link | Enforced by |
+| --- | --- |
+| seed migration ↔ `src/logic/ielts/topics.ts` | live query, run at build time (below) |
+| `topics.ts` ↔ MDX files on disk | `src/logic/ielts/topicContent.test.ts` (CI, no database needed) |
+| `topics.ts` ↔ `hasMethod` flags | same test, which reads the files |
+
+The middle link is the one that matters at runtime; the first is checked by
+hand because CI has no database credentials. Re-run it after any taxonomy
+change:
+
+```sql
+select slug || '|' || skill || '|' || kind || '|' || label || '|' || sort_order
+from public.os_ielts_topic order by slug;
+```
+
+and diff against `IELTS_TOPICS`. Verified 2026-08-08: **45/45 identical**.
+
+### Why `os_ielts_practice` and not `ielts_session`
+
+The brief named the table `ielts_session`. `os_ielts_sessions` already existed
+(20260727154318) with a *different* grain — one row per committed error-log
+paste, with writing split into task1/task2. Two session-shaped tables with
+different grains and different skill vocabularies is how a query joins the
+wrong one and nobody notices, because both return rows. The new table is
+`os_ielts_practice`: one row per practice attempt against a named source.
+
+### What the source actually contained
+
+The extraction is honest about a gap, and the gap is large. The Notion study
+sheets **name** most question types and explain almost none of them:
+
+| | Pages | Source |
+| --- | --- | --- |
+| Real method | 15 | 4 skill overviews, 3 speaking parts, 8 band criteria |
+| Stubs | 30 | 6 listening + 12 reading question types, 12 writing task types |
+
+The 8 criterion pages are the richest result: the **General Information** page
+carries full Writing and Speaking band-descriptor tables (bands 9→0 × 4
+criteria), which were split column-wise into one page per criterion. The
+Writing sheet covers **Task 1 only** and has no Task 2 essay method at all.
+
+Stubs say so on the page and are marked in both the method index and the
+weakness rows (`hasMethod: false`). No method content was invented — a
+plausible-sounding technique that did not come from the source would be
+indistinguishable from one that did.
+
+### Decisions worth knowing
+
+- **`os_ielts_band_conversion.band` is nullable**, against the brief's
+  `not null`. The brief also says "below 10, leave null rather than guessing";
+  both cannot hold. A row for every raw score 0..40 lets the lookup
+  distinguish "no published band this low" from "not in the table".
+- **The derived band is stored, not re-derived on read.** A value that is
+  never stored cannot be overridden, and the published conversions vary by
+  test version. The log form offers an override for the same reason.
+- **`os_ielts_log_practice` is SECURITY INVOKER.** It exists for atomicity —
+  a practice row that lost its tags counts as practice and informs no weakness
+  ratio — not for authority. DEFINER would have bypassed RLS on both tables.
+- **The weakness ranking is shrunk**, `(missed + 1) / (attempted + 4)`. A raw
+  rate puts 1-of-1 above 6-of-10, which would send him to practise the wrong
+  thing on the view whose entire claim is that it says what to work on. The
+  displayed figures are always raw.
+- **The binding constraint is the worst skill, never the average.** An overall
+  7.0 built on a 5.5 in writing fails a 6.5 floor. An unmeasured skill is
+  reported as unknown, not as passing.
+
+### Verification (2026-08-08)
+
+`npm run typecheck` (`tsc -b --force`) and `pnpm build` pass; 1248 tests in 64
+files pass. Beyond that, observed in a real browser (Chromium, 1280px) against
+the dev server:
+
+- Listening raw score 30 renders band **7.0** with no band input on screen;
+  raw 32 renders 7.5 for listening and 7.0 for reading, so the two tables are
+  genuinely separate.
+- Logging a reading session with two tags produces a weakness list ranked
+  `Matching Headings 6 of 10 (60%)` above `True / False / Not Given 1 of 8
+  (13%)`; clicking the top row lands on `reading/matching-headings`.
+- The live RPC, called with the exact payload the client builds, wrote one
+  `os_ielts_practice` row and two `os_ielts_practice_topic` rows with band 7.0
+  matching the conversion table. A call naming an unknown slug raised
+  `foreign_key_violation` and left **zero** practice rows — the atomicity
+  claim holds. Test rows deleted; the cascade removed the tags.
+- No committed content holds a signed Notion URL. The only URLs in
+  `content/ielts/` are six `app.notion.com/p/<page-id>` permalinks; there are
+  no images, embeds or file blocks at all.
+
+**Not verified end to end through the browser against production**: driving
+the live database from the UI needs the app passphrase, which is a bcrypt hash
+in `private.os_app_secret` and is not recoverable. The browser leg ran against
+the mock repository and the database leg against the live RPC; every link was
+observed, but not in one continuous run. Worth repeating from a browser with
+the passphrase to hand.
+
+### Deliberately out of scope
+
+Cambridge practice-test PDFs, the third-party guidebook PDF, the IELTS EBOOK
+list, Notion write-back of any kind, and content editing in the app. The
+extraction is one-time: if the Notion source changes, re-run Phase 2
+deliberately rather than building a sync.

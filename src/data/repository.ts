@@ -24,9 +24,15 @@ import type {
   FinishLineEdge,
   FinishLineEntity,
   FinishLineItem,
+  IeltsBandConversion,
   IeltsError,
+  IeltsPractice,
+  IeltsPracticeTopic,
+  IeltsPracticeWrite,
+  IeltsPrepConfig,
   IeltsResult,
   IeltsSession,
+  IeltsTopic,
   OrphanMilestone,
   ProcessGate,
   ProcessLane,
@@ -124,6 +130,34 @@ export interface Repository {
   createIeltsSessions(
     input: ReadonlyArray<Omit<IeltsSession, 'id' | 'createdAt'>>,
   ): Promise<IeltsSession[]>;
+
+  /**
+   * IELTS prep — the per-question-type tracker.
+   *
+   * A NARROWER GRAIN than listIeltsSessions above, and a different table.
+   * These rows carry attempted/missed per QUESTION TYPE, which is what makes
+   * a weakness rankable and, because the topic slug is also the content path,
+   * what makes each weakness row a link to its own method page.
+   *
+   * The reads are plain arrays rather than ReadResult: unlike the Finish line
+   * cards, nothing here counts problems into a headline number that a silent
+   * `[]` would falsify. An empty weakness table renders as "nothing logged
+   * yet", which is the honest reading of both no rows and a failed read —
+   * and the mutation path, where being wrong would matter, throws.
+   */
+  listIeltsTopics(): Promise<IeltsTopic[]>;
+  listIeltsPractice(): Promise<IeltsPractice[]>;
+  listIeltsPracticeTopics(): Promise<IeltsPracticeTopic[]>;
+  listIeltsBandConversion(): Promise<IeltsBandConversion[]>;
+  getIeltsPrepConfig(): Promise<IeltsPrepConfig | null>;
+  /**
+   * ONE CALL, ONE TRANSACTION. The attempt and its topic rows are written
+   * together by os_ielts_log_practice, because a practice row with no tags
+   * counts as practice on the dashboard while informing no weakness ratio —
+   * a disagreement nothing in the UI would surface.
+   */
+  createIeltsPractice(input: IeltsPracticeWrite): Promise<IeltsPractice>;
+  deleteIeltsPractice(id: string): Promise<void>;
 
   /**
    * Finish line — the entity matrix and the road to it.

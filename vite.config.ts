@@ -1,5 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import mdx from '@mdx-js/rollup';
+import remarkFrontmatter from 'remark-frontmatter';
+import remarkGfm from 'remark-gfm';
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -28,7 +31,26 @@ function commitSha(): string {
 }
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    // BEFORE react(), not after: @mdx-js/rollup turns .mdx into JSX, and the
+    // React plugin has to see that JSX to apply the automatic runtime. The
+    // other order compiles nothing and fails at import.
+    //
+    // remarkFrontmatter makes the YAML block a parsed node rather than a
+    // paragraph of stray text at the top of every page. It is deliberately
+    // NOT remark-mdx-frontmatter: the app never reads frontmatter at runtime.
+    // Topic metadata (slug, skill, kind, label, order) comes from
+    // os_ielts_topic and from src/logic/ielts/topics.ts, so exporting it from
+    // the MDX too would create a third copy that can disagree with the other
+    // two. The frontmatter exists to make each file self-describing to a
+    // human and to give topicContent.test.ts something to check the path
+    // against.
+    //
+    // remarkGfm is required, not cosmetic: the Notion source is mostly
+    // tables, and every one of them lands in these files as a GFM table.
+    { enforce: 'pre', ...mdx({ remarkPlugins: [remarkFrontmatter, remarkGfm] }) },
+    react({ include: /\.(jsx|js|mdx|md|tsx|ts)$/ }),
+  ],
   define: {
     __BUILD_SHA__: JSON.stringify(commitSha()),
     __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
