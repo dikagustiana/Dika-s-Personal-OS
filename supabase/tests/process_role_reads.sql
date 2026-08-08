@@ -125,7 +125,7 @@ where result <> '0';
 
 -- ===========================================================================
 -- 2. THE OWNER SEES EVERYTHING. The §1 ledger numbers, pinned.
---    86 steps = SAMB 30 + ARBI 23 + KGR 33. 331 needs = 118 + 112 + 101.
+--    91 steps = SAMB 30 + ARBI 23 + KGR 38. 347 needs = 118 + 112 + 117.
 --    83 bridge pairs = SAMB 46 (45 from the seed + the 18b pair recorded by
 --    migration 56) + ARBI 37 + KGR 0 — KGR's bridge is DELIBERATELY absent
 --    until the poultry rows exist, so 83 not moving when its seed landed is
@@ -133,11 +133,11 @@ where result <> '0';
 -- ===========================================================================
 select 'owner: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
-  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '86'  as expected
+  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '91'  as expected
   union all select 'steps SAMB',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='SAMB'$q$), '30'
   union all select 'steps ARBI',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='ARBI'$q$), '23'
-  union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '33'
-  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '331'
+  union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '38'
+  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '347'
   union all select 'bridge',      pg_temp.as_owner('select count(*) from public.os_process_step_items'),           '83'
   union all select 'bridge KGR',  pg_temp.as_owner($q$select count(*) from public.os_process_step_items i
                                                       join public.os_process_steps s on s.id = i.step_id
@@ -145,7 +145,7 @@ from (
   union all select 'lanes',       pg_temp.as_owner('select count(*) from public.os_process_lanes'),                '21'
   union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '24'
   union all select 'tracks',      pg_temp.as_owner('select count(*) from public.os_process_tracks'),               '9'
-  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '67'
+  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '69'
   union all select 'text_history',pg_temp.as_owner('select count(*) from public.os_process_text_history'),         '1'
 ) t
 where got <> expected;
