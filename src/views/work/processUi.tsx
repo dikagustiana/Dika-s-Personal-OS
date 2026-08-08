@@ -26,9 +26,15 @@ import type {
   ProcessGate,
   ProcessNeedKind,
   ProcessNeedStatus,
+  ProcessStep,
   ProcessTrackDef,
 } from '../../data/types';
-import { ALL_TRACKS, branchTracks, type TrackFilter } from '../../logic/process';
+import {
+  ALL_TRACKS,
+  branchTracks,
+  trackFilterDiscriminates,
+  type TrackFilter,
+} from '../../logic/process';
 import type { EmptyCause } from '../../logic/processModel';
 import type { Viewer } from '../../store/appStore';
 
@@ -209,15 +215,29 @@ export function filterButtonClass(active: boolean): string {
  * selection travelling between those two jobs is how rows go missing without
  * a trace.
  */
+/**
+ * Renders NOTHING when the entity's branches do not narrow anything — see
+ * trackFilterDiscriminates. The decision is made here rather than at each call
+ * site so the two tabs cannot disagree about whether KGR has a jalur filter,
+ * and so a caller cannot forget.
+ *
+ * What is removed is the CONTROL, not the information: TrackChip still marks
+ * every step's track on the canvas and in the step panel. An excursion of four
+ * steps is worth seeing; it is not worth a button that hides three boxes.
+ */
 export function TrackFilterGroup({
   tracks,
+  steps,
   value,
   onChange,
 }: {
   tracks: ProcessTrackDef[];
+  /** The entity's steps — coverage is measured against these. */
+  steps: ProcessStep[];
   value: TrackFilter;
   onChange: (next: TrackFilter) => void;
 }) {
+  if (!trackFilterDiscriminates(steps, tracks)) return null;
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Filter jalur">
       <span className="surface-label mr-1">Jalur</span>

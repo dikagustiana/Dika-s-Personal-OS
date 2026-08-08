@@ -62,6 +62,90 @@ export function visibleSteps(
   return steps.filter((step) => stepVisible(step, filter, shared));
 }
 
+// --- is the jalur filter worth showing? -------------------------------------
+
+/**
+ * ===========================================================================
+ * A FILTER THAT SHOWS ALMOST EVERYTHING IS NOT A FILTER.
+ * ===========================================================================
+ * KGR has three tracks, but only four of its 38 steps are anything other than
+ * KEDUANYA. Pressing `Karkas` hides three boxes and `Olahan` hides one — the
+ * control costs a row of chrome and a decision, and returns nothing.
+ *
+ * THE DATA IS RIGHT AND IS NOT WHAT GETS FIXED. KGR genuinely is one chain
+ * with short excursions: one input, one line, one split-off at the carcass,
+ * three further-processing steps, then back onto the same spine. That is a
+ * different SHAPE from SAMB, where trade and LP run side by side end to end,
+ * and from ARBI, whose forward and reverse legs enter through different doors.
+ * The track chips on the boxes still have to mark those four excursion steps,
+ * so the information stays; only the control goes.
+ *
+ * THE RULE IS DERIVED, NEVER A LIST OF ENTITIES. A fourth chain seeded
+ * tomorrow decides for itself, with no code change and nothing to keep in
+ * sync — the same property that makes the entity picker build itself from
+ * `distinct entity_code`.
+ *
+ * Hide when EVERY branch covers more than the ceiling. One narrow branch is
+ * enough to make the control useful, which is why ARBI keeps it: Forward
+ * reaches 91% but Reverse reaches 35%, and pressing Reverse is a real answer
+ * to a real question. Requiring BOTH to be narrow would have taken ARBI's
+ * filter away for no reason.
+ *
+ * Coverage is measured with stepVisible, so it counts exactly what the canvas
+ * would render — shared steps included. Any other definition would drift from
+ * what the button actually does.
+ *
+ * At 80%, on the three chains that exist:
+ *   SAMB  Trade 19/30 (63%) · LP 20/30 (67%)        → shown
+ *   ARBI  Forward 21/23 (91%) · Reverse 8/23 (35%)  → shown
+ *   KGR   Karkas 35/38 (92%) · Olahan 37/38 (97%)   → hidden
+ * The nearest call is ARBI's Reverse at 35%, a wide margin below, and KGR's
+ * Karkas at 92%, a wide margin above. Nothing sits near the line.
+ */
+export const TRACK_FILTER_COVERAGE_CEILING = 0.8;
+
+export interface BranchCoverage {
+  code: string;
+  label: string;
+  covered: number;
+  total: number;
+  /** Share of the entity's steps this branch would still show, 0..1. */
+  ratio: number;
+}
+
+export function branchCoverage(
+  steps: ProcessStep[],
+  tracks: ProcessTrackDef[],
+): BranchCoverage[] {
+  const shared = sharedTrackCodes(tracks);
+  return branchTracks(tracks).map((track) => {
+    const covered = steps.filter((step) => stepVisible(step, track.code, shared)).length;
+    return {
+      code: track.code,
+      label: track.label,
+      covered,
+      total: steps.length,
+      // No steps means nothing to narrow; 1 reads as "covers everything", which
+      // sends the caller down the hide branch rather than dividing by zero.
+      ratio: steps.length === 0 ? 1 : covered / steps.length,
+    };
+  });
+}
+
+/**
+ * True when at least one branch narrows the view enough to be worth offering.
+ * Zero branch tracks is false — there is nothing to choose between.
+ */
+export function trackFilterDiscriminates(
+  steps: ProcessStep[],
+  tracks: ProcessTrackDef[],
+  ceiling: number = TRACK_FILTER_COVERAGE_CEILING,
+): boolean {
+  const coverage = branchCoverage(steps, tracks);
+  if (coverage.length === 0) return false;
+  return coverage.some((branch) => branch.ratio <= ceiling);
+}
+
 export function maxSlot(steps: ProcessStep[]): number {
   return steps.reduce((highest, step) => Math.max(highest, step.slot), 0);
 }
