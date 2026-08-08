@@ -102,11 +102,22 @@ psql "$DATABASE_URL" -f supabase/tests/rls_function_grants.sql
 # Throwaway cluster: replays every migration, then reads the nine
 # os_process_* tables as anon, as the owner, and as two contributors.
 scripts/role-read-tests.sh
+
+# Throwaway cluster: proves the one-shot seed guards actually refuse, do
+# not duplicate, and can still be got past via the down-seed.
+scripts/seed-guard-tests.sh
 ```
 
-**Run both after any migration that adds a policy, adds a function, or changes
-a grant.** The rules they enforce — and the outage behind each — are in
+**Run the first two after any migration that adds a policy, adds a function,
+or changes a grant**, and the third after touching either process seed file or
+its down-seed. The rules they enforce — and the outage behind each — are in
 [docs/rls-conventions.md](docs/rls-conventions.md).
+
+Both scripts share `scripts/lib/pg-cluster.sh`, which builds the cluster and
+replays the migrations. Note what it has to do first: `os_finish_line_items`
+and `os_finish_line_entities` are created by migrations and populated by none,
+so a from-scratch replay needs stand-in rows before the process seeds will
+apply. That gap is real, and the script says so every time it runs.
 
 ## Writing Finish Line cells (changed 2026-08-04)
 
