@@ -16,11 +16,31 @@
  * Writing splits into Task 1 and Task 2 because they fail in completely
  * different ways, even though IELTS bands them together.
  *
- * Two names repeat across skills by design — broken_clause and
- * function_word_slip under both writing tasks, paraphrase_missed and
- * answer_form_error under both listening and reading. Identical definitions,
- * and grouping is per skill, so they count separately while keeping the
- * vocabulary small.
+ * FOUR NAMES REPEAT ACROSS SKILLS, and not all for the same reason. Grouping
+ * is per skill, so every one of them counts separately.
+ *
+ *   function_word_slip   writing_task1 + writing_task2. IDENTICAL definition,
+ *                        shared from one constant so the two cannot drift.
+ *   tense_drift          writing_task1 + speaking. DIFFERENT definitions and
+ *                        different checks — one is a search through a draft,
+ *                        the other is a listen-back. Same name, same
+ *                        criterion, genuinely different failure.
+ *   paraphrase_missed    listening + reading. Different definitions: a text
+ *   answer_form_error    listening + reading. can be re-read, audio cannot.
+ *
+ * broken_clause is NOT one of them — it belongs to writing_task1 alone, and
+ * writing_task2's equivalent is verb_phrase_breakdown, a different mode with a
+ * different definition. This comment claimed otherwise until 2026-08-08 and
+ * omitted tense_drift entirely; both were wrong from the first commit and no
+ * test could see it, because comments are not tested. errorTopicMap.ts decides
+ * whether a repeated name merges into one topic row or stays two, so which
+ * names repeat is now load-bearing rather than commentary.
+ *
+ * THE MODE NAMES ARE LITERAL TYPES, not `string`. Every object below is
+ * `as const satisfies …` rather than annotated, so the names survive into the
+ * type system and errorTopicMap.ts can be exhaustive over them. Annotating
+ * these widens `mode` to `string`, and a widened mode name silently drops a
+ * row from that map instead of failing the build.
  */
 import type { IeltsErrorSkill } from '../../data/types';
 
@@ -102,7 +122,7 @@ export const RECEPTIVE_CRITERION_MEANING: Record<string, string> = {
 const FUNCTION_WORD_SLIP_DEFINITION =
   'Wrong or missing article, preposition, plural, countability, or comparative — including fixed-phrase prepositions';
 
-const writingTask1: SkillTaxonomy = {
+const writingTask1 = {
   skill: 'writing_task1',
   label: 'Writing Task 1',
   criteria: WRITING_CRITERIA,
@@ -171,9 +191,9 @@ const writingTask1: SkillTaxonomy = {
       check: 'Search for "increase", "decrease", "rise", "fall" and "dramatically" and check each against the chart direction.',
     },
   ],
-};
+} as const satisfies SkillTaxonomy;
 
-const writingTask2: SkillTaxonomy = {
+const writingTask2 = {
   skill: 'writing_task2',
   label: 'Writing Task 2',
   criteria: WRITING_CRITERIA,
@@ -224,9 +244,9 @@ const writingTask2: SkillTaxonomy = {
       check: 'Search for "another" followed by a number, and for every plural noun preceded by "a".',
     },
   ],
-};
+} as const satisfies SkillTaxonomy;
 
-const speaking: SkillTaxonomy = {
+const speaking = {
   skill: 'speaking',
   label: 'Speaking',
   criteria: SPEAKING_CRITERIA,
@@ -272,9 +292,9 @@ const speaking: SkillTaxonomy = {
       check: 'Listen back at half speed to the ends of past-tense verbs and plural nouns.',
     },
   ],
-};
+} as const satisfies SkillTaxonomy;
 
-const listening: SkillTaxonomy = {
+const listening = {
   skill: 'listening',
   label: 'Listening',
   criteria: RECEPTIVE_CRITERIA,
@@ -318,9 +338,9 @@ const listening: SkillTaxonomy = {
       check: 'Count the words in every answer against the stated limit, and check each capital letter.',
     },
   ],
-};
+} as const satisfies SkillTaxonomy;
 
-const reading: SkillTaxonomy = {
+const reading = {
   skill: 'reading',
   label: 'Reading',
   criteria: RECEPTIVE_CRITERIA,
@@ -367,15 +387,27 @@ const reading: SkillTaxonomy = {
       check: 'Write the clock time you must leave each passage at the top of that passage.',
     },
   ],
-};
+} as const satisfies SkillTaxonomy;
 
-export const IELTS_ERROR_TAXONOMY: Record<IeltsErrorSkill, SkillTaxonomy> = {
+export const IELTS_ERROR_TAXONOMY = {
   listening,
   reading,
   writing_task1: writingTask1,
   writing_task2: writingTask2,
   speaking,
-};
+} as const satisfies Record<IeltsErrorSkill, SkillTaxonomy>;
+
+/**
+ * The mode names of one skill, as a literal union — 'data_misreport' |
+ * 'coverage_gap' | … for writing_task1. This is what lets errorTopicMap.ts be
+ * exhaustive at COMPILE time: renaming a mode above changes this union, and a
+ * map keyed by it stops type-checking on the same commit.
+ *
+ * It is derived, never written out. A hand-maintained list of mode names would
+ * be the second copy this file's header forbids.
+ */
+export type ModeNameOf<S extends IeltsErrorSkill> =
+  (typeof IELTS_ERROR_TAXONOMY)[S]['modes'][number]['mode'];
 
 /** Display order: writing first — it is the highest-volume skill. */
 export const IELTS_ERROR_SKILLS: readonly IeltsErrorSkill[] = [
@@ -390,13 +422,24 @@ export function isIeltsErrorSkill(value: string): value is IeltsErrorSkill {
   return Object.prototype.hasOwnProperty.call(IELTS_ERROR_TAXONOMY, value);
 }
 
-/** Exact, case-sensitive lookup. A reworded name is a different mode. */
+/**
+ * Exact, case-sensitive lookup. A reworded name is a different mode.
+ *
+ * The local `readonly FailureMode[]` widens the const tuple back to an array
+ * before calling `.find`. Without it, indexing by the IeltsErrorSkill UNION
+ * yields a union of five distinct tuple types, and TypeScript refuses to call
+ * a method on a union of signatures. Widening here keeps the literal types
+ * available to ModeNameOf while leaving these runtime helpers string-typed,
+ * which is what every caller at the paste boundary actually has.
+ */
 export function findMode(skill: IeltsErrorSkill, mode: string): FailureMode | undefined {
-  return IELTS_ERROR_TAXONOMY[skill].modes.find((entry) => entry.mode === mode);
+  const modes: readonly FailureMode[] = IELTS_ERROR_TAXONOMY[skill].modes;
+  return modes.find((entry) => entry.mode === mode);
 }
 
 export function isValidCriterion(skill: IeltsErrorSkill, criterion: string): boolean {
-  return IELTS_ERROR_TAXONOMY[skill].criteria.includes(criterion);
+  const criteria: readonly string[] = IELTS_ERROR_TAXONOMY[skill].criteria;
+  return criteria.includes(criterion);
 }
 
 /** UNCLASSIFIED passes — §6 depends on it reaching the table. */

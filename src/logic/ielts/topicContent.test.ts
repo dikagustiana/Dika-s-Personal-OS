@@ -61,7 +61,7 @@ describe('IELTS topic ↔ MDX parity', () => {
   });
 
   it('every MDX file has a topic slug', () => {
-    const known = new Set(IELTS_TOPICS.map((t) => t.slug));
+    const known = new Set<string>(IELTS_TOPICS.map((t) => t.slug));
     const orphanFiles = slugsOnDisk().filter((slug) => !known.has(slug));
     expect(orphanFiles, 'MDX files with no row in IELTS_TOPICS').toEqual([]);
   });

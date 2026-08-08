@@ -241,7 +241,13 @@ function RowEditor({
           <select
             className="native-select mt-1 w-full text-xs"
             value={
-              taxonomy?.criteria.includes(row.fields.criterion) ? row.fields.criterion : ''
+              // `as readonly string[]` widens the taxonomy's const tuple back
+              // to an array. The criterion here came off a pasted line and is
+              // an arbitrary string; comparing it against a literal union is
+              // the check this control exists to perform.
+              (taxonomy?.criteria as readonly string[] | undefined)?.includes(row.fields.criterion)
+                ? row.fields.criterion
+                : ''
             }
             onChange={(event) => onChange({ ...row.fields, criterion: event.target.value })}
             aria-label={`Criterion, line ${row.line}`}

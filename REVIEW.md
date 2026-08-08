@@ -534,6 +534,49 @@ from public.os_ielts_topic order by slug;
 
 and diff against `IELTS_TOPICS`. Verified 2026-08-08: **45/45 identical**.
 
+**Re-verified 2026-08-08 after the error-log bridge: 44/45.** The one
+difference is deliberate and is waiting on an unapplied migration.
+`writing/criterion-task-response` reads `Task Response` in the database and
+`Task Achievement / Task Response` in `topics.ts`, the seed, and the MDX
+frontmatter. `20260808000068_ielts_task_achievement_label.sql` closes it and
+**has not been applied** — apply it by hand, then this returns to 45/45. The
+label matters because `errorTopicMap.ts` now routes writing Task 1 modes,
+which the taxonomy files under *Task Achievement*, onto that row.
+
+### The error-log bridge (added 2026-08-08)
+
+`src/logic/ielts/errorTopicMap.ts` maps `os_ielts_errors.failure_mode` onto
+`os_ielts_topic.slug`, in code and in one place. It needs no schema change:
+every column it reads already exists.
+
+| Link | Enforced by |
+| --- | --- |
+| taxonomy mode names ↔ the map | `ModeTargets<S>` keyed by `ModeNameOf<S>` — a rename is a compile error |
+| topic slugs ↔ the map's targets | `IeltsTopicSlug` literal union — a rename is a compile error |
+| no mode silently omitted | `src/logic/ielts/errorTopicMap.test.ts`, at runtime, where an `as` cast cannot hide it |
+
+Writing and speaking modes route to a `criterion` slug and never to a
+`task_type` one, because an error row records the criterion and never records
+which chart or which speaking part. Listening and reading route per row from
+that row's own `question_type`; `lost_place` and `time_ran_out` are declared
+unmapped because their remedy belongs on an overview page, which `isTaggable()`
+forbids as a weakness target.
+
+⚠ `question_type` is unvalidated free text at every layer, so the alias table
+is derived from the prompt's examples rather than from data. Check it before
+trusting the receptive half of any ranking:
+
+```sql
+select question_type, count(*) from public.os_ielts_errors
+ where question_type is not null group by 1 order by 2 desc;
+```
+
+⚠ Derived rows sit on the severity scale, which floors at 0.333, while the
+count scale reaches 0.071. One logged occurrence therefore outranks a measured
+"2 of 10 missed" (0.214). Pre-existing, amplified by volume, and deliberately
+not rescaled — a rescale would be a number invented to fix a ranking. The
+mitigation is that provenance is rendered on every row.
+
 ### Why `os_ielts_practice` and not `ielts_session`
 
 The brief named the table `ielts_session`. `os_ielts_sessions` already existed

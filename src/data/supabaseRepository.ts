@@ -1096,7 +1096,13 @@ class SupabaseRepository implements Repository {
     // it is joined in here from the same list the parity test checks. A slug
     // the repo has never heard of defaults to false: claiming a method that
     // has no file would put a dead link on a weakness row.
-    const contentByslug = new Map(IELTS_TOPICS.map((topic) => [topic.slug, topic]));
+    // Keyed by `string`: row.slug arrives from the database and may be a slug
+    // the repo has never heard of, which is the case the `?? false` below
+    // exists for. A literal-union key would reject the lookup at compile time
+    // and hide that case behind a cast.
+    const contentByslug = new Map<string, (typeof IELTS_TOPICS)[number]>(
+      IELTS_TOPICS.map((topic) => [topic.slug, topic]),
+    );
     return (data as IeltsTopicRow[]).map((row) => ({
       slug: row.slug,
       skill: row.skill,

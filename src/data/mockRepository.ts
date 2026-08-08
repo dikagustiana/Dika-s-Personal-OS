@@ -499,7 +499,9 @@ export class MockRepository implements Repository {
   private readonly ieltsPracticeTopics: IeltsPracticeTopic[] = [];
 
   async listIeltsTopics(): Promise<IeltsTopic[]> {
-    return clone(IELTS_TOPICS as IeltsTopic[]);
+    // Spread rather than cast: IELTS_TOPICS is now a readonly const tuple, and
+    // clone() hands its result to callers that treat it as a mutable list.
+    return clone<IeltsTopic[]>([...IELTS_TOPICS]);
   }
 
   async listIeltsPractice(): Promise<IeltsPractice[]> {

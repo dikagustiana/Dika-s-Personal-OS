@@ -74,7 +74,14 @@ export function isTaggable(topic: IeltsTopic): boolean {
   return topic.kind !== 'overview';
 }
 
-export const IELTS_TOPICS: readonly IeltsTopic[] = [
+/**
+ * `as const satisfies` rather than an annotation, so every slug survives as a
+ * LITERAL TYPE. errorTopicMap.ts types its targets as IeltsTopicSlug, which
+ * makes a slug renamed here a compile error there rather than a weakness row
+ * that silently stops appearing. An annotation widens slug to `string` and
+ * loses exactly that.
+ */
+export const IELTS_TOPICS = [
   { slug: 'listening/overview', skill: 'listening', kind: 'overview', label: 'Listening Overview', sortOrder: 0, hasMethod: true },
   { slug: 'reading/overview', skill: 'reading', kind: 'overview', label: 'Reading Overview', sortOrder: 0, hasMethod: true },
   { slug: 'writing/overview', skill: 'writing', kind: 'overview', label: 'Writing Overview', sortOrder: 0, hasMethod: true },
@@ -117,7 +124,10 @@ export const IELTS_TOPICS: readonly IeltsTopic[] = [
   { slug: 'speaking/part2-long-turn', skill: 'speaking', kind: 'task_type', label: 'Part 2: Long Turn', sortOrder: 20, hasMethod: true },
   { slug: 'speaking/part3-discussion', skill: 'speaking', kind: 'task_type', label: 'Part 3: Discussion', sortOrder: 30, hasMethod: true },
 
-  { slug: 'writing/criterion-task-response', skill: 'writing', kind: 'criterion', label: 'Task Response', sortOrder: 200, hasMethod: true },
+  // Both official names, because IELTS bands Task 1 as Task Achievement and
+  // Task 2 as Task Response against one descriptor column, and the page covers
+  // both. errorTopicMap.ts routes writing_task1 and writing_task2 modes here.
+  { slug: 'writing/criterion-task-response', skill: 'writing', kind: 'criterion', label: 'Task Achievement / Task Response', sortOrder: 200, hasMethod: true },
   { slug: 'writing/criterion-coherence-cohesion', skill: 'writing', kind: 'criterion', label: 'Coherence & Cohesion', sortOrder: 210, hasMethod: true },
   { slug: 'writing/criterion-lexical-resource', skill: 'writing', kind: 'criterion', label: 'Lexical Resource', sortOrder: 220, hasMethod: true },
   { slug: 'writing/criterion-grammatical-range', skill: 'writing', kind: 'criterion', label: 'Grammatical Range & Accuracy', sortOrder: 230, hasMethod: true },
@@ -126,9 +136,20 @@ export const IELTS_TOPICS: readonly IeltsTopic[] = [
   { slug: 'speaking/criterion-lexical-resource', skill: 'speaking', kind: 'criterion', label: 'Lexical Resource', sortOrder: 210, hasMethod: true },
   { slug: 'speaking/criterion-grammatical-range', skill: 'speaking', kind: 'criterion', label: 'Grammatical Range & Accuracy', sortOrder: 220, hasMethod: true },
   { slug: 'speaking/criterion-pronunciation', skill: 'speaking', kind: 'criterion', label: 'Pronunciation', sortOrder: 230, hasMethod: true },
-];
+] as const satisfies readonly IeltsTopic[];
 
-const BY_SLUG = new Map(IELTS_TOPICS.map((topic) => [topic.slug, topic]));
+/**
+ * Every slug in the taxonomy, as a literal union. A mapping that targets a
+ * topic types its target as this, so a slug that is renamed or removed above
+ * breaks the build instead of quietly resolving to nothing at runtime.
+ */
+export type IeltsTopicSlug = (typeof IELTS_TOPICS)[number]['slug'];
+
+// Keyed by `string`, not IeltsTopicSlug: the callers hold a slug read from the
+// database or parsed out of a row, which is a string that MIGHT be a known
+// slug. Narrowing the key would force a cast at every call site and the cast
+// would be the lie — an unknown slug is exactly what this returns undefined for.
+const BY_SLUG = new Map<string, IeltsTopic>(IELTS_TOPICS.map((topic) => [topic.slug, topic]));
 
 export function topicBySlug(slug: string): IeltsTopic | undefined {
   return BY_SLUG.get(slug);
