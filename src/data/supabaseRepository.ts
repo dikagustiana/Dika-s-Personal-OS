@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { IELTS_TOPICS } from '../logic/ielts/topics';
 import { createSupabaseResearchRepository } from './researchRepository';
 import type { ResearchRepository } from './researchRepository';
 import {
@@ -56,10 +57,18 @@ import type {
   ProcessStepItem,
   ProcessTrack,
   ProcessTrackDef,
+  IeltsBandConversion,
   IeltsError,
   IeltsErrorSkill,
+  IeltsPractice,
+  IeltsPracticeTopic,
+  IeltsPracticeWrite,
+  IeltsPrepConfig,
+  IeltsPrepSkill,
   IeltsResult,
   IeltsSession,
+  IeltsTopic,
+  IeltsTopicKind,
   LinkedProject,
   Project,
   ProjectDocument,
@@ -481,6 +490,66 @@ interface IeltsSessionRow {
 }
 
 const IELTS_SESSION_COLUMNS = 'id, date, skill, revision_of, raw_feedback, created_at';
+
+const IELTS_PRACTICE_COLUMNS =
+  'id, skill, source, attempted_on, timed, raw_score, band, duration_minutes, notes, created_at';
+
+interface IeltsTopicRow {
+  slug: string;
+  skill: IeltsPrepSkill;
+  kind: IeltsTopicKind;
+  label: string;
+  sort_order: number;
+}
+
+interface IeltsPracticeRow {
+  id: string;
+  skill: IeltsPrepSkill;
+  source: string;
+  attempted_on: string;
+  timed: boolean;
+  raw_score: number | null;
+  // numeric(2,1) crosses PostgREST as a string, never a number.
+  band: string | null;
+  duration_minutes: number | null;
+  notes: string | null;
+  created_at: string;
+}
+
+interface IeltsPracticeTopicRow {
+  practice_id: string;
+  topic_slug: string;
+  attempted: number | null;
+  missed: number | null;
+  severity: number | null;
+}
+
+interface IeltsBandConversionRow {
+  skill: IeltsBandConversion['skill'];
+  raw_score: number;
+  band: string | null;
+}
+
+interface IeltsConfigRow {
+  test_date: string;
+  target_overall: string | null;
+  target_floor: string | null;
+}
+
+function rowToIeltsPractice(row: IeltsPracticeRow): IeltsPractice {
+  return {
+    id: row.id,
+    skill: row.skill,
+    source: row.source,
+    attemptedOn: row.attempted_on,
+    timed: row.timed,
+    rawScore: row.raw_score ?? undefined,
+    band: row.band === null ? undefined : Number(row.band),
+    durationMinutes: row.duration_minutes ?? undefined,
+    notes: row.notes ?? undefined,
+    createdAt: toIso(row.created_at),
+  };
+}
 
 // --- mapping ----------------------------------------------------------------
 
@@ -1012,6 +1081,131 @@ class SupabaseRepository implements Repository {
       .select(IELTS_SESSION_COLUMNS);
     if (error) throw new Error(`createIeltsSessions failed: ${error.message}`);
     return (data as IeltsSessionRow[]).map(rowToIeltsSession);
+  }
+
+  // --- IELTS prep: the per-question-type tracker ------------------------------
+
+  async listIeltsTopics(): Promise<IeltsTopic[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_topic')
+      .select('slug, skill, kind, label, sort_order')
+      .order('skill', { ascending: true })
+      .order('sort_order', { ascending: true });
+    if (error) throw new Error(`listIeltsTopics failed: ${error.message}`);
+    // hasMethod is a property of the REPO's content, not of the database, so
+    // it is joined in here from the same list the parity test checks. A slug
+    // the repo has never heard of defaults to false: claiming a method that
+    // has no file would put a dead link on a weakness row.
+    const contentByslug = new Map(IELTS_TOPICS.map((topic) => [topic.slug, topic]));
+    return (data as IeltsTopicRow[]).map((row) => ({
+      slug: row.slug,
+      skill: row.skill,
+      kind: row.kind,
+      label: row.label,
+      sortOrder: row.sort_order,
+      hasMethod: contentByslug.get(row.slug)?.hasMethod ?? false,
+    }));
+  }
+
+  async listIeltsPractice(): Promise<IeltsPractice[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_practice')
+      .select(IELTS_PRACTICE_COLUMNS)
+      .order('attempted_on', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) throw new Error(`listIeltsPractice failed: ${error.message}`);
+    return (data as IeltsPracticeRow[]).map(rowToIeltsPractice);
+  }
+
+  async listIeltsPracticeTopics(): Promise<IeltsPracticeTopic[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_practice_topic')
+      .select('practice_id, topic_slug, attempted, missed, severity');
+    if (error) throw new Error(`listIeltsPracticeTopics failed: ${error.message}`);
+    return (data as IeltsPracticeTopicRow[]).map((row) => ({
+      practiceId: row.practice_id,
+      topicSlug: row.topic_slug,
+      attempted: row.attempted ?? undefined,
+      missed: row.missed ?? undefined,
+      severity: row.severity ?? undefined,
+    }));
+  }
+
+  async listIeltsBandConversion(): Promise<IeltsBandConversion[]> {
+    const { data, error } = await this.client
+      .from('os_ielts_band_conversion')
+      .select('skill, raw_score, band')
+      .order('skill', { ascending: true })
+      .order('raw_score', { ascending: true });
+    if (error) throw new Error(`listIeltsBandConversion failed: ${error.message}`);
+    return (data as IeltsBandConversionRow[]).map((row) => ({
+      skill: row.skill,
+      rawScore: row.raw_score,
+      // numeric(2,1) arrives as a string from PostgREST. Number('') is 0, so
+      // the null check has to come first or a missing band becomes band 0.0 —
+      // a published-looking value that would rank as the worst possible score.
+      band: row.band === null ? undefined : Number(row.band),
+    }));
+  }
+
+  async getIeltsPrepConfig(): Promise<IeltsPrepConfig | null> {
+    const { data, error } = await this.client
+      .from('os_ielts_config')
+      .select('test_date, target_overall, target_floor')
+      .maybeSingle();
+    if (error) throw new Error(`getIeltsPrepConfig failed: ${error.message}`);
+    if (!data) return null;
+    const row = data as IeltsConfigRow;
+    return {
+      testDate: row.test_date,
+      targetOverall: row.target_overall === null ? undefined : Number(row.target_overall),
+      targetFloor: row.target_floor === null ? undefined : Number(row.target_floor),
+    };
+  }
+
+  /**
+   * ONE RPC, ONE TRANSACTION. Two inserts from the client cannot be atomic,
+   * and a practice row that lost its topic rows would count toward "sessions
+   * logged this week" while contributing nothing to any weakness ratio — the
+   * dashboard and the weakness view would disagree with nothing to show why.
+   * See migration `ielts_log_practice_rpc`; the function is SECURITY INVOKER,
+   * so RLS still applies and this adds atomicity, not authority.
+   */
+  async createIeltsPractice(input: IeltsPracticeWrite): Promise<IeltsPractice> {
+    const { data: newId, error } = await this.client.rpc('os_ielts_log_practice', {
+      p_skill: input.skill,
+      p_source: input.source,
+      p_attempted_on: input.attemptedOn,
+      p_timed: input.timed,
+      p_raw_score: input.rawScore ?? null,
+      p_band: input.band ?? null,
+      p_duration_minutes: input.durationMinutes ?? null,
+      p_notes: input.notes ?? null,
+      p_topics: input.topics.map((topic) => ({
+        slug: topic.topicSlug,
+        attempted: topic.attempted ?? null,
+        missed: topic.missed ?? null,
+        severity: topic.severity ?? null,
+      })),
+    });
+    if (error) throw new Error(`createIeltsPractice failed: ${error.message}`);
+
+    // Read the row back rather than reconstructing it: created_at and any
+    // database-side coercion belong to the database, and the caller puts this
+    // object straight into the list it renders.
+    const { data, error: readError } = await this.client
+      .from('os_ielts_practice')
+      .select(IELTS_PRACTICE_COLUMNS)
+      .eq('id', newId as string)
+      .single();
+    if (readError) throw new Error(`createIeltsPractice read-back failed: ${readError.message}`);
+    return rowToIeltsPractice(data as IeltsPracticeRow);
+  }
+
+  async deleteIeltsPractice(id: string): Promise<void> {
+    // The topic rows go with it via ON DELETE CASCADE.
+    const { error } = await this.client.from('os_ielts_practice').delete().eq('id', id);
+    if (error) throw new Error(`deleteIeltsPractice failed: ${error.message}`);
   }
 
   // --- finish line: the entity matrix ----------------------------------------

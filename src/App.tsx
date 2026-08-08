@@ -10,7 +10,7 @@ import { Projects } from './views/growth/Projects';
 import { MonthlyClose } from './views/work/MonthlyClose';
 import { Escalations } from './views/growth/Escalations';
 import { GrowthDashboard } from './views/growth/GrowthDashboard';
-import { Ielts } from './views/growth/Ielts';
+import { IeltsArea } from './views/growth/ielts/IeltsArea';
 import { Initiative } from './views/growth/Initiative';
 import { ResearchArea } from './views/growth/research/ResearchArea';
 
@@ -43,7 +43,7 @@ export default function App() {
     else if (workView === 'escalations') view = <Escalations />;
     else view = <Dashboard />;
   } else {
-    if (growthView === 'ielts') view = <Ielts />;
+    if (growthView === 'ielts') view = <IeltsArea />;
     else if (growthView === 'uni') view = <Initiative key="uni" initiative="uni" />;
     else if (growthView === 'chevening') view = <Initiative key="chevening" initiative="chevening" />;
     else if (growthView === 'lpdp') view = <Initiative key="lpdp" initiative="lpdp" />;

@@ -44,7 +44,13 @@ function delta(current: number, previous: number | undefined): string | null {
   return `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`;
 }
 
-export function Ielts() {
+/**
+ * `embedded` is set when this renders as a tab of IeltsArea rather than as the
+ * whole route. It drops the page shell and demotes the title to an <h2>,
+ * because the area already owns the page-shell padding and the one <h1> the
+ * page is allowed. Nothing else about the view changes.
+ */
+export function Ielts({ embedded = false }: { embedded?: boolean } = {}) {
   const repository = useAppStore((state) => state.repository);
   const { run } = useMutation();
   const [results, setResults] = useState<IeltsResult[]>([]);
@@ -154,11 +160,15 @@ export function Ielts() {
   ];
 
   return (
-    <div className="page-shell">
+    <div className={embedded ? '' : 'page-shell'}>
       <header className="mb-7 border-b border-border-subtle pb-7 md:flex md:items-end md:justify-between">
         <div>
-          <p className="page-kicker">Growth / IELTS</p>
-          <h1 className="page-title">Practice band</h1>
+          {!embedded && <p className="page-kicker">Growth / IELTS</p>}
+          {embedded ? (
+            <h2 className="page-title">Practice band</h2>
+          ) : (
+            <h1 className="page-title">Practice band</h1>
+          )}
           <p className="mt-3 max-w-xl text-sm leading-6 text-foreground-muted">
             Every mock result, tracked toward the target overall band.
           </p>

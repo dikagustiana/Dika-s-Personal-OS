@@ -471,6 +471,107 @@ export interface IeltsSession {
 }
 
 // ---------------------------------------------------------------------------
+// IELTS prep — the per-question-type tracker and its method content
+//
+// A SECOND, NARROWER GRAIN than everything above. os_ielts_results says where
+// he is; os_ielts_errors says what went wrong in prose. Neither can answer
+// "matching headings: 6 misses in 10 attempts, here is the method for
+// matching headings", because neither has a question-type grain and neither
+// has anything to link to.
+//
+// These rows do. IeltsTopic.slug is both the primary key and the path under
+// content/ielts/, which is what makes a weakness row a link.
+
+/** Four skills, undivided. Writing does NOT split into task1/task2 here — that
+ *  split belongs to IeltsErrorSkill above, whose grain is the marked error.
+ *  Here the split lives in the taxonomy instead, as writing/task1-* and
+ *  writing/task2-* topic slugs, which is finer and does not need a second
+ *  skill vocabulary to express. */
+export type IeltsPrepSkill = 'listening' | 'reading' | 'writing' | 'speaking';
+
+export type IeltsTopicKind = 'question_type' | 'task_type' | 'criterion' | 'overview';
+
+/** A row of os_ielts_topic. Mirrored in logic/ielts/topics.ts, which is what
+ *  the CI parity test checks the MDX files against — CI has no database. */
+export interface IeltsTopic {
+  slug: string;
+  skill: IeltsPrepSkill;
+  kind: IeltsTopicKind;
+  label: string;
+  sortOrder: number;
+  /**
+   * Whether the MDX page holds a method or records a gap. NOT a database
+   * column — it is a property of the repo's content, so it is joined in from
+   * logic/ielts/topics.ts after the topic rows are read, and a slug the repo
+   * has never heard of defaults to false rather than claiming a method.
+   */
+  hasMethod: boolean;
+}
+
+/** One practice attempt against a named source. */
+export interface IeltsPractice {
+  id: string;
+  skill: IeltsPrepSkill;
+  /** Free text — 'Cambridge 18 Test 2'. An enum would need maintaining every
+   *  time he opens a new book. */
+  source: string;
+  attemptedOn: string; // YYYY-MM-DD
+  timed: boolean;
+  /** Listening and reading only, 0..40. A check constraint refuses it on
+   *  writing and speaking, where there is nothing out of 40 to count. */
+  rawScore?: number;
+  /** Derived from the conversion table for L/R, entered by hand for W/S, and
+   *  STORED either way — a derived value that is never stored cannot be
+   *  overridden, and the official conversion varies by test version. */
+  band?: number;
+  durationMinutes?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+/** What went wrong, per topic, per attempt. */
+export interface IeltsPracticeTopic {
+  practiceId: string;
+  topicSlug: string;
+  /** Listening/reading: questions of this type faced, and how many were wrong. */
+  attempted?: number;
+  missed?: number;
+  /** Writing/speaking: 1..3. Counting is meaningless for a band criterion. */
+  severity?: number;
+}
+
+/** What the log form sends. The two tables are written by one RPC so a
+ *  half-written attempt cannot exist — see os_ielts_log_practice. */
+export interface IeltsPracticeWrite {
+  skill: IeltsPrepSkill;
+  source: string;
+  attemptedOn: string;
+  timed: boolean;
+  rawScore?: number;
+  band?: number;
+  durationMinutes?: number;
+  notes?: string;
+  topics: ReadonlyArray<Omit<IeltsPracticeTopic, 'practiceId'>>;
+}
+
+/** INDICATIVE, not official — the published tables vary by test version.
+ *  `band` is null below raw 10, where the published tables stop. */
+export interface IeltsBandConversion {
+  skill: 'listening' | 'reading_academic';
+  rawScore: number;
+  band?: number;
+}
+
+/** At most one row. */
+export interface IeltsPrepConfig {
+  testDate: string; // YYYY-MM-DD
+  targetOverall?: number;
+  /** The PER-SKILL minimum, and the number that actually gates admission: an
+   *  average of 7.0 built on a 5.5 in writing fails a 6.5 floor. */
+  targetFloor?: number;
+}
+
+// ---------------------------------------------------------------------------
 // Finish line — the entity matrix, and the road to it
 //
 // The 21 WORK projects are tributaries into ONE consolidated group pack.
