@@ -50,9 +50,23 @@
 -- "KGR exists" test would refuse against v0.1 rows, which is exactly the
 -- state this file is meant to replace.
 --
--- Applied to live via the Supabase apply_migration tool (ledger name
--- kgr_process_seed_v2); this file records it. NEVER apply with
--- `supabase db push`, `migration up`, `db reset`, or `db remote commit`.
+-- APPLIED TO LIVE, AS THREE LEDGER ENTRIES FOR THIS ONE FILE:
+--   kgr_process_seed_v2_part1_clear_tracks_lanes_gates_phases
+--   kgr_process_seed_v2_part2_steps
+--   kgr_process_seed_v2_part3_needs
+-- Split for transport only — the tool takes SQL as a string and this file is
+-- 66 KB. The ARBI seed went in the same way (four parts, one file), so the
+-- shape is the house precedent rather than an improvisation. Read the parts
+-- as one migration; this file is the definition, the ledger is the receipt.
+--
+-- VERIFIED BYTE-IDENTICAL TO THE SOURCE after applying: md5 digests computed
+-- over every field of every step, need, gate, lane, phase and track matched
+-- the digests computed independently from kgr-process-seed.json. That check
+-- is the reason splitting for transport is safe — nothing here relies on the
+-- three parts having been typed correctly.
+--
+-- NEVER apply with `supabase db push`, `migration up`, `db reset`, or
+-- `db remote commit`.
 --
 -- Down-migration:
 -- supabase/migrations/down/20260807000061_kgr_process_seed_v2_down.sql
