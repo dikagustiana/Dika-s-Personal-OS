@@ -31,9 +31,15 @@
 -- Returns NULL when there is no such row, which the caller treats as "not
 -- known" — it never invents a time.
 --
--- NOT APPLIED BY THIS FILE'S AUTHOR AT WRITE TIME. Apply via the Supabase
--- apply_migration tool. NEVER apply with `supabase db push`, `migration up`,
--- `db reset`, or `db remote commit`.
+-- APPLIED 2026-08-09 via the Supabase apply_migration tool (ledger name
+-- `collab_link_minted_at`). NEVER apply with `supabase db push`,
+-- `migration up`, `db reset`, or `db remote commit`.
+--
+-- Verified live against all four accounts: the two holding an unspent link
+-- returned their mint instants (2026-08-05 06:26:24 and 14:04:44 UTC), and the
+-- two that have since signed in returned NULL, because GoTrue deletes the
+-- token row on consumption. That null is the useful half — the row's presence
+-- is itself an authoritative "not yet spent".
 --
 -- Idempotent. Down-migration:
 -- supabase/migrations/down/20260809000072_collab_link_minted_at_down.sql

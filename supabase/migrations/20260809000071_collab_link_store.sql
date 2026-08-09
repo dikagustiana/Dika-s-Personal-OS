@@ -89,9 +89,28 @@
 -- would put every OTHER collaborator's live credential one policy mistake
 -- away. Their read returns zero rows without error.
 --
--- NOT APPLIED BY THIS FILE'S AUTHOR AT WRITE TIME. Apply via the Supabase
--- apply_migration tool once the frontend is live. NEVER apply with
--- `supabase db push`, `migration up`, `db reset`, or `db remote commit`.
+-- APPLIED 2026-08-09 via the Supabase apply_migration tool (ledger name
+-- `collab_link_store`). NEVER apply with `supabase db push`, `migration up`,
+-- `db reset`, or `db remote commit`.
+--
+-- Verified live after applying, every probe inside a rolled-back transaction
+-- so the table carries no residue from being tested:
+--   * four policies exist and no more — select, insert, update, delete, all
+--     gated on os_key_valid();
+--   * WITH A REAL ROW PRESENT, a signed-in collaborator (role `authenticated`,
+--     their own JWT sub) reads 0, and `anon` without the app-key header reads
+--     0, while the owner path reads 1. Zero here is a refusal, not an empty
+--     table;
+--   * FORCING THE MARKING TO FAIL — a sabotage trigger raising on every write
+--     to os_collab_links — the sign-in still committed, os_sign_in_log still
+--     gained its row (4 -> 5), and used_at stayed null. A failure to mark a
+--     link cannot cost anyone a session, which is the property that matters
+--     most in this file.
+--
+-- The Edge Function that fills this table was redeployed the same day
+-- (provision-collaborator v3) and smoke-tested: a call without the app key
+-- answers 401 from checkAppKey rather than a 500, so the module graph loads
+-- and the owner gate is intact.
 --
 -- The frontend ships BEFORE this runs, and the two not-yet states stay
 -- SEPARATE: 42P01 (this table is absent) folds to "the link section does not
