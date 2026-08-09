@@ -100,9 +100,20 @@
 -- and is NOT taken here. No member policy is added; adding one later is a
 -- deliberate act, not a symmetry fix.
 --
--- NOT APPLIED BY THIS FILE'S AUTHOR AT WRITE TIME. Apply via the Supabase
--- apply_migration tool after the frontend is live. NEVER apply with
+-- APPLIED 2026-08-09 via the Supabase apply_migration tool (ledger name
+-- `sign_in_log`, live version 20260809131555). NEVER apply with
 -- `supabase db push`, `migration up`, `db reset`, or `db remote commit`.
+--
+-- Verified live after applying:
+--   * the seed wrote 3 rows for the 3 accounts that carry a last_sign_in_at;
+--     the fourth has never signed in and contributed nothing;
+--   * the table holds exactly id, user_id, signed_in_at — no ip, user agent,
+--     location or device column exists to be filled;
+--   * setting last_sign_in_at the way GoTrue does added EXACTLY ONE row, and
+--     a subsequent unrelated UPDATE on the same user added none. (Probed
+--     inside a rolled-back transaction; the live count is back to 3.)
+--   * the linter reports no new advisory: os_record_sign_in is absent from it
+--     because EXECUTE is revoked from public, anon and authenticated.
 --
 -- The frontend ships BEFORE this runs: a read of this table answers 42P01
 -- until it lands, and the Kolaborator screen treats that as "the log section

@@ -74,12 +74,22 @@
 -- UPDATE policy and no DELETE policy here, before or after this migration, and
 -- with RLS enabled an absent policy is a denial. Do not add them.
 --
--- NOT APPLIED BY THIS FILE'S AUTHOR AT WRITE TIME. Apply via the Supabase
--- apply_migration tool after the frontend is live. NEVER apply with
+-- APPLIED 2026-08-09 via the Supabase apply_migration tool (ledger name
+-- `text_history_actor`, live version 20260809131539). NEVER apply with
 -- `supabase db push`, `migration up`, `db reset`, or `db remote commit` —
 -- this repo's filenames and the live ledger's versions are different
 -- numbering schemes, and any of those replays history from 0001 against
 -- production data.
+--
+-- Verified live after applying, against a table that still holds zero rows:
+--   * all three history tables now read actor_kind text NOT NULL + actor uuid
+--     NULL, checked in information_schema side by side;
+--   * an insert with neither app key nor JWT was REFUSED by the raise branch
+--     rather than recorded with an invented actor;
+--   * an insert carrying a deliberately spoofed actor_kind='owner' and a fake
+--     uuid came back stamped 'contributor' with the real auth.uid() — the
+--     client's claim did not survive. (Probed inside a rolled-back
+--     transaction, so the table is still empty.)
 --
 -- The frontend ships BEFORE this runs and must survive the gap. The two
 -- not-yet states are DIFFERENT conditions and are handled separately:
