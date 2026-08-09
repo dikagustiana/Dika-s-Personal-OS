@@ -1106,6 +1106,32 @@ export interface ProcessReference {
 }
 
 /**
+ * A row of public.os_collab_links (migration 20260809000071): the one
+ * un-handed-over sign-in link held for a collaborator, so the owner can copy
+ * it a second time instead of minting a replacement — minting kills the token
+ * already sent.
+ *
+ * Keyed by user, not by email, because that is what the token belongs to and
+ * what the sign-in trigger has to match on.
+ *
+ * `expiresAt` IS NULLABLE AND NULL MEANS "NOT KNOWN", never "does not expire".
+ * generateLink returns no expiry and GoTrue's otp_exp is not readable from the
+ * database, so the deadline is derived from configuration; when that is
+ * unset there is no honest number to store. `usedAt` is stamped by
+ * os_mark_collab_link_used when the person signs in.
+ *
+ * Owner-only by RLS. A collaborator reads zero rows — they already hold their
+ * own link, and a read here would only expose everybody else's.
+ */
+export interface CollabLink {
+  userId: string;
+  link: string;
+  createdAt: string;
+  expiresAt: string | null;
+  usedAt: string | null;
+}
+
+/**
  * ===========================================================================
  * THE FOUR AUDIT SOURCES, AS THE COLLABORATOR TRAIL READS THEM.
  * ===========================================================================

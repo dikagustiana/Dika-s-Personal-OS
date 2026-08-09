@@ -17,23 +17,127 @@ import { createClient, type SupabaseClient, type User } from 'jsr:@supabase/supa
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_SITE = 'https://dika-personal-os.vercel.app';
+/**
+ * Deliberately states no number. The window is the project's OTP setting,
+ * which this function cannot read — see linkTtlSeconds below. Naming an hour
+ * here, as this string used to, is how a stale figure ends up on screen.
+ */
 export const LINK_EXPIRY_NOTE =
-  'Sekali pakai; berlaku mengikuti masa OTP email proyek (default Supabase: 1 jam). Kirim segera.';
+  'Sekali pakai; berlaku mengikuti masa OTP email proyek. Kirim segera.';
 
 /**
- * The assumed life of a minted link, in seconds — the Supabase default OTP
- * expiry. GoTrue does not report the deadline back through generateLink, so
- * this is the honest best estimate rather than a reading of the setting; if
- * the project's OTP expiry is changed, change it here too.
+ * ===========================================================================
+ * THE LINK'S LIFETIME IS CONFIGURATION, NOT A CONSTANT IN THIS FILE.
+ * ===========================================================================
+ * This used to be `export const LINK_TTL_SECONDS = 3600` with `expiresAt()`
+ * returning `now + 3600`. That was a guess wearing a constant's clothing, and
+ * it is about to become a WRONG guess: the project's OTP window is being set
+ * to 86400, and nothing would have made this number follow it.
  *
- * It exists so the panel can show a real countdown instead of one fixed
- * sentence. The client treats it as advisory and defaults to the same hour on
- * its own, so this file and the frontend can ship independently.
+ * GoTrue gives us no way to stop guessing from the response — generateLink
+ * returns `action_link`, `email_otp`, `hashed_token`, `redirect_to` and
+ * `verification_type`, and no expiry among them. `otp_exp` is a GoTrue setting
+ * readable only through the Management API, which this function has no
+ * credential for and should not be given one.
+ *
+ * So the number moves OUT of code and into the function's environment, where
+ * it can be set to match the dashboard without a deploy. Unset is a first-class
+ * answer: it yields a null deadline, and every surface downstream says the
+ * window is not known rather than drawing a countdown it cannot justify. A
+ * wrong deadline is worse than an absent one — it tells the owner a link is
+ * good for another twenty hours when it died at minute sixty.
  */
-export const LINK_TTL_SECONDS = 3600;
+function linkTtlSeconds(): number | null {
+  const raw = Deno.env.get('COLLAB_LINK_TTL_SECONDS');
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
-function expiresAt(): string {
-  return new Date(Date.now() + LINK_TTL_SECONDS * 1000).toISOString();
+/**
+ * When the token was minted, according to GoTrue rather than to this process.
+ *
+ * GoTrue files a magic-link token in auth.one_time_tokens under token_type
+ * 'recovery_token' — there is no 'magiclink' member of that enum, verified
+ * live. The row is deleted when the token is consumed, so its PRESENCE also
+ * means the link has not been spent yet.
+ *
+ * Returns null rather than throwing: a link that cannot be timestamped is
+ * still a link, and refusing to hand it over because we could not read a
+ * clock would be the wrong trade.
+ */
+async function mintedAt(admin: SupabaseClient, userId: string): Promise<string | null> {
+  const { data, error } = await admin
+    .schema('auth')
+    .from('one_time_tokens')
+    .select('created_at')
+    .eq('user_id', userId)
+    .eq('token_type', 'recovery_token')
+    .maybeSingle();
+  if (error || !data) return null;
+  const raw = (data as { created_at: string }).created_at;
+  // auth.one_time_tokens.created_at is `timestamp WITHOUT time zone`, stored
+  // in UTC. Parsing it without a zone would read it as local time, so the Z is
+  // explicit rather than assumed.
+  const iso = raw.endsWith('Z') || /[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+function expiryFrom(createdAt: string | null): string | null {
+  const ttl = linkTtlSeconds();
+  if (!createdAt || ttl === null) return null;
+  return new Date(Date.parse(createdAt) + ttl * 1000).toISOString();
+}
+
+/**
+ * Records the minted link so the owner can copy it a SECOND time without
+ * minting a replacement — replacing it is what cuts off whoever is holding the
+ * current one.
+ *
+ * NEVER THROWS, AND NEVER FAILS THE CALLER. The link has already been minted
+ * by the time this runs; the previous token is already dead. Refusing to
+ * return the link because we could not file it would destroy access to buy
+ * bookkeeping, which is precisely backwards. A missing row costs one re-mint;
+ * a swallowed link costs somebody their account.
+ *
+ * This also covers the pre-migration window: before 20260809000071 the table
+ * does not exist, the insert answers 42P01, and minting carries on unchanged.
+ */
+async function rememberLink(
+  admin: SupabaseClient,
+  userId: string,
+  link: string,
+  createdAt: string | null,
+  expiresAt: string | null,
+): Promise<void> {
+  try {
+    await admin.from('os_collab_links').upsert(
+      {
+        user_id: userId,
+        link,
+        // Falling back to now() only when GoTrue's own row could not be read.
+        created_at: createdAt ?? new Date().toISOString(),
+        expires_at: expiresAt,
+        // A fresh link is unspent by definition, and this is an upsert over a
+        // row that may describe a link that WAS spent — so it must be cleared.
+        used_at: null,
+      },
+      { onConflict: 'user_id' },
+    );
+  } catch {
+    // Deliberately silent, and deliberately without echoing the link.
+  }
+}
+
+/** Drops a stored link. Same never-throw contract, same reason. */
+async function forgetLink(admin: SupabaseClient, userId: string): Promise<void> {
+  try {
+    await admin.from('os_collab_links').delete().eq('user_id', userId);
+  } catch {
+    // The grants are already gone; a stale row reads as "aktif" at worst and
+    // opens nothing, because a membershipless session is signed straight out.
+  }
 }
 
 export type ProvisionOutcome =
@@ -175,6 +279,9 @@ export async function provisionCreate(
   }
 
   const link = await generateAppLink(admin, email, site);
+  const createdAt = await mintedAt(admin, user.id);
+  const expires = expiryFrom(createdAt);
+  await rememberLink(admin, user.id, link, createdAt, expires);
   const granted = await memberships(admin, user.id);
   await audit(admin, 'create', email, granted);
   return {
@@ -185,7 +292,10 @@ export async function provisionCreate(
       entityCodes: granted,
       link,
       expiry: LINK_EXPIRY_NOTE,
-      expiresAt: expiresAt(),
+      // Both may be null: GoTrue's row could not be read, or the OTP window
+      // is not configured. Null means "not known", never "does not expire".
+      expiresAt: expires,
+      createdAt,
     },
   };
 }
@@ -206,6 +316,9 @@ export async function provisionLink(
     return { ok: false, status: 409, error: 'User has no membership; grant entities first' };
   }
   const link = await generateAppLink(admin, email, site);
+  const createdAt = await mintedAt(admin, user.id);
+  const expires = expiryFrom(createdAt);
+  await rememberLink(admin, user.id, link, createdAt, expires);
   await audit(admin, 'link', email, codes);
   return {
     ok: true,
@@ -215,7 +328,8 @@ export async function provisionLink(
       entityCodes: codes,
       link,
       expiry: LINK_EXPIRY_NOTE,
-      expiresAt: expiresAt(),
+      expiresAt: expires,
+      createdAt,
     },
   };
 }
@@ -247,6 +361,12 @@ export async function provisionRevoke(
   // either axis, os_member_entities() and os_member_projects() both return
   // {} and every member policy fails closed — access is gone the moment
   // this commits, whatever JWT they still hold.
+  //
+  // The stored link goes, though. It now opens nothing — a membershipless
+  // session is signed straight back out — so keeping it would only leave a
+  // live credential lying in a table for no benefit. This is the one place
+  // discarding a link costs nothing.
+  await forgetLink(admin, user.id);
   await audit(admin, 'revoke', email, before, beforeProjects);
   return {
     ok: true,

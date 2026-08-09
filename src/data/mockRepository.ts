@@ -27,6 +27,7 @@ import type {
   Entry,
   CellActorKind,
   CellHistoryEntry,
+  CollabLink,
   CellState,
   DanglingLink,
   FinishLineCell,
@@ -1345,6 +1346,59 @@ export class MockRepository implements Repository {
   // The sign-in log starts EMPTY and unbuilt: migration 20260809000070 has not
   // been applied when this ships, so the default seam says the table is
   // absent, which is what production actually answers.
+
+  /**
+   * The stored sign-in links. Owner-only in production, and written there by
+   * the provisioning Edge Function rather than by any client — so there is no
+   * repository write here either, only the mock-only seeders below, which
+   * stand in for that function.
+   */
+  private readonly collabLinks: CollabLink[] = [];
+  /** Test seam: false simulates migration 20260809000071 not applied (42P01). */
+  private collabLinksTableExists = true;
+
+  /** Mock-only: simulate the stored-link table being absent. */
+  setCollabLinksTableExists(present: boolean): void {
+    this.collabLinksTableExists = present;
+  }
+
+  /**
+   * Mock-only stand-in for the Edge Function's upsert. Replaces any existing
+   * row for the user, mirroring the primary key on user_id — at most one live
+   * link per collaborator, ever — and clears `usedAt`, because a freshly
+   * minted link is unspent whatever the row it replaced said.
+   */
+  rememberCollabLink(row: CollabLink): void {
+    const at = this.collabLinks.findIndex((held) => held.userId === row.userId);
+    const stored = clone({ ...row, usedAt: null });
+    if (at >= 0) this.collabLinks[at] = stored;
+    else this.collabLinks.push(stored);
+  }
+
+  /** Mock-only stand-in for the Edge Function's delete on revoke. */
+  forgetCollabLink(userId: string): void {
+    const at = this.collabLinks.findIndex((held) => held.userId === userId);
+    if (at >= 0) this.collabLinks.splice(at, 1);
+  }
+
+  /**
+   * The os_mark_collab_link_used trigger, mirrored: a sign-in stamps only an
+   * UNSPENT row, so a later sign-in on a refreshed session cannot rewrite the
+   * moment the magic link was actually spent.
+   */
+  markCollabLinkUsed(userId: string, signedInAt: string): void {
+    const held = this.collabLinks.find((row) => row.userId === userId);
+    if (held && held.usedAt === null) held.usedAt = signedInAt;
+  }
+
+  async listCollabLinks(): Promise<ReadResult<CollabLink>> {
+    if (!this.collabLinksTableExists) {
+      return readAbsence('listCollabLinks', { code: '42P01' });
+    }
+    // No member policy exists on this table, so a contributor reads nothing.
+    if (this.isContributor()) return okRows([]);
+    return okRows(clone(this.collabLinks));
+  }
 
   private readonly signInLog: SignInEvent[] = [];
   /** Test seam: false simulates migration 20260809000070 not applied (42P01). */

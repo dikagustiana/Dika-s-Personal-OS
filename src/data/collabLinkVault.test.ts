@@ -15,14 +15,15 @@ import {
   collabLinkStatus,
   describeCollabLink,
   forgetCollabLink,
-  LINK_TTL_MS,
   maskCollabLink,
   normalizeVaultEmail,
   recallAllCollabLinks,
   recallCollabLink,
   rememberCollabLink,
   clearCollabLinks,
-  type StoredCollabLink,
+  mergeCollabLinks,
+  type CollabLinkRecord,
+  type HeldCollabLink,
 } from './collabLinkVault';
 
 const T0 = 1_770_000_000_000;
@@ -72,10 +73,21 @@ describe('the vault round trip', () => {
   });
 });
 
+/** The window the server would send. Never a constant this module owns. */
+const HOUR = 60 * 60 * 1000;
+
 describe('expiry', () => {
-  it('defaults to the one-hour OTP window when the server says nothing', () => {
+  it('leaves the deadline UNKNOWN when the server sends none, inventing nothing', () => {
+    // This used to default to an hour. At an 86400s OTP window that default
+    // calls a link dead with twenty-three hours left, and the owner's fix for
+    // a dead link is a re-mint — which cuts off whoever holds the real one.
     const stored = rememberCollabLink({ email: 'a@example.com', url: URL_A }, T0);
-    expect(stored.expiresAt).toBe(T0 + LINK_TTL_MS);
+    expect(stored.expiresAt).toBeNull();
+  });
+
+  it('keeps an unknown-deadline link rather than guessing a lifetime for it', () => {
+    rememberCollabLink({ email: 'a@example.com', url: URL_A }, T0);
+    expect(recallCollabLink('a@example.com', T0 + 10 * HOUR)).not.toBeNull();
   });
 
   it("takes the server's deadline when it sends one", () => {
@@ -87,22 +99,32 @@ describe('expiry', () => {
   });
 
   it('stops handing back a link the moment it dies', () => {
-    rememberCollabLink({ email: 'a@example.com', url: URL_A }, T0);
-    expect(recallCollabLink('a@example.com', T0 + LINK_TTL_MS - 1)).not.toBeNull();
-    expect(recallCollabLink('a@example.com', T0 + LINK_TTL_MS)).toBeNull();
+    rememberCollabLink({ email: 'a@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    expect(recallCollabLink('a@example.com', T0 + HOUR - 1)).not.toBeNull();
+    expect(recallCollabLink('a@example.com', T0 + HOUR)).toBeNull();
   });
 
   it('prunes the dead one out of storage rather than leaving it sitting there', () => {
-    rememberCollabLink({ email: 'a@example.com', url: URL_A }, T0);
-    recallAllCollabLinks(T0 + LINK_TTL_MS + 1);
+    rememberCollabLink({ email: 'a@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    recallAllCollabLinks(T0 + HOUR + 1);
     expect(window.sessionStorage.getItem('personal-os-collab-links')).toBeNull();
   });
 
   it('prunes only what is dead', () => {
-    rememberCollabLink({ email: 'old@example.com', url: URL_A }, T0);
-    rememberCollabLink({ email: 'new@example.com', url: URL_B }, T0 + LINK_TTL_MS - 1000);
-    const live = recallAllCollabLinks(T0 + LINK_TTL_MS + 1);
+    rememberCollabLink({ email: 'old@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    rememberCollabLink(
+      { email: 'new@example.com', url: URL_B, expiresAt: T0 + 2 * HOUR },
+      T0 + HOUR - 1000,
+    );
+    const live = recallAllCollabLinks(T0 + HOUR + 1);
     expect(Object.keys(live)).toEqual(['new@example.com']);
+  });
+
+  it('keeps an unknown-deadline entry beside a dead one when pruning', () => {
+    rememberCollabLink({ email: 'dead@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    rememberCollabLink({ email: 'unknown@example.com', url: URL_B }, T0);
+    const live = recallAllCollabLinks(T0 + HOUR + 1);
+    expect(Object.keys(live)).toEqual(['unknown@example.com']);
   });
 });
 
@@ -147,17 +169,19 @@ describe('a hostile or broken store never throws', () => {
 });
 
 describe('what a row should say', () => {
-  const held = (over: Partial<StoredCollabLink> = {}): StoredCollabLink => ({
+  const held = (over: Partial<HeldCollabLink> = {}): HeldCollabLink => ({
     email: 'a@example.com',
     url: URL_A,
     mintedAt: T0,
-    expiresAt: T0 + LINK_TTL_MS,
+    expiresAt: T0 + HOUR,
+    usedAt: null,
+    source: 'stored',
     ...over,
   });
 
   it('says nothing when no link is held', () => {
     expect(collabLinkStatus(null, null, T0)).toEqual({ kind: 'none' });
-    expect(describeCollabLink({ kind: 'none' })).toBe('');
+    expect(describeCollabLink({ kind: 'none' })).toBe('belum ada tautan');
   });
 
   it('counts down while the link is alive', () => {
@@ -166,7 +190,7 @@ describe('what a row should say', () => {
   });
 
   it('reports expiry once the window closes', () => {
-    expect(collabLinkStatus(held(), null, T0 + LINK_TTL_MS).kind).toBe('expired');
+    expect(collabLinkStatus(held(), null, T0 + HOUR).kind).toBe('expired');
   });
 
   it('reads a sign-in AFTER the mint as this link being spent', () => {
@@ -191,7 +215,7 @@ describe('what a row should say', () => {
 
   it('used beats expired — a spent link is spent whatever the clock says', () => {
     const usedAt = new Date(T0 + 60_000).toISOString();
-    expect(collabLinkStatus(held(), usedAt, T0 + LINK_TTL_MS + 5000).kind).toBe('used');
+    expect(collabLinkStatus(held(), usedAt, T0 + HOUR + 5000).kind).toBe('used');
   });
 
   it('phrases every state in words, never colour alone', () => {
@@ -207,6 +231,72 @@ describe('what a row should say', () => {
 
   it('renders a wall-clock time', () => {
     expect(clockTime(T0)).toMatch(/^\d{2}:\d{2}$/);
+  });
+
+  it('says a live link is live WITHOUT a countdown when the window is unknown', () => {
+    const status = collabLinkStatus(held({ expiresAt: null }), null, T0 + 10 * HOUR);
+    expect(status).toEqual({ kind: 'live', expiresAt: null, minutesLeft: null });
+    expect(describeCollabLink(status)).toBe('tautan aktif, masa berlaku tidak diketahui');
+  });
+
+  it('never calls an unknown window expired — that is the 86400 trap', () => {
+    expect(collabLinkStatus(held({ expiresAt: null }), null, T0 + 1000 * HOUR).kind).toBe(
+      'live',
+    );
+  });
+
+  it('prefers the stored usedAt over inferring from a sign-in', () => {
+    // The trigger stamped it. No inference from lastSignInAt is needed, and
+    // none should override it.
+    const status = collabLinkStatus(held({ usedAt: T0 + 60_000 }), null, T0 + 120_000);
+    expect(status.kind).toBe('used');
+  });
+
+  it('names all four states the brief asks for, in words', () => {
+    expect(describeCollabLink({ kind: 'none' })).toBe('belum ada tautan');
+    expect(
+      describeCollabLink({ kind: 'live', expiresAt: T0 + 600_000, minutesLeft: 10 }),
+    ).toContain('berlaku sampai');
+    expect(describeCollabLink({ kind: 'used', usedAt: 'x' })).toBe('tautan sudah dipakai');
+    expect(describeCollabLink({ kind: 'expired', expiresAt: T0 })).toContain('kedaluwarsa');
+  });
+});
+
+describe('merging the durable store with the tab copy', () => {
+  const record = (over: Partial<CollabLinkRecord> = {}): CollabLinkRecord => ({
+    email: 'a@example.com',
+    url: 'https://os.example.app/#collab_token=STORED',
+    mintedAt: T0,
+    expiresAt: T0 + HOUR,
+    usedAt: null,
+    ...over,
+  });
+
+  it('lets the stored row win — only it knows whether the link was spent', () => {
+    rememberCollabLink({ email: 'a@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    const merged = mergeCollabLinks([record({ usedAt: T0 + 60_000 })], recallAllCollabLinks(T0));
+    expect(merged['a@example.com'].source).toBe('stored');
+    expect(merged['a@example.com'].usedAt).toBe(T0 + 60_000);
+    expect(merged['a@example.com'].url).toContain('STORED');
+  });
+
+  it('falls back to the tab for an address the store has nothing for', () => {
+    // The pre-migration window, and the case where filing the row failed but
+    // minting did not. Losing the link there would cost a re-mint, and a
+    // re-mint cuts off whoever holds the current one.
+    rememberCollabLink({ email: 'b@example.com', url: URL_A, expiresAt: T0 + HOUR }, T0);
+    const merged = mergeCollabLinks([], recallAllCollabLinks(T0));
+    expect(merged['b@example.com'].source).toBe('tab');
+    expect(merged['b@example.com'].url).toBe(URL_A);
+  });
+
+  it('normalises the stored address too, so casing cannot split a row', () => {
+    const merged = mergeCollabLinks([record({ email: 'A@Example.COM' })], {});
+    expect(merged['a@example.com']).toBeTruthy();
+  });
+
+  it('is empty when neither side holds anything', () => {
+    expect(mergeCollabLinks([], {})).toEqual({});
   });
 });
 
