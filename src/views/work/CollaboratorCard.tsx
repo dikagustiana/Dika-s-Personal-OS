@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Card, CardContent } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
+import { CollaboratorActivity } from './CollaboratorActivity';
 import { lockApp, readStoredKey } from '../../components/PassphraseGate';
 import {
   provisionCollaborator,
@@ -116,6 +117,9 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
   // Per-user project picker: which row is open, and which projects are ticked.
   const [grantingFor, setGrantingFor] = useState<string | null>(null);
   const [pendingProjects, setPendingProjects] = useState<Set<string>>(new Set());
+  // Which row's activity trail is open. One at a time: the trail costs several
+  // reads and is read one person at a time anyway.
+  const [trailFor, setTrailFor] = useState<string | null>(null);
   // Every link this tab still holds, keyed by address. Seeded from the vault
   // on mount, which is the whole point: the panel survives navigation now.
   const [vault, setVault] = useState<CollabLinkVault>(() => recallAllCollabLinks());
@@ -511,6 +515,7 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                 const canLink = user.entityCodes.length > 0;
                 const canRevoke = user.entityCodes.length > 0 || user.projectIds.length > 0;
                 const pickerOpen = grantingFor === user.userId;
+                const trailOpen = trailFor === user.userId;
                 const held = vault[normalizeVaultEmail(user.email)] ?? null;
                 const status = collabLinkStatus(held, user.lastSignInAt, now);
                 const statusLine = describeCollabLink(status);
@@ -638,6 +643,30 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                         </button>
                       )}
                     </div>
+                    {/* A READ, kept off the row of access controls above. Those
+                        grant and revoke; this only looks. Mixing them would put
+                        a harmless button beside Cabut at the same weight. */}
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setTrailFor((current) =>
+                            current === user.userId ? null : user.userId,
+                          )
+                        }
+                        aria-expanded={trailOpen}
+                        className="rounded-sm border border-dashed border-border px-1.5 py-0.5 text-foreground-muted transition-colors hover:text-foreground-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {trailOpen ? 'tutup jejak' : 'jejak aktivitas'}
+                      </button>
+                    </div>
+                    {trailOpen && (
+                      <CollaboratorActivity
+                        repository={repository}
+                        userId={user.userId}
+                        email={user.email}
+                      />
+                    )}
                     {pickerOpen && (
                       <div className="mt-2 rounded-md border border-border bg-surface-2/50 p-2.5">
                         {/* Same chip multi-select as the entity axis: pick

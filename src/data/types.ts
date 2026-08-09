@@ -1104,3 +1104,89 @@ export interface ProcessReference {
   note?: string;
   sortOrder: number;
 }
+
+/**
+ * ===========================================================================
+ * THE FOUR AUDIT SOURCES, AS THE COLLABORATOR TRAIL READS THEM.
+ * ===========================================================================
+ * One person's trail is assembled from four tables that were never designed
+ * together, and the types below keep their differences visible rather than
+ * flattening them into one shape too early. The flattening happens in
+ * logic/collaboratorActivity.ts, deliberately as a separate step, because that
+ * is where "what does this row MEAN" is decided and it is worth testing on its
+ * own.
+ *
+ * WHAT IS RECORDED IS CHANGES TO ARTEFACTS AND MOMENTS OF ENTRY. There is no
+ * type here for a view, a click, a page, or a duration, and none may be added:
+ * an audit trail records what someone DID to the work, which is a standard
+ * internal control for a finance system. What someone LOOKED at is a different
+ * thing with a different justification, and it has not been asked for.
+ */
+
+/**
+ * A row of os_sign_in_log (migration 20260809000070). Two facts, because two
+ * facts is the whole table — no ip, no user agent, no location, no device.
+ *
+ * NOT sourced from auth.audit_log_entries, which is present but empty on this
+ * project, and not from auth.users.last_sign_in_at, which holds only the most
+ * recent sign-in and therefore cannot be a history.
+ */
+export interface SignInEvent {
+  userId: string;
+  signedInAt: string;
+}
+
+/**
+ * A row of os_finish_line_cell_history. `actor` is null for the owner, who
+ * authenticates with the app-key header and has no auth.users row — so
+ * actorKind carries the attribution when actor cannot.
+ */
+export interface CellHistoryEntry {
+  id: string;
+  cellId: string;
+  fromState: string | null;
+  toState: string | null;
+  noteChanged: boolean;
+  actorKind: string;
+  actor: string | null;
+  changedAt: string;
+}
+
+/** A row of os_task_history. One row per changed field, not per save. */
+export interface TaskHistoryEntry {
+  id: string;
+  taskId: string;
+  field: string;
+  fromValue: string;
+  toValue: string;
+  actorKind: string;
+  actor: string | null;
+  changedAt: string;
+}
+
+/**
+ * A row of os_process_text_history.
+ *
+ * `actorKind` IS NULLABLE HERE AND NOWHERE ELSE, and that is a deployment
+ * fact rather than a schema one: migration 20260809000069 adds the actor pair
+ * to this table, and the frontend ships first. Between those two moments the
+ * columns do not exist, the repository's narrow 42703 retry reads the row
+ * without them, and both fields arrive null — meaning "this edit predates
+ * attribution", which the trail renders as such instead of guessing an actor.
+ * Once 69 is applied the column is NOT NULL in the database and this null
+ * branch is dead.
+ *
+ * `rowId` is text with no foreign key, spanning five tables whose keys are not
+ * even the same type. Resolving it to a readable label is a per-table join and
+ * some rows will not resolve; those show their raw reference rather than
+ * disappearing.
+ */
+export interface ProcessTextHistoryEntry {
+  id: string;
+  tableName: string;
+  rowId: string;
+  field: string;
+  actorKind: string | null;
+  actor: string | null;
+  changedAt: string;
+}

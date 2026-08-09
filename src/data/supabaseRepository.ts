@@ -33,6 +33,7 @@ import type {
   Entry,
   EntryType,
   CellActorKind,
+  CellHistoryEntry,
   CellState,
   DanglingLink,
   FinishLineAgg,
@@ -55,6 +56,7 @@ import type {
   ProcessReference,
   ProcessStep,
   ProcessStepItem,
+  ProcessTextHistoryEntry,
   ProcessTrack,
   ProcessTrackDef,
   IeltsBandConversion,
@@ -78,6 +80,8 @@ import type {
   ShareScope,
   SharedView,
   ShareView,
+  SignInEvent,
+  TaskHistoryEntry,
   TaskStatus,
   WeeklyPlan,
   WebsiteCategory,
@@ -2111,6 +2115,159 @@ class SupabaseRepository implements Repository {
       .eq('user_id', userId)
       .eq('project_id', projectId);
     if (error) throw new Error(`revokeProjectMembership failed: ${error.message}`);
+  }
+
+  // --- the collaborator trail: four audit reads -----------------------------
+  //
+  // Owner-only, enforced by RLS rather than by anything here: none of these
+  // four tables carries a member policy, so a collaborator's client reads zero
+  // rows from each. Read-only by construction — there is no write method in
+  // this section, and none of the four tables has an UPDATE or DELETE policy.
+  //
+  // Every one classifies with readAbsence, NOT readFailure. These tables are
+  // an audit trail: a wrong query rendering as "no activity" would say nobody
+  // touched anything, which is the single failure this project keeps paying
+  // for. Only a genuinely absent relation (42P01 / PGRST205) folds to the
+  // empty state.
+
+  async listSignInLog(): Promise<ReadResult<SignInEvent>> {
+    // 42P01 until migration 20260809000070 is applied, which is the expected
+    // state while the frontend is live and the migration is not. The card
+    // reads that as "the log section does not render" — see CollaboratorCard.
+    const { data, error } = await this.client
+      .from('os_sign_in_log')
+      .select('user_id, signed_in_at')
+      .order('signed_in_at', { ascending: false });
+    if (error) return readAbsence('listSignInLog', error);
+    return okRows(
+      (data as { user_id: string; signed_in_at: string }[]).map((row) => ({
+        userId: row.user_id,
+        signedInAt: row.signed_in_at,
+      })),
+    );
+  }
+
+  async listCellHistory(): Promise<ReadResult<CellHistoryEntry>> {
+    const { data, error } = await this.client
+      .from('os_finish_line_cell_history')
+      .select('id, cell_id, from_state, to_state, note_changed, actor_kind, actor, changed_at')
+      .order('changed_at', { ascending: false });
+    if (error) return readAbsence('listCellHistory', error);
+    return okRows(
+      (
+        data as {
+          id: string;
+          cell_id: string;
+          from_state: string | null;
+          to_state: string | null;
+          note_changed: boolean;
+          actor_kind: string;
+          actor: string | null;
+          changed_at: string;
+        }[]
+      ).map((row) => ({
+        id: row.id,
+        cellId: row.cell_id,
+        fromState: row.from_state,
+        toState: row.to_state,
+        noteChanged: row.note_changed,
+        actorKind: row.actor_kind,
+        actor: row.actor,
+        changedAt: row.changed_at,
+      })),
+    );
+  }
+
+  async listTaskHistory(): Promise<ReadResult<TaskHistoryEntry>> {
+    const { data, error } = await this.client
+      .from('os_task_history')
+      .select('id, task_id, field, from_value, to_value, actor_kind, actor, changed_at')
+      .order('changed_at', { ascending: false });
+    if (error) return readAbsence('listTaskHistory', error);
+    return okRows(
+      (
+        data as {
+          id: string;
+          task_id: string;
+          field: string;
+          from_value: string;
+          to_value: string;
+          actor_kind: string;
+          actor: string | null;
+          changed_at: string;
+        }[]
+      ).map((row) => ({
+        id: row.id,
+        taskId: row.task_id,
+        field: row.field,
+        fromValue: row.from_value,
+        toValue: row.to_value,
+        actorKind: row.actor_kind,
+        actor: row.actor,
+        changedAt: row.changed_at,
+      })),
+    );
+  }
+
+  /**
+   * ===========================================================================
+   * THE ONE 42703 RETRY IN THIS SECTION, AND WHY IT IS NOT A WIDENED GUARD.
+   * ===========================================================================
+   * TWO DIFFERENT NOT-YET STATES EXIST FOR THIS TABLE AND THEY ARE HANDLED
+   * SEPARATELY, on purpose:
+   *
+   *   42P01  the table itself is absent. Not possible today — 20260806000055
+   *          is applied — but it stays classified as missing-relation, and it
+   *          is the ONLY code that does.
+   *   42703  the table is there and POPULATED, and actor_kind/actor are not,
+   *          because migration 20260809000069 has not run yet. That is a
+   *          different fact and gets a different answer: read the row without
+   *          the pair and mark it unattributed, so the edit still appears in
+   *          the trail.
+   *
+   * Folding 42703 into the missing-relation branch would have hidden real
+   * edits behind an empty state, which is the failure mode isAbsentRelation
+   * exists to prevent. So the retry is exact and narrow — the SAME shape as
+   * legacyEntityRead above and for the same reason. It fires on 42703 alone;
+   * anything else, including a second failure from the retry itself, surfaces.
+   * Once 69 is applied this branch is dead code and must not widen.
+   */
+  async listProcessTextHistory(): Promise<ReadResult<ProcessTextHistoryEntry>> {
+    type Row = {
+      id: string;
+      table_name: string;
+      row_id: string;
+      field: string;
+      changed_at: string;
+      actor_kind?: string | null;
+      actor?: string | null;
+    };
+    const WITH_ACTOR = 'id, table_name, row_id, field, changed_at, actor_kind, actor';
+    const WITHOUT_ACTOR = 'id, table_name, row_id, field, changed_at';
+    const toEntry = (row: Row): ProcessTextHistoryEntry => ({
+      id: row.id,
+      tableName: row.table_name,
+      rowId: row.row_id,
+      field: row.field,
+      actorKind: row.actor_kind ?? null,
+      actor: row.actor ?? null,
+      changedAt: row.changed_at,
+    });
+
+    const first = await this.client
+      .from('os_process_text_history')
+      .select(WITH_ACTOR)
+      .order('changed_at', { ascending: false });
+    if (!first.error) return okRows((first.data as Row[]).map(toEntry));
+    if (first.error.code !== '42703') {
+      return readAbsence('listProcessTextHistory', first.error);
+    }
+    const retry = await this.client
+      .from('os_process_text_history')
+      .select(WITHOUT_ACTOR)
+      .order('changed_at', { ascending: false });
+    if (retry.error) return readAbsence('listProcessTextHistory', retry.error);
+    return okRows((retry.data as Row[]).map(toEntry));
   }
 
   // --- share links ---------------------------------------------------------

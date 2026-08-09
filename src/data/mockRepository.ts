@@ -10,7 +10,7 @@ import {
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
 import type { ProjectTaskWrite, Repository } from './repository';
-import { okRows, type ReadResult } from './readResult';
+import { okRows, readAbsence, type ReadResult } from './readResult';
 import {
   seedDailyLogs,
   seedEntries,
@@ -26,6 +26,7 @@ import type {
   Domain,
   Entry,
   CellActorKind,
+  CellHistoryEntry,
   CellState,
   DanglingLink,
   FinishLineCell,
@@ -41,6 +42,7 @@ import type {
   ProcessReference,
   ProcessStep,
   ProcessStepItem,
+  ProcessTextHistoryEntry,
   ProcessTrackDef,
   IeltsBandConversion,
   IeltsError,
@@ -57,6 +59,8 @@ import type {
   ShareLink,
   ShareScope,
   ShareView,
+  SignInEvent,
+  TaskHistoryEntry,
   TaskStatus,
   WeeklyPlan,
 } from './types';
@@ -967,9 +971,28 @@ export class MockRepository implements Repository {
   // reads serve, so a test can save and read back. Cell state stays
   // unreachable from every one of them.
 
-  private readonly processTextHistory: TextHistoryRow[] = [];
+  /**
+   * Stores the STAMPED row, not the row the caller handed over — mirroring
+   * migration 20260809000069, where a BEFORE INSERT trigger derives actor_kind
+   * and actor server-side and overwrites anything a client sent. The caller's
+   * TextHistoryRow has no actor fields at all, which is the point: the write
+   * path does not know who is writing, and does not have to.
+   */
+  private readonly processTextHistory: ProcessTextHistoryEntry[] = [];
   /** Test seam: set false to simulate migration 20260806000055 not applied. */
   private processHistoryTableExists = true;
+  /**
+   * Test seam for the OTHER not-yet state, kept separate from the one above
+   * because 42P01 and 42703 are different conditions: false means the table
+   * exists and migration 20260809000069 has not run, so rows read back
+   * unattributed rather than not reading at all.
+   */
+  private processHistoryHasActor = true;
+
+  /** Mock-only: simulate migration 20260809000069 not yet applied. */
+  setProcessHistoryHasActor(present: boolean): void {
+    this.processHistoryHasActor = present;
+  }
 
   async updateProcessStepText(id: string, patch: ProcessStepTextWrite): Promise<ProcessStep> {
     this.assertOwnerWrite('updateProcessStepText');
@@ -1070,7 +1093,28 @@ export class MockRepository implements Repository {
     if (rows.length === 0) return true;
     // The missing-relation path: the log is skipped, the edit already stood.
     if (!this.processHistoryTableExists) return false;
-    this.processTextHistory.push(...clone(rows));
+    // The trigger-mirror. The caller sends five columns and cannot send an
+    // actor; both attribution fields are derived here from the credential,
+    // exactly as os_process_text_history_stamp_actor derives them from
+    // os_key_valid() / auth.uid(). The owner has a kind and no id.
+    const stamped = this.isContributor()
+      ? {
+          actorKind: 'contributor',
+          actor: (this.viewer as { userId: string }).userId,
+        }
+      : { actorKind: 'owner', actor: null };
+    let seq = this.processTextHistory.length;
+    this.processTextHistory.push(
+      ...rows.map((row) => ({
+        id: `mock-text-history-${(seq += 1)}`,
+        tableName: row.tableName,
+        rowId: row.rowId,
+        field: row.field,
+        actorKind: stamped.actorKind,
+        actor: stamped.actor,
+        changedAt: new Date().toISOString(),
+      })),
+    );
     return true;
   }
 
@@ -1289,6 +1333,101 @@ export class MockRepository implements Repository {
       (member) => member.userId === userId && member.projectId === projectId,
     );
     if (at >= 0) this.projectMembers.splice(at, 1);
+  }
+
+  // --- the collaborator trail: four audit reads -----------------------------
+  //
+  // Owner-only in production by RLS, and mirrored here: a contributor viewer
+  // reads zero rows from all four, because none of these tables was given a
+  // member policy. That is the mock modelling the boundary, not a UI rule —
+  // the UI never filters these by viewer.
+  //
+  // The sign-in log starts EMPTY and unbuilt: migration 20260809000070 has not
+  // been applied when this ships, so the default seam says the table is
+  // absent, which is what production actually answers.
+
+  private readonly signInLog: SignInEvent[] = [];
+  /** Test seam: false simulates migration 20260809000070 not applied (42P01). */
+  private signInLogTableExists = true;
+
+  /** Mock-only: simulate the sign-in log table being absent. */
+  setSignInLogTableExists(present: boolean): void {
+    this.signInLogTableExists = present;
+  }
+
+  /** Mock-only: the trigger has no mirror to fire from, so tests seed directly. */
+  recordSignIn(userId: string, signedInAt: string): void {
+    if (this.signInLog.some((row) => row.userId === userId && row.signedInAt === signedInAt)) {
+      return; // the (user_id, signed_in_at) unique constraint, mirrored.
+    }
+    this.signInLog.push({ userId, signedInAt });
+  }
+
+  async listSignInLog(): Promise<ReadResult<SignInEvent>> {
+    if (!this.signInLogTableExists) {
+      return readAbsence('listSignInLog', { code: '42P01' });
+    }
+    if (this.isContributor()) return okRows([]);
+    return okRows(
+      clone([...this.signInLog].sort((a, b) => b.signedInAt.localeCompare(a.signedInAt))),
+    );
+  }
+
+  async listCellHistory(): Promise<ReadResult<CellHistoryEntry>> {
+    if (this.isContributor()) return okRows([]);
+    return okRows(
+      clone(
+        [...this.finishLineCellHistory]
+          .sort((a, b) => b.changedAt.localeCompare(a.changedAt))
+          .map((row, index) => ({
+            id: `mock-cell-history-${index}`,
+            cellId: row.cellId,
+            fromState: row.fromState as string | null,
+            toState: row.toState as string | null,
+            noteChanged: row.noteChanged,
+            actorKind: row.actorKind as string,
+            actor: row.actor ?? null,
+            changedAt: row.changedAt,
+          })),
+      ),
+    );
+  }
+
+  async listTaskHistory(): Promise<ReadResult<TaskHistoryEntry>> {
+    if (this.isContributor()) return okRows([]);
+    return okRows(
+      clone(
+        [...this.taskHistory]
+          .sort((a, b) => b.changedAt.localeCompare(a.changedAt))
+          .map((row, index) => ({
+            id: `mock-task-history-${index}`,
+            taskId: row.taskId,
+            field: row.field as string,
+            fromValue: row.fromValue,
+            toValue: row.toValue,
+            actorKind: row.actorKind as string,
+            actor: row.actor ?? null,
+            changedAt: row.changedAt,
+          })),
+      ),
+    );
+  }
+
+  async listProcessTextHistory(): Promise<ReadResult<ProcessTextHistoryEntry>> {
+    if (!this.processHistoryTableExists) {
+      return readAbsence('listProcessTextHistory', { code: '42P01' });
+    }
+    if (this.isContributor()) return okRows([]);
+    const rows = [...this.processTextHistory].sort((a, b) =>
+      b.changedAt.localeCompare(a.changedAt),
+    );
+    // The pre-69 read: the columns are not selectable, so they arrive null and
+    // the row is unattributed. NOT a failure and NOT a missing relation — the
+    // edits themselves are still there and must still be listed.
+    if (!this.processHistoryHasActor) {
+      return okRows(clone(rows.map((row) => ({ ...row, actorKind: null, actor: null }))));
+    }
+    return okRows(clone(rows));
   }
 
   // --- share links ---------------------------------------------------------
