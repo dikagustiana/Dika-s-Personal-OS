@@ -223,12 +223,17 @@ describe('§3.2 marking spent is a SECOND trigger, and cannot cost a login', () 
 
 describe('§4.8 the lifetime is configuration, never a literal', () => {
   const fn = read('supabase/functions/_shared/provision.ts');
+  /**
+   * Executable lines only. The header prose names both the constant that was
+   * removed and the direct select that was rejected, so a scan of the raw file
+   * would fail on the very comments explaining why they are gone.
+   */
+  const code = fn
+    .split('\n')
+    .filter((line) => !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//'))
+    .join('\n');
 
   it('has no hardcoded TTL constant left anywhere in the function', () => {
-    const code = fn
-      .split('\n')
-      .filter((line) => !line.trimStart().startsWith('*') && !line.trimStart().startsWith('//'))
-      .join('\n');
     expect(code).not.toMatch(/LINK_TTL_SECONDS\s*=\s*\d+/);
     expect(code).not.toMatch(/3600/);
     expect(code).not.toMatch(/86400/);
@@ -240,8 +245,28 @@ describe('§4.8 the lifetime is configuration, never a literal', () => {
   });
 
   it('takes the mint instant from GoTrue rather than from its own clock', () => {
-    expect(fn).toContain("from('one_time_tokens')");
-    expect(fn).toContain("eq('token_type', 'recovery_token')");
+    // Through the definer RPC, because PostgREST does not expose the auth
+    // schema — a direct select would fail SOFTLY and silently downgrade the
+    // timestamp to this process's clock.
+    expect(code).toContain("admin.rpc('os_collab_link_minted_at'");
+    expect(code).not.toContain(".schema('auth')");
+  });
+
+  it('reads the token row that GoTrue actually writes, in SQL', () => {
+    const sql = read('supabase/migrations/20260809000072_collab_link_minted_at.sql');
+    expect(sql).toContain('from auth.one_time_tokens');
+    expect(sql).toContain("t.token_type = 'recovery_token'");
+    expect(sql).toContain("at time zone 'utc'");
+    expect(sql).toContain('security definer');
+  });
+
+  it('grants the mint-time reader to service_role only', () => {
+    const sql = read('supabase/migrations/20260809000072_collab_link_minted_at.sql');
+    expect(sql).toMatch(/revoke all on function public\.os_collab_link_minted_at\(uuid\) from anon/);
+    expect(sql).toMatch(
+      /revoke all on function public\.os_collab_link_minted_at\(uuid\) from authenticated/,
+    );
+    expect(sql).toMatch(/grant execute on function[\s\S]*?to service_role/);
   });
 
   it('never lets filing the link fail the minting of it', () => {

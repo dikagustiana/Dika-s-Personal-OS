@@ -67,20 +67,16 @@ function linkTtlSeconds(): number | null {
  * clock would be the wrong trade.
  */
 async function mintedAt(admin: SupabaseClient, userId: string): Promise<string | null> {
-  const { data, error } = await admin
-    .schema('auth')
-    .from('one_time_tokens')
-    .select('created_at')
-    .eq('user_id', userId)
-    .eq('token_type', 'recovery_token')
-    .maybeSingle();
+  // THROUGH AN RPC, NOT A DIRECT SELECT. PostgREST exposes `public` and not
+  // `auth`, so `.schema('auth').from('one_time_tokens')` would fail — and it
+  // would fail softly here, silently downgrading "GoTrue's timestamp" to this
+  // process's clock while every test still passed. The narrow SECURITY DEFINER
+  // reader from migration 20260809000072 is what makes the claim true.
+  const { data, error } = await admin.rpc('os_collab_link_minted_at', {
+    p_user_id: userId,
+  });
   if (error || !data) return null;
-  const raw = (data as { created_at: string }).created_at;
-  // auth.one_time_tokens.created_at is `timestamp WITHOUT time zone`, stored
-  // in UTC. Parsing it without a zone would read it as local time, so the Z is
-  // explicit rather than assumed.
-  const iso = raw.endsWith('Z') || /[+-]\d\d:?\d\d$/.test(raw) ? raw : `${raw.replace(' ', 'T')}Z`;
-  const parsed = Date.parse(iso);
+  const parsed = Date.parse(data as string);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
 }
 
