@@ -16,6 +16,7 @@ import {
   loggedThisWeek,
   missRate,
   skillStandings,
+  type ErrorBridgeResult,
 } from '../../../logic/ielts/weakness';
 
 /**
@@ -44,6 +45,7 @@ export function PrepDashboard({
   topics,
   practices,
   practiceTopics,
+  bridge,
   onOpenMethod,
   onGoToWeakness,
 }: {
@@ -51,6 +53,13 @@ export function PrepDashboard({
   topics: readonly IeltsTopic[];
   practices: readonly IeltsPractice[];
   practiceTopics: readonly IeltsPracticeTopic[];
+  /**
+   * The SAME error-log evidence the Weakness tab ranks. Passed here rather
+   * than omitted because "See all" promises the same list: a dashboard top
+   * three computed from one provenance and a full list computed from two
+   * would disagree with nothing on screen to explain why.
+   */
+  bridge?: ErrorBridgeResult;
   onOpenMethod: (slug: string) => void;
   onGoToWeakness: () => void;
 }) {
@@ -66,8 +75,8 @@ export function PrepDashboard({
   const unknown = standings.filter((standing) => standing.latestBand === null);
 
   const topWeaknesses = useMemo(
-    () => aggregateWeakness(topics, practices, practiceTopics).slice(0, 3),
-    [topics, practices, practiceTopics],
+    () => aggregateWeakness(topics, practices, practiceTopics, bridge?.evidence ?? []).slice(0, 3),
+    [topics, practices, practiceTopics, bridge],
   );
 
   return (
@@ -220,9 +229,18 @@ export function PrepDashboard({
                         {row.topic.label}
                       </span>
                       <span className="shrink-0 text-xs tabular-nums text-foreground-muted">
+                        {/* "logged" is the provenance signal at this density.
+                            A derived row has no rated severity to print and no
+                            denominator to make a ratio from, and printing
+                            "severity undefined" is what happens if this falls
+                            through to the severity branch. One extra word does
+                            the whole job; an icon here would be noise in a
+                            three-row summary. */}
                         {rate !== null
                           ? `${row.missed} of ${row.attempted}`
-                          : `severity ${row.meanSeverity?.toFixed(1)}`}
+                          : row.meanSeverity !== null
+                            ? `severity ${row.meanSeverity.toFixed(1)}`
+                            : `${row.occurrences} logged`}
                       </span>
                       <ArrowRight className="size-4 shrink-0 text-foreground-muted" />
                     </button>

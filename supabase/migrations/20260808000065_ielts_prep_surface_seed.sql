@@ -81,7 +81,11 @@ insert into public.os_ielts_topic (slug, skill, kind, label, sort_order) values
   -- The band descriptors. THESE are what a writing or speaking weakness is
   -- tagged with — "opinion question" diagnoses nothing, "coherence and
   -- cohesion" names the thing to practise.
-  ('writing/criterion-task-response',      'writing', 'criterion', 'Task Response',                 200),
+  -- BOTH official names: IELTS bands Task 1 as Task Achievement and Task 2 as
+  -- Task Response against one descriptor column, and errorTopicMap.ts routes
+  -- modes from both tasks here. Corrected forward for a live database by
+  -- 20260808000068, which is a no-op on a fresh one seeded from this line.
+  ('writing/criterion-task-response',      'writing', 'criterion', 'Task Achievement / Task Response', 200),
   ('writing/criterion-coherence-cohesion', 'writing', 'criterion', 'Coherence & Cohesion',          210),
   ('writing/criterion-lexical-resource',   'writing', 'criterion', 'Lexical Resource',              220),
   ('writing/criterion-grammatical-range',  'writing', 'criterion', 'Grammatical Range & Accuracy',  230),
