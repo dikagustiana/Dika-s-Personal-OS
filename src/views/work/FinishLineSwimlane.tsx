@@ -142,7 +142,7 @@ const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 
 const SCOPE_SUBTITLES: Record<string, string> = {
   SAMB: 'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.',
   ARBI: 'Rantai B2C ARBI: setup master & harga → pengadaan → inbound & penyimpanan → order marketplace → outbound → pengiriman kurir → retur → settlement & kas. Jalur retur masuk lewat pintu inbound sebagai ASN Return. Seam ke jalur LP SAMB belum ditetapkan — lihat B04.',
-  KGR: 'Pengadaan live bird → lini potong sampai TITIK SPLIT-OFF di karkas → disposisi karkas jadi barang jadi atau WIP → pemrosesan lanjut jadi SKU A–J dan MDM → costing dua lapisan: alokasi joint NRV atas kategori yield, lalu separable cost per SKU → penjualan → EOD settlement → penagihan, pembayaran, pelaporan. Fresh dan frozen adalah keadaan persediaan, bukan jalur: fresh default, frozen lahir dari sisa yang tidak habis hari itu lewat blasting. Toll fee tidak ada.',
+  KGR: 'Pengadaan live bird → lini potong sampai TITIK SPLIT-OFF di karkas → disposisi karkas jadi barang jadi atau WIP → pemrosesan lanjut jadi SKU hasil cut-up dan MDM → costing dua lapisan: alokasi joint NRV atas kategori yield, lalu separable cost per SKU → penjualan → EOD settlement → penagihan, pembayaran, pelaporan. Fresh dan frozen adalah keadaan persediaan, bukan jalur: fresh default, frozen lahir dari sisa yang tidak habis hari itu lewat blasting. Toll fee tidak ada.',
 };
 
 /** §4.6's one visible line for the pre-52 window. */
