@@ -25,11 +25,13 @@ import {
   describeCollabLink,
   forgetCollabLink,
   maskCollabLink,
+  mergeCollabLinks,
   normalizeVaultEmail,
   recallAllCollabLinks,
   rememberCollabLink,
+  type CollabLinkRecord,
   type CollabLinkVault,
-  type StoredCollabLink,
+  type HeldCollabLink,
 } from '../../data/collabLinkVault';
 import type { Engagement, FinishLineEntity, Project } from '../../data/types';
 import { useAppStore } from '../../store/appStore';
@@ -120,9 +122,14 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
   // Which row's activity trail is open. One at a time: the trail costs several
   // reads and is read one person at a time anyway.
   const [trailFor, setTrailFor] = useState<string | null>(null);
-  // Every link this tab still holds, keyed by address. Seeded from the vault
-  // on mount, which is the whole point: the panel survives navigation now.
+  // Every link this tab still holds, keyed by address. The FALLBACK source —
+  // see storedLinks below, which survives closing the tab and wins wherever
+  // both have something.
   const [vault, setVault] = useState<CollabLinkVault>(() => recallAllCollabLinks());
+  // The durable half: public.os_collab_links, owner-only, keyed by user id.
+  // Empty before migration 20260809000071, which is not an error — the table
+  // simply is not there yet and the vault carries the panel until it is.
+  const [storedLinks, setStoredLinks] = useState<CollabLinkRecord[]>([]);
   // Which address's link panel is open. Opening one NEVER mints — it reads
   // what is already held.
   const [openFor, setOpenFor] = useState<string | null>(null);
@@ -180,6 +187,33 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     else {
       setUsers(result.users ?? []);
       setSessionDead(false);
+      // Keyed by user id on the wire; the panel works in addresses, so the
+      // join happens here where both are in hand. A missing relation (the
+      // pre-migration state) leaves this empty and says nothing — the tab
+      // vault is still there, and there is no news in a table that has not
+      // shipped. Anything else is a real failure and reaches the notice.
+      const links = await repository.listCollabLinks();
+      if (links.ok) {
+        const emailOf = new Map(
+          (result.users ?? []).map((user) => [user.userId, user.email]),
+        );
+        setStoredLinks(
+          links.rows
+            .filter((row) => emailOf.has(row.userId))
+            .map((row) => ({
+              email: emailOf.get(row.userId) as string,
+              url: row.link,
+              mintedAt: Date.parse(row.createdAt),
+              expiresAt: row.expiresAt === null ? null : Date.parse(row.expiresAt),
+              usedAt: row.usedAt === null ? null : Date.parse(row.usedAt),
+            })),
+        );
+      } else if (links.reason === 'failed') {
+        setStoredLinks([]);
+        setNotice(`Tautan tersimpan tidak terbaca: ${links.detail}`);
+      } else {
+        setStoredLinks([]);
+      }
     }
   }, [call, repository]);
 
@@ -187,8 +221,17 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     void refresh();
   }, [refresh]);
 
-  /** Records a freshly minted link and opens it, masked. */
-  const holdLink = (target: string, url: string, expiresAt?: number) => {
+  /**
+   * Records a freshly minted link and opens it, masked.
+   *
+   * Writes the TAB copy only. The durable row is written server-side by the
+   * provisioning function, which is the only place the link is minted and the
+   * only place that can read GoTrue's own mint timestamp — this side would be
+   * guessing at both. The tab copy still earns its place: it covers the
+   * pre-migration window and the case where filing the row failed while
+   * minting succeeded.
+   */
+  const holdLink = (target: string, url: string, expiresAt: number | null) => {
     const stored = rememberCollabLink({ email: target, url, expiresAt });
     setVault(recallAllCollabLinks());
     setOpenFor(stored.email);
@@ -244,6 +287,9 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
       return;
     }
     holdLink(target, result.link, expiryFrom(result.expiresAt));
+    // Pick up the row the function just filed, so the panel is reading the
+    // durable copy from this moment on rather than the tab's.
+    await refresh();
   };
 
   /** Re-opens a link already held. Mints nothing, so it is always safe. */
@@ -341,7 +387,12 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
     workProjects.find((project) => project.id === projectId)?.title ??
     `proyek ${projectId.slice(0, 8)}`;
 
-  const openEntry: StoredCollabLink | null = openFor ? (vault[openFor] ?? null) : null;
+  // ONE SOURCE FOR THE WHOLE CARD. The stored row wins wherever both sides
+  // have something: it carries `usedAt`, stamped by a trigger on the sign-in
+  // itself, so it states that a link is spent instead of inferring it.
+  const held = useMemo(() => mergeCollabLinks(storedLinks, vault), [storedLinks, vault]);
+
+  const openEntry: HeldCollabLink | null = openFor ? (held[openFor] ?? null) : null;
 
   const copyLink = async () => {
     if (!openEntry) return;
@@ -490,6 +541,17 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                 : ''}
               Sekali pakai. Membuat tautan baru untuk alamat ini membatalkan yang ini.
             </p>
+            {/* Durability, stated rather than discovered. A tab-only link is
+                one closed tab away from a re-mint, and a re-mint is what cuts
+                off whoever is holding the current one — so the difference is
+                worth a line here, where the owner is deciding whether they
+                still need to send it. */}
+            {openEntry.source === 'tab' && (
+              <p className="mt-1 text-[10px] leading-4 text-foreground-muted">
+                Tersimpan di tab ini saja — kalau tab ditutup, tautan ini tidak bisa dibuka
+                lagi dan satu-satunya jalan adalah membuat yang baru.
+              </p>
+            )}
           </div>
         )}
 
@@ -516,8 +578,8 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
                 const canRevoke = user.entityCodes.length > 0 || user.projectIds.length > 0;
                 const pickerOpen = grantingFor === user.userId;
                 const trailOpen = trailFor === user.userId;
-                const held = vault[normalizeVaultEmail(user.email)] ?? null;
-                const status = collabLinkStatus(held, user.lastSignInAt, now);
+                const heldLink = held[normalizeVaultEmail(user.email)] ?? null;
+                const status = collabLinkStatus(heldLink, user.lastSignInAt, now);
                 const statusLine = describeCollabLink(status);
                 return (
                   <li key={user.userId} className="py-2">
@@ -741,12 +803,17 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
 }
 
 /**
- * The server's authoritative expiry, when it sends one. It is an ISO string
- * on the wire; anything unparseable falls back to the client's own default so
- * the panel is correct with or without an Edge Function redeploy.
+ * The server's deadline, when it has one to send.
+ *
+ * NULL WHEN ABSENT, AND NOTHING IS SUBSTITUTED. This used to fall back to a
+ * one-hour default so the panel could always draw a countdown. That was fine
+ * while the OTP window was an hour and becomes a lie at 86400 — it would call
+ * a link dead with twenty-three hours left, and the owner's fix for a dead
+ * link is a re-mint, which cuts off whoever is holding the real one. A missing
+ * deadline is now reported as missing.
  */
-function expiryFrom(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
+function expiryFrom(raw: string | null | undefined): number | null {
+  if (!raw) return null;
   const parsed = Date.parse(raw);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  return Number.isFinite(parsed) ? parsed : null;
 }

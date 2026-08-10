@@ -12,6 +12,7 @@ import type {
 import type {
   CellHistoryEntry,
   CellState,
+  CollabLink,
   DailyLog,
   DanglingLink,
   Domain,
@@ -385,6 +386,17 @@ export interface Repository {
    * Each returns ReadResult so an unapplied migration stays distinguishable
    * from an empty table — the distinction this project has lost twice.
    */
+  /**
+   * The stored sign-in links, owner-only. READ ONLY FROM HERE ON PURPOSE:
+   * every write goes through the provision-collaborator Edge Function, which
+   * is where the link is minted and where the service role lives. A client
+   * that could write this table could file a link nobody minted.
+   *
+   * Returns missing-relation before migration 20260809000071, which the panel
+   * treats as "no stored links" and falls back to its tab-local copy.
+   */
+  listCollabLinks(): Promise<ReadResult<CollabLink>>;
+
   listSignInLog(): Promise<ReadResult<SignInEvent>>;
   listCellHistory(): Promise<ReadResult<CellHistoryEntry>>;
   listTaskHistory(): Promise<ReadResult<TaskHistoryEntry>>;

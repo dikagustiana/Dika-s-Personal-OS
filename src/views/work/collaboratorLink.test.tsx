@@ -18,7 +18,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Repository } from '../../data/repository';
-import type { FinishLineEntity } from '../../data/types';
+import { okRows, readAbsence, readFailure, type ReadResult } from '../../data/readResult';
+import type { CollabLink, FinishLineEntity } from '../../data/types';
 import { useAppStore } from '../../store/appStore';
 import { CollaboratorCard } from './CollaboratorCard';
 
@@ -102,6 +103,13 @@ const isDisabled = (name: RegExp) =>
   (screen.getByRole('button', { name }) as HTMLButtonElement).disabled;
 
 let writeText: ReturnType<typeof vi.fn>;
+/**
+ * What listCollabLinks answers, swapped per test. Held in a variable rather
+ * than by replacing the repository OBJECT: replacing it re-renders the card
+ * mid-flight, and a refresh already in the air then lands after the swap and
+ * overwrites it. One stable object, one mutable answer.
+ */
+let storedLinksResult: ReadResult<CollabLink>;
 
 beforeEach(() => {
   window.sessionStorage.clear();
@@ -111,8 +119,16 @@ beforeEach(() => {
     value: { writeText },
     configurable: true,
   });
+  // Default: migration 20260809000071 has NOT been applied, which is the state
+  // this bundle ships into. Everything above therefore still pins the
+  // tab-local fallback — the behaviour that has to keep working before the
+  // table exists.
+  storedLinksResult = readAbsence('listCollabLinks', { code: '42P01' });
   useAppStore.setState({
-    repository: { listProjects: async () => [] } as unknown as Repository,
+    repository: {
+      listProjects: async () => [],
+      listCollabLinks: async () => storedLinksResult,
+    } as unknown as Repository,
   });
   vi.spyOn(window, 'confirm').mockReturnValue(true);
   respondWith([OWNER_ROW]);
@@ -291,10 +307,33 @@ describe('rows without entity membership', () => {
 });
 
 describe('per-row status is actionable', () => {
-  it('says how long the link has left', async () => {
+  it('says the window is UNKNOWN when the server sent no deadline', async () => {
+    // The old assertion here was `berlaku N menit lagi`, produced by a
+    // one-hour default this module no longer has. At an 86400s OTP window that
+    // default called a link dead with twenty-three hours left — and the fix
+    // for a dead link is a re-mint, which cuts off whoever holds the real one.
     mountCard();
     await mintLink();
-    expect(screen.getAllByText(/tautan berlaku \d+ menit lagi/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/masa berlaku tidak diketahui/i).length).toBeGreaterThan(0);
+  });
+
+  it('counts down when the server DOES send a deadline', async () => {
+    provisionCollaborator.mockImplementation(
+      async (_key: string, body: { action: string; email?: string }) => {
+        if (body.action === 'list') return { users: [OWNER_ROW] };
+        if (body.action === 'link' || body.action === 'create') {
+          return {
+            email: body.email,
+            link: LINK,
+            expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+          };
+        }
+        return {};
+      },
+    );
+    mountCard();
+    await mintLink();
+    expect(screen.getAllByText(/berlaku sampai \d{2}:\d{2}/i).length).toBeGreaterThan(0);
   });
 
   it('reports a link as spent once the person signs in after it was minted', async () => {
@@ -352,6 +391,119 @@ describe('the token never leaks into a log', () => {
     await mintLink();
     fireEvent.click(screen.getByRole('button', { name: /Salin/i }));
     const notice = await screen.findByText(/Tidak bisa menyalin otomatis/i);
+    expect(notice.textContent ?? '').not.toContain(TOKEN);
+  });
+});
+
+// --- the durable half: public.os_collab_links -------------------------------
+//
+// Everything above pins the TAB copy, which is what ships before migration
+// 20260809000071. These pin what the stored row adds, and the first one is the
+// whole reason the table exists: sessionStorage dies with the tab, and a link
+// that dies with the tab still forces a re-mint — which is what cuts off
+// whoever is holding the current link.
+
+const STORED_ROW: CollabLink = {
+  userId: OWNER_ROW.userId,
+  link: LINK,
+  createdAt: '2026-08-09T10:00:00.000Z',
+  expiresAt: '2026-08-10T10:00:00.000Z',
+  usedAt: null,
+};
+
+function withStoredLinks(rows: CollabLink[]) {
+  storedLinksResult = okRows(rows);
+}
+
+describe('a stored link outlives the tab that minted it', () => {
+  it('comes back after sessionStorage is gone, with the same value, minting nothing', async () => {
+    withStoredLinks([STORED_ROW]);
+    mountCard();
+    await screen.findByText(OWNER_ROW.email);
+
+    // Closing the tab: the vault is what does NOT survive that.
+    window.sessionStorage.clear();
+    cleanup();
+    mountCard();
+    await screen.findByText(OWNER_ROW.email);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Lihat tautan/i }));
+    await waitFor(() => expect(linkField()).toBeTruthy());
+    // Masked, as ever.
+    expect(linkField().value).not.toContain(TOKEN);
+    // And the copy is the REAL link — same value the owner had before.
+    fireEvent.click(screen.getByRole('button', { name: /Salin/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(LINK));
+
+    const mints = provisionCollaborator.mock.calls.filter(
+      ([, body]) => (body as { action: string }).action === 'link',
+    );
+    expect(mints).toHaveLength(0);
+  });
+
+  it('reports a spent link from the stored stamp, not from a guess', async () => {
+    withStoredLinks([{ ...STORED_ROW, usedAt: '2026-08-09T11:00:00.000Z' }]);
+    mountCard();
+    expect(await screen.findByText(/tautan sudah dipakai/i)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Lihat tautan/i })).toBeNull();
+  });
+
+  it('says the window is unknown rather than inventing a countdown', async () => {
+    // COLLAB_LINK_TTL_SECONDS unset on the function: no deadline to store.
+    withStoredLinks([{ ...STORED_ROW, expiresAt: null }]);
+    mountCard();
+    expect(await screen.findByText(/masa berlaku tidak diketahui/i)).toBeTruthy();
+    // Unknown is NOT expired — the link is still offered.
+    expect(screen.getByRole('button', { name: /Lihat tautan/i })).toBeTruthy();
+  });
+
+  it('shows the four row states in words', async () => {
+    withStoredLinks([]);
+    mountCard();
+    expect(await screen.findByText(/belum ada tautan/i)).toBeTruthy();
+  });
+
+  it('drops the row once Cabut has removed it server-side', async () => {
+    withStoredLinks([STORED_ROW]);
+    mountCard();
+    await screen.findByRole('button', { name: /Lihat tautan/i });
+    // The Edge Function deletes the row; the refresh after revoke reads none.
+    withStoredLinks([]);
+    fireEvent.click(screen.getByRole('button', { name: /^Cabut$/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Lihat tautan/i })).toBeNull(),
+    );
+    expect(await screen.findByText(/belum ada tautan/i)).toBeTruthy();
+  });
+});
+
+describe('the stored table is not there yet, or cannot be read', () => {
+  it('renders the card normally on 42P01 and says nothing to the console', async () => {
+    const spies = [
+      vi.spyOn(console, 'log').mockImplementation(() => {}),
+      vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      vi.spyOn(console, 'error').mockImplementation(() => {}),
+      vi.spyOn(console, 'debug').mockImplementation(() => {}),
+    ];
+    storedLinksResult = readAbsence('listCollabLinks', { code: '42P01' });
+    mountCard();
+    await screen.findByText(OWNER_ROW.email);
+    // The row is there, the controls are there, no stored link section.
+    expect(screen.getByRole('button', { name: /Tautan baru/i })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Lihat tautan/i })).toBeNull();
+    expect(screen.queryByText(/42P01/)).toBeNull();
+    expect(screen.queryByText(/tidak terbaca/i)).toBeNull();
+    for (const spy of spies) expect(spy.mock.calls).toHaveLength(0);
+  });
+
+  it('surfaces a genuine read failure instead of showing an empty state', async () => {
+    storedLinksResult = readFailure('listCollabLinks', {
+      code: '42501',
+      message: 'permission denied for table os_collab_links',
+    });
+    mountCard();
+    const notice = await screen.findByText(/Tautan tersimpan tidak terbaca/i);
+    expect(notice.textContent ?? '').toContain('42501');
     expect(notice.textContent ?? '').not.toContain(TOKEN);
   });
 });

@@ -86,6 +86,9 @@ function repositoryWith(overrides: Partial<Record<string, unknown>>): Repository
   const empty = async () => okRows([]);
   return {
     listProjects: async () => [],
+    // This suite is about the activity trail, not the link store; 42P01 is the
+    // state the bundle ships into and keeps the card's other half quiet.
+    listCollabLinks: async () => readAbsence('listCollabLinks', { code: '42P01' }),
     listSignInLog: async () => okRows([]),
     listCellHistory: async () => okRows([]),
     listTaskHistory: async () => okRows([]),

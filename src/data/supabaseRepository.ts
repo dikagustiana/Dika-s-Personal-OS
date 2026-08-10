@@ -34,6 +34,7 @@ import type {
   EntryType,
   CellActorKind,
   CellHistoryEntry,
+  CollabLink,
   CellState,
   DanglingLink,
   FinishLineAgg,
@@ -2129,6 +2130,39 @@ class SupabaseRepository implements Repository {
   // touched anything, which is the single failure this project keeps paying
   // for. Only a genuinely absent relation (42P01 / PGRST205) folds to the
   // empty state.
+
+  /**
+   * The stored links. 42P01 until migration 20260809000071 is applied, which
+   * the panel reads as "nothing stored" and falls back to its tab-local copy —
+   * NOT as an error, because that is the expected state while this ships first.
+   *
+   * A 42703 from here would mean the table exists and a column does not, which
+   * is a broken query rather than a missing feature, and readAbsence surfaces
+   * it. The two are not folded together.
+   */
+  async listCollabLinks(): Promise<ReadResult<CollabLink>> {
+    const { data, error } = await this.client
+      .from('os_collab_links')
+      .select('user_id, link, created_at, expires_at, used_at');
+    if (error) return readAbsence('listCollabLinks', error);
+    return okRows(
+      (
+        data as {
+          user_id: string;
+          link: string;
+          created_at: string;
+          expires_at: string | null;
+          used_at: string | null;
+        }[]
+      ).map((row) => ({
+        userId: row.user_id,
+        link: row.link,
+        createdAt: row.created_at,
+        expiresAt: row.expires_at,
+        usedAt: row.used_at,
+      })),
+    );
+  }
 
   async listSignInLog(): Promise<ReadResult<SignInEvent>> {
     // 42P01 until migration 20260809000070 is applied, which is the expected
