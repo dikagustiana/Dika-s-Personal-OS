@@ -37,6 +37,10 @@ const DECISION_NEEDS = readFileSync(
   new URL('../../supabase/migrations/20260810000074_kgr_decision_needs.sql', import.meta.url),
   'utf8',
 );
+const FINAL_TEXT_20_21 = readFileSync(
+  new URL('../../supabase/migrations/20260810000075_kgr_step_20_21_final_text.sql', import.meta.url),
+  'utf8',
+);
 
 /** The seed is sectioned by `-- N. Title` comments; slice between two of them. */
 function section(from: string, to: string): string {
@@ -235,37 +239,46 @@ describe('migration 73 records the D1-D5 decisions', () => {
   });
 });
 
-describe('migration 73 changes text and nothing else', () => {
-  /** The editable surface, mirrored from src/logic/processTextEdit.ts. */
-  const EDITABLE: Record<string, string[]> = {
-    os_process_steps: ['name', 'co', 'risk', 'control', 'note', 'gate_id', 'docs', 'coa', 'drivers'],
-    os_process_needs: ['item', 'kind', 'src', 'owner', 'status', 'requested_on'],
-    os_process_gates: ['title', 'sub', 'owner', 'unblock'],
-    os_process_lanes: ['label', 'description'],
-    os_process_phases: ['name'],
-  };
+/** The editable surface, mirrored from src/logic/processTextEdit.ts. */
+const EDITABLE: Record<string, string[]> = {
+  os_process_steps: ['name', 'co', 'risk', 'control', 'note', 'gate_id', 'docs', 'coa', 'drivers'],
+  os_process_needs: ['item', 'kind', 'src', 'owner', 'status', 'requested_on'],
+  os_process_gates: ['title', 'sub', 'owner', 'unblock'],
+  os_process_lanes: ['label', 'description'],
+  os_process_phases: ['name'],
+};
 
+/**
+ * Runs over EVERY text-only migration, not just the one that introduced the
+ * rule. A future amendment that adds a file and forgets to add it here is the
+ * only way past this, so the list is short on purpose and lives next to the
+ * readFileSync calls that feed it.
+ */
+describe.each([
+  ['73', TEXT_DECISIONS],
+  ['75', FINAL_TEXT_20_21],
+])('migration %s changes text and nothing else', (label, source) => {
   const updates = [
-    ...TEXT_DECISIONS.matchAll(/update public\.(\w+) set\n([\s\S]*?)\nwhere ([\s\S]*?);\n/g),
+    ...source.matchAll(/update public\.(\w+) set\n([\s\S]*?)\nwhere ([\s\S]*?);\n/g),
   ].map((match) => ({ table: match[1], setBody: match[2], whereBody: match[3] }));
 
   it('parses as a file made only of UPDATEs — no row is added or removed', () => {
     // Self-verifying: the column checks below are only meaningful if the
     // regex caught EVERY statement. A missed one would pass vacuously, so
     // pin the parsed count against a plain textual count of the keyword.
-    const declared = (TEXT_DECISIONS.match(/update public\./g) ?? []).length;
+    const declared = (source.match(/update public\./g) ?? []).length;
     expect(updates).toHaveLength(declared);
     expect(updates.length).toBeGreaterThan(0);
-    expect(TEXT_DECISIONS).not.toMatch(/insert into/i);
-    expect(TEXT_DECISIONS).not.toMatch(/delete from/i);
-    expect(TEXT_DECISIONS).not.toMatch(/alter table/i);
-    expect(TEXT_DECISIONS).not.toMatch(/drop /i);
+    expect(source).not.toMatch(/insert into/i);
+    expect(source).not.toMatch(/delete from/i);
+    expect(source).not.toMatch(/alter table/i);
+    expect(source).not.toMatch(/drop /i);
   });
 
   it('assigns only columns the app itself is allowed to write', () => {
     for (const update of updates) {
       const allowed = EDITABLE[update.table];
-      expect(allowed, `migration 73 writes unknown table ${update.table}`).toBeDefined();
+      expect(allowed, `migration ${label} writes unknown table ${update.table}`).toBeDefined();
       const assigned = [...update.setBody.matchAll(/^\s*(\w+)\s*=/gm)].map((match) => match[1]);
       expect(assigned.length, `no assignment parsed for ${update.table}`).toBeGreaterThan(0);
       for (const column of assigned) {
@@ -289,6 +302,42 @@ describe('migration 73 changes text and nothing else', () => {
     for (const update of updates) {
       expect(update.whereBody, `unscoped update on ${update.table}`).toContain('KGR');
     }
+  });
+});
+
+describe('migration 75 finishes steps 20 and 21 across their whole surface', () => {
+  it('rewrites risk and control, which 73 left as seed prose', () => {
+    // The gap this file exists to close: 73 gave step 20 a note that knew
+    // about the interim convention and a control that did not.
+    for (const field of ['risk =', 'control =', 'note =', 'docs =', 'drivers =']) {
+      expect(FINAL_TEXT_20_21).toContain(field);
+    }
+  });
+
+  it('turns the price back-test from a need into a control with teeth', () => {
+    expect(FINAL_TEXT_20_21).toContain('wajib memicu revisi daftar harga, bukan penjelasan');
+    // And the interim convention gets an expiry rather than an open end.
+    expect(FINAL_TEXT_20_21).toContain('gugur otomatis');
+  });
+
+  it('names the estimate-vs-actual gap the interim convention created', () => {
+    // Separable cost is a deduction inside NRV at 20 and an addition at 21.
+    // Nothing reconciled the two; step 21 now says so.
+    expect(FINAL_TEXT_20_21).toContain('SEPARABLE COST DIPAKAI DUA KALI DENGAN DUA PERAN');
+    expect(FINAL_TEXT_20_21).toContain('bukan koreksi mundur atas batch yang sudah closed');
+  });
+
+  it('gives step 21 the gate it never had, and only a gate the seed declares', () => {
+    expect(FINAL_TEXT_20_21).toMatch(/gate_id = 'TBC-41'/);
+    expect(gateIds, 'step 21 must point at a declared gate').toContain('TBC-41');
+  });
+
+  it('leaves the two names and both COA lists alone', () => {
+    // Deliberate: "7 langkah" is the SOP's own name, and inventing a variance
+    // account for a reconciliation that posts no journal would be worse than
+    // the gap it papers over.
+    expect(FINAL_TEXT_20_21).not.toMatch(/^\s*name =/m);
+    expect(FINAL_TEXT_20_21).not.toMatch(/^\s*coa =/m);
   });
 });
 
