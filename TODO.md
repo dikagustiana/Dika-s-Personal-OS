@@ -4,6 +4,51 @@ Things the Lab brief ruled out of v1 (Part G), plus gaps discovered while
 building that were noted rather than scope-crept. Nothing here is half-built;
 each item is absent on purpose.
 
+## Epistemic layer — the agents wait on step 2, by design
+
+The epistemic brief's build order is explicit: "Do not build agents before
+step 2 works" — and step 2 is the owner walking ONE REAL PROJECT through the
+Evidence screen by hand (committed claims as layer A against a commitment
+source, the blocking parameters as datapoints). The schema, gates,
+bypass-proof SQL suite, and manual-entry UI are live; the agents come after
+that walk-through, not before. Their database write-rails are ALREADY in
+force — the gates key on the passphrase header, which no service-role agent
+carries — so building them later adds capability, never permission.
+
+Role cards, for when they are built (each an agent row + prompts in the
+existing registry, run through run-lab-agent):
+
+- **COORDINATOR** — decomposes requests, delegates, assembles. Writes task
+  records only (a task table comes with it).
+- **LOCATOR** — stage 1 of the two-stage pipeline: given a document, returns
+  candidate locators (page/table/section), never values.
+- **EXTRACTOR** — stage 2: given only the selected text from those locators,
+  returns structured datapoint fields; writes datapoints at IND with
+  extraction_method = agent_from_selected_text (the DB refuses anything
+  else). Stage 3 internal validation records internal_check_passed where
+  the document's hierarchical totals permit reconciliation; full-PDF
+  single-shot extraction is triage only and cannot auto-promote to V.
+- **LITERATURE** — search + reference records at abstract_only only (DB
+  rail in force); promotion needs the full text on disk and the owner.
+- **REVIEWER** — reads everything; writes conflict/contradiction records
+  (unresolved/open only — DB rail in force) and gate-failure reports.
+  Never approvals. The single highest-value agent; build it before DRAFTER.
+- **DRAFTER** — last. Generates outputs at draft citing approved claims
+  only (DB rail in force); G-NUMBER re-scans whatever it writes.
+
+Also deferred in the epistemic layer:
+- **WIP limiting** — projects carry wip_slot; nothing enforces a portfolio
+  cap yet.
+- **Automatic contradiction detection** — the tables and gates exist; the
+  REVIEWER agent is the detector. Until then contradictions are recorded
+  by hand in the Claims tab.
+- **Run-lineage backfill** — created_by_run_id/generated_by_run_id are in
+  place and the UI marks claims born from runs; no historical backfill was
+  needed (the layer shipped before any claims existed).
+- **Snapshot tooling** — local_snapshot_path is mandatory and hand-entered;
+  a fetch-and-hash helper (store the PDF, stamp snapshot_hash) would remove
+  the manual step.
+
 ## Ruled out by the brief (Part G)
 
 - **Agent marketplace / sharing between users.** Lab tables carry no member
