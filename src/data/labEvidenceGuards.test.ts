@@ -153,6 +153,40 @@ describe('claimApprovalBlockers (G-CLAIM)', () => {
       }),
     ).toEqual([]);
   });
+
+  it('1.13: a DIRECT open contradiction blocks either side; tension stays advisory', () => {
+    const contradictions: LabClaimContradiction[] = [
+      { id: 'x-direct', claimAId: 'c4', claimBId: 'c5', severity: 'direct', status: 'open', resolutionNote: '' },
+      { id: 'x-tension', claimAId: 'c6', claimBId: 'c7', severity: 'tension', status: 'open', resolutionNote: '' },
+    ];
+    const blocked = claimApprovalBlockers({
+      claim: claim({ id: 'c5' }),
+      datapoints: [],
+      references: [],
+      conflicts: [],
+      contradictions,
+    });
+    expect(blocked.some((b) => b.includes('x-direct') && b.includes('c4'))).toBe(true);
+    expect(
+      claimApprovalBlockers({
+        claim: claim({ id: 'c6' }),
+        datapoints: [],
+        references: [],
+        conflicts: [],
+        contradictions,
+      }),
+    ).toEqual([]);
+    // resolved direct contradictions no longer block
+    expect(
+      claimApprovalBlockers({
+        claim: claim({ id: 'c5' }),
+        datapoints: [],
+        references: [],
+        conflicts: [],
+        contradictions: [{ ...contradictions[0], status: 'resolved' }],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe('outputFinalizeBlockers (G-OUTPUT / G-LAYER)', () => {

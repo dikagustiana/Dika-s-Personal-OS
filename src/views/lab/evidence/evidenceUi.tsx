@@ -25,15 +25,27 @@ import { LAB_CHIP } from '../labUi';
 
 const DATAPOINT_TONE: Record<LabDatapointStatus, string> = {
   // V is the earned state — filled. IND is the honest default — outlined
-  // amber, because unverified is a fact to see, not an error. NA is a real
+  // amber, because unmatched is a fact to see, not an error. NA is a real
   // answer (sought, not available), muted.
   V: 'bg-primary-dim text-primary',
   IND: 'border border-escalate/40 text-escalate',
   NA: 'border border-border text-foreground-muted',
 };
 
+/**
+ * 1.10: the V code renders as "source-matched", never "verified". The
+ * mechanism delivers custody — a human compared the stored value against
+ * the cited location — not correctness, and a label that claims more than
+ * the mechanism delivers miscalibrates the one reader who matters.
+ */
+const DATAPOINT_LABEL: Record<LabDatapointStatus, string> = {
+  V: 'source-matched',
+  IND: 'IND',
+  NA: 'NA',
+};
+
 export function DatapointStatusChip({ status }: { status: LabDatapointStatus }) {
-  return <span className={cn(LAB_CHIP, DATAPOINT_TONE[status])}>{status}</span>;
+  return <span className={cn(LAB_CHIP, DATAPOINT_TONE[status])}>{DATAPOINT_LABEL[status]}</span>;
 }
 
 const LAYER_TONE: Record<LabClaimLayer, string> = {

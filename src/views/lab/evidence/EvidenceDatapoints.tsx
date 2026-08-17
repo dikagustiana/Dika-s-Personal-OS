@@ -35,6 +35,7 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
     locator: '',
     volatilityClass: '' as '' | LabVolatility,
     extractionMethod: 'manual' as LabExtractionMethod,
+    status: 'IND' as 'IND' | 'NA',
   });
   const [verifyNotes, setVerifyNotes] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -63,11 +64,12 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
         locator: draft.locator.trim(),
         volatilityClass: draft.volatilityClass as LabVolatility,
         extractionMethod: draft.extractionMethod,
+        status: draft.status,
       }),
     );
     if (!saved) return;
     setShowForm(false);
-    setDraft({ value: '', unit: '', year: '', geography: '', definitionScope: '', sourceDocumentId: '', locator: '', volatilityClass: '', extractionMethod: 'manual' });
+    setDraft({ value: '', unit: '', year: '', geography: '', definitionScope: '', sourceDocumentId: '', locator: '', volatilityClass: '', extractionMethod: 'manual', status: 'IND' });
     data.reload();
   };
 
@@ -78,8 +80,8 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
       tone: 'info',
       message:
         reverted === 0
-          ? 'Sweep: tidak ada verifikasi yang kedaluwarsa.'
-          : `Sweep: ${reverted} datapoint kembali ke IND — klaim terkait turun ke reviewed.`,
+          ? 'Sweep: tidak ada source-match yang kedaluwarsa.'
+          : `Sweep: ${reverted} datapoint kehilangan source-match (kembali ke IND) — klaim terkait turun ke reviewed.`,
     });
     data.reload();
   };
@@ -178,6 +180,22 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
                     <option value="static">static — outturn historis</option>
                   </select>
                 </label>
+                <label className={FIELD_LABEL}>
+                  Status
+                  <select
+                    className="native-select"
+                    value={draft.status}
+                    onChange={(event) =>
+                      setDraft({ ...draft, status: event.target.value as 'IND' | 'NA' })
+                    }
+                  >
+                    {/* 1.9: NA is a real answer — sought and not available —
+                        worth recording, never a blank. A status with no
+                        entry path is a paper feature. */}
+                    <option value="IND">IND — extracted, belum di-match</option>
+                    <option value="NA">NA — dicari dan tidak tersedia</option>
+                  </select>
+                </label>
               </div>
               <Button type="submit" size="sm" disabled={isPending || !draft.volatilityClass}>
                 Record datapoint
@@ -233,34 +251,49 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
                         <td colSpan={6} className="bg-surface-2/60 px-4 py-3">
                           {datapoint.status === 'V' ? (
                             <p className="text-xs leading-5 text-foreground-secondary">
-                              Diverifikasi {datapoint.verifiedAt?.slice(0, 10)} — {datapoint.verificationNote}
+                              Source-matched {datapoint.verifiedAt?.slice(0, 10)} — {datapoint.verificationNote}
                             </p>
                           ) : (
-                            <div className="flex flex-wrap items-end gap-2" onClick={(event) => event.stopPropagation()}>
-                              <label className={`${FIELD_LABEL} grow`}>
-                                Verification note — apa yang dicek terhadap apa
-                                <Input
-                                  value={verifyNotes[datapoint.id] ?? ''}
-                                  onChange={(event) =>
-                                    setVerifyNotes({ ...verifyNotes, [datapoint.id]: event.target.value })
+                            <div onClick={(event) => event.stopPropagation()}>
+                              {/* 1.11: the three things the owner must
+                                  actually consult to match this value are ON
+                                  the surface where the match happens —
+                                  nothing pre-filled, nothing to rubber-stamp
+                                  past without seeing. */}
+                              <dl className="mb-2 grid gap-x-5 gap-y-1 text-xs sm:grid-cols-[auto_1fr]">
+                                <dt className="surface-label">Locator</dt>
+                                <dd className="text-foreground-secondary">{datapoint.locator}</dd>
+                                <dt className="surface-label">Source</dt>
+                                <dd className="text-foreground-secondary">{sourceTitle(datapoint.sourceDocumentId)}</dd>
+                                <dt className="surface-label">Definition scope</dt>
+                                <dd className="leading-5 text-foreground-secondary">{datapoint.definitionScope}</dd>
+                              </dl>
+                              <div className="flex flex-wrap items-end gap-2">
+                                <label className={`${FIELD_LABEL} grow`}>
+                                  Match note — apa yang dibandingkan terhadap apa
+                                  <Input
+                                    value={verifyNotes[datapoint.id] ?? ''}
+                                    onChange={(event) =>
+                                      setVerifyNotes({ ...verifyNotes, [datapoint.id]: event.target.value })
+                                    }
+                                  />
+                                </label>
+                                <Button
+                                  size="sm"
+                                  disabled={isPending || Boolean(blocked)}
+                                  onClick={() =>
+                                    void mutate('Source-match datapoint', () =>
+                                      repository.labEvidence.verifyDatapoint(
+                                        datapoint.id,
+                                        (verifyNotes[datapoint.id] ?? '').trim(),
+                                      ),
+                                    ).then((saved) => saved && data.reload())
                                   }
-                                />
-                              </label>
-                              <Button
-                                size="sm"
-                                disabled={isPending || Boolean(blocked)}
-                                onClick={() =>
-                                  void mutate('Verify datapoint', () =>
-                                    repository.labEvidence.verifyDatapoint(
-                                      datapoint.id,
-                                      (verifyNotes[datapoint.id] ?? '').trim(),
-                                    ),
-                                  ).then((saved) => saved && data.reload())
-                                }
-                              >
-                                Verifikasi
-                              </Button>
-                              {blocked && <span className="text-xs text-foreground-muted">{blocked}</span>}
+                                >
+                                  Source-match
+                                </Button>
+                                {blocked && <span className="text-xs text-foreground-muted">{blocked}</span>}
+                              </div>
                             </div>
                           )}
                         </td>

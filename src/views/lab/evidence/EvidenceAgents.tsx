@@ -105,7 +105,7 @@ export function EvidenceAgents({ data, projectId }: { data: EvidenceData; projec
             <CardTitle>Two-stage extraction</CardTitle>
             <p className="mt-1 text-xs text-foreground-muted">
               Stage 1 menemukan LOKASI; kamu memilih teksnya; stage 2 mengekstrak dari teks terpilih
-              saja — datapoint lahir IND, verifikasi tetap tanganmu.
+              saja — datapoint lahir IND, source-match tetap tanganmu.
             </p>
           </div>
           <FileSearch className="size-4 text-foreground-muted" />

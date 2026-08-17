@@ -164,7 +164,7 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
         <div className="grid gap-3">
           {claims.map((claim) => {
             const isOpen = expanded === claim.id;
-            const blockers = claimApprovalBlockers({ claim, datapoints, references, conflicts });
+            const blockers = claimApprovalBlockers({ claim, datapoints, references, conflicts, contradictions });
             return (
               <Card key={claim.id}>
                 <CardContent className="pt-5">

@@ -727,6 +727,45 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       if (error) fail('unlinkOutputClaim', error.message);
     },
     async finalizeOutput(id) {
+      // 1.4: G-NUMBER re-runs against the CURRENT cited-claim datapoint set
+      // before the status write. The save-time scan can be invalidated by a
+      // later unlink (permitted while draft), so finalization is where the
+      // guarantee must hold — the DB trigger checks citations and the sweep
+      // heartbeat; prose parsing is this layer's half.
+      const { data: outputRow, error: readError } = await client
+        .from('os_lab_outputs')
+        .select('content, os_lab_output_claims(claim_id)')
+        .eq('id', id)
+        .single();
+      if (readError) fail('finalizeOutput', readError.message);
+      const citedClaimIds = ((outputRow as OutputRow).os_lab_output_claims ?? []).map(
+        (link) => link.claim_id,
+      );
+      let backing: LabDatapoint[] = [];
+      if (citedClaimIds.length > 0) {
+        const { data: linkRows, error: linkError } = await client
+          .from('os_lab_claim_datapoints')
+          .select('datapoint_id')
+          .in('claim_id', citedClaimIds);
+        if (linkError) fail('finalizeOutput', linkError.message);
+        const datapointIds = [
+          ...new Set(((linkRows ?? []) as Array<{ datapoint_id: string }>).map((r) => r.datapoint_id)),
+        ];
+        if (datapointIds.length > 0) {
+          const { data: dpRows, error: dpError } = await client
+            .from('os_lab_datapoints')
+            .select('*')
+            .in('id', datapointIds);
+          if (dpError) fail('finalizeOutput', dpError.message);
+          backing = ((dpRows ?? []) as DatapointRow[]).map(mapDatapoint);
+        }
+      }
+      const violations = guardOutputContent((outputRow as OutputRow).content, backing);
+      if (violations.length > 0) {
+        throw new LabGateError(
+          `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked since the last save no longer backs these figures).`,
+        );
+      }
       const { data, error } = await client
         .from('os_lab_outputs')
         .update({ status: 'final' })
@@ -1119,6 +1158,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       datapoints: this.datapoints,
       references: this.references,
       conflicts: this.conflicts,
+      contradictions: this.contradictions,
     });
     if (blockers.length > 0) throw new LabGateError(blockers[0]);
     claim.status = 'approved';
@@ -1227,9 +1267,21 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
   async finalizeOutput(id: string): Promise<LabOutput> {
     const output = this.outputs.find((row) => row.id === id);
     if (!output) throw new Error(`finalizeOutput: no output ${id}`);
+    // 1.4: same re-scan as the live implementation — the current cited
+    // claims' datapoints, not the set that held at save time.
+    const citedClaims = this.claims.filter((claim) => output.claimIds.includes(claim.id));
+    const backing = this.datapoints.filter((datapoint) =>
+      citedClaims.some((claim) => claim.datapointIds.includes(datapoint.id)),
+    );
+    const violations = guardOutputContent(output.content, backing);
+    if (violations.length > 0) {
+      throw new LabGateError(
+        `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked since the last save no longer backs these figures).`,
+      );
+    }
     const blockers = outputFinalizeBlockers({
       stale: output.stale,
-      citedClaims: this.claims.filter((claim) => output.claimIds.includes(claim.id)),
+      citedClaims,
       contradictions: this.contradictions,
     });
     if (blockers.length > 0) throw new LabGateError(blockers[0]);

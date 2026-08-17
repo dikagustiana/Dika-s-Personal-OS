@@ -25,12 +25,22 @@
 // carries the full text either way.
 
 import { checkAppKey } from '../_shared/appKeyAuth.ts';
+import { numberAppearsIn } from '../_shared/numberEcho.ts';
 import { scanNumbers, type ScanViolation } from '../_shared/numberScan.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const MAX_TOKENS = Number(Deno.env.get('LAB_MODEL_MAX_TOKENS') ?? '8000');
 const MAX_INPUT_CHARS = 200_000;
+/**
+ * The WIP cap (review 1.9): extraction refuses while this many datapoints
+ * sit unverified at IND. Extraction is the faucet; the owner's source-match
+ * rate is the system's clock speed, and this is the single control that
+ * prevents batch rubber-stamping. A feature, not friction.
+ */
+const IND_WIP_CAP = 25;
+/** The review's context window (1.12) — and it must SAY when it truncates. */
+const REVIEW_WINDOW = 200;
 
 /** Same key resolution as run-lab-agent, so the two cannot drift. */
 function keyFor(providerName: string): string {
@@ -95,6 +105,21 @@ async function restSelect<T>(table: string, query: string): Promise<T[]> {
   });
   if (!response.ok) throw new Error(`read ${table} failed (${response.status})`);
   return (await response.json()) as T[];
+}
+
+/** Exact row count without fetching rows — for caps and scope reporting. */
+async function restCount(table: string, query: string): Promise<number> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id&${query}`, {
+    method: 'HEAD',
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      Prefer: 'count=exact',
+    },
+  });
+  if (!response.ok) throw new Error(`count ${table} failed (${response.status})`);
+  const total = Number((response.headers.get('content-range') ?? '').split('/')[1]);
+  return Number.isFinite(total) ? total : 0;
 }
 
 interface ProviderRow {
@@ -246,6 +271,9 @@ async function runAgent(slug: string, input: string): Promise<{ runId: string; p
     provider_id: provider.id,
     input,
     status: 'running',
+    // 1.14: the RESOLVED model string, recorded at dispatch — provider
+    // drift becomes visible retrospectively in the run log.
+    model: provider.model,
   });
 
   try {
@@ -341,6 +369,19 @@ async function handleExtract(body: {
   )[0];
   if (!source) return json({ error: 'No such source document — ingest it (with its snapshot) first.' }, 404);
 
+  // 1.9: the WIP cap, BEFORE anything is billed. Extraction refuses while
+  // the unverified backlog is at the cap — the owner's source-match rate is
+  // the clock speed, and a growing IND pile is the batch-rubber-stamp setup.
+  const openInd = await restCount('os_lab_datapoints', 'status=eq.IND');
+  if (openInd >= IND_WIP_CAP) {
+    return json(
+      {
+        error: `WIP cap: ${openInd} datapoints are already open at IND (cap ${IND_WIP_CAP}). Extraction is refused until some are source-matched or marked NA — verification is the way forward, not more extraction.`,
+      },
+      409,
+    );
+  }
+
   const { runId, parsed } = await runAgent(
     'evidence-extractor',
     `QUANTITY SOUGHT:\n${body.quantity}\n\nSELECTED TEXT (extract from this and nothing else):\n${body.selectedText}`,
@@ -357,17 +398,38 @@ async function handleExtract(body: {
       skipped.push(`value=${String(entry.value)} — missing or malformed field (G-EXTRACT refuses placeholders)`);
       continue;
     }
+    // 1.1 THE ECHO CHECK: the extracted literal must APPEAR in the text it
+    // was supposedly extracted from, under some legitimate locale reading.
+    // Without this, the function wrote whatever value the model returned,
+    // and a fabricated-but-plausible figure acquired a source citation.
+    // A false rejection costs this skipped line; a false acceptance costs
+    // the whole extraction guarantee.
+    if (!numberAppearsIn(value, body.selectedText)) {
+      skipped.push(
+        `value=${value} — echo check: this number does not appear in the selected text under any locale reading (en/id/space grouping, %, sign). A figure the text does not contain cannot be extracted from it.`,
+      );
+      continue;
+    }
     // STAGE 3, deterministic: when the region showed components and a stated
     // total, THE CODE checks the arithmetic — the model only transcribed it.
-    // No structure → null → the datapoint needs manual verification to reach V.
+    // 1.2: the OPERANDS are model-supplied too, so each component and the
+    // stated total must themselves pass the echo check. If any fails, the
+    // check is NULL (unknown) — never true (a fabricated-but-consistent
+    // triple would mint its own V credential) and never false (we did not
+    // learn the document contradicts itself; we learned nothing).
     let internalCheck: boolean | null = null;
     const components = Array.isArray(entry.components)
       ? entry.components.filter((component): component is number => typeof component === 'number')
       : [];
     const statedTotal = num(entry.statedTotal);
     if (components.length > 0 && statedTotal !== null) {
-      const sum = components.reduce((total, component) => total + component, 0);
-      internalCheck = Math.abs(sum - statedTotal) <= Math.max(0.51, Math.abs(statedTotal) * 0.001);
+      const operandsEcho =
+        numberAppearsIn(statedTotal, body.selectedText) &&
+        components.every((component) => numberAppearsIn(component, body.selectedText));
+      if (operandsEcho) {
+        const sum = components.reduce((total, component) => total + component, 0);
+        internalCheck = Math.abs(sum - statedTotal) <= Math.max(0.51, Math.abs(statedTotal) * 0.001);
+      }
     }
     try {
       const datapoint = await restInsert<{ id: string }>('os_lab_datapoints', {
@@ -424,14 +486,37 @@ async function handleLiterature(body: { pastedResults: string }): Promise<Respon
 async function handleReview(body: { projectId: string }): Promise<Response> {
   // Cross-project on purpose: datapoints are shared, and the higher-value
   // catch is a new finding colliding with a commitment made elsewhere.
+  //
+  // 1.12: the recency window must not truncate SILENTLY, and it must never
+  // drop the commitments. Every layer-A claim rides along regardless of
+  // age (they are the commitments, and they are few — precisely the rows a
+  // recency-ordered window drops first), the response reports the scope
+  // actually loaded, and when the totals exceed the window the report says
+  // so. A review that admits what it did not look at is worth more than
+  // one that implies it looked at everything.
+  const totalDatapoints = await restCount('os_lab_datapoints', 'status=neq.__none__');
+  const totalClaims = await restCount('os_lab_claims', 'status=neq.__none__');
   const datapoints = await restSelect<Record<string, unknown>>(
     'os_lab_datapoints',
-    'select=id,value,unit,year,definition_scope,status&order=retrieved_at.desc&limit=200',
+    `select=id,value,unit,year,definition_scope,status&order=retrieved_at.desc&limit=${REVIEW_WINDOW}`,
   );
-  const claims = await restSelect<Record<string, unknown>>(
+  const recentClaims = await restSelect<Record<string, unknown>>(
     'os_lab_claims',
-    'select=id,project_id,statement,layer,status&order=created_at.desc&limit=200',
+    `select=id,project_id,statement,layer,status&order=created_at.desc&limit=${REVIEW_WINDOW}`,
   );
+  const layerAClaims = await restSelect<Record<string, unknown>>(
+    'os_lab_claims',
+    'select=id,project_id,statement,layer,status&layer=eq.A',
+  );
+  const claimsById = new Map<string, Record<string, unknown>>();
+  for (const claim of [...layerAClaims, ...recentClaims]) claimsById.set(String(claim.id), claim);
+  const claims = [...claimsById.values()];
+
+  const truncated = totalDatapoints > datapoints.length || totalClaims > claims.length;
+  const scopeNote = truncated
+    ? `[SCOPE: this review saw ${datapoints.length} of ${totalDatapoints} datapoints and ${claims.length} of ${totalClaims} claims (every layer-A claim included). Rows beyond the window were NOT reviewed.] `
+    : '';
+
   const context = JSON.stringify({ projectId: body.projectId, datapoints, claims });
   if (context.length > MAX_INPUT_CHARS) {
     return json({ error: 'The evidence base exceeds the review window — narrow it first.' }, 400);
@@ -485,7 +570,17 @@ async function handleReview(body: { projectId: string }): Promise<Response> {
       skipped.push(`contradiction ${a}↔${b} — could not be recorded`);
     }
   }
-  return json({ runId, report: str(parsed.report), created, skipped });
+  return json({
+    runId,
+    report: scopeNote + str(parsed.report),
+    created,
+    skipped,
+    datapointsInScope: datapoints.length,
+    claimsInScope: claims.length,
+    layerACount: layerAClaims.length,
+    totalDatapoints,
+    totalClaims,
+  });
 }
 
 /** DRAFT: from approved claims only; the number scan gates the write. */
@@ -545,14 +640,21 @@ async function handleDraft(body: {
     allowed.add(Number(datapoint.value));
     if (datapoint.year !== null) allowed.add(datapoint.year);
   }
-  const violations: ScanViolation[] = scanNumbers(content, allowed);
+  // 1.3: the drafter may not mint its own escape hatch. Tags ([C]/[sim])
+  // and quotation marks exempt nothing on THIS path — an agent emitting any
+  // figure followed by [C], or wrapped in quotes, would otherwise ship it.
+  // The exemptions are the owner's to grant, in the editor, by hand.
+  const violations: ScanViolation[] = scanNumbers(content, allowed, {
+    allowTags: false,
+    allowQuotes: false,
+  });
   if (violations.length > 0) {
     return json(
       {
         runId,
         blocked: violations,
         error:
-          'G-NUMBER: the draft carries figures no datapoint stands behind — it was not saved. The text is in the run log; the routes forward are a verified datapoint or an explicit [C]/[sim] tag.',
+          "G-NUMBER: the draft carries figures no datapoint stands behind — it was not saved. Tags and quotation marks are the owner's to grant, never the drafter's: the routes forward are a verified datapoint cited through an approved claim, or the owner tagging the figure by hand in the editor. The full text is in the run log.",
       },
       409,
     );

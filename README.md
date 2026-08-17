@@ -174,6 +174,22 @@ to Notion. See [REVIEW.md](REVIEW.md) for the extraction report.
 
 Every read and write goes through the async [`Repository`](src/data/repository.ts) interface, with the active implementation supplied by the Zustand store. [`MockRepository`](src/data/mockRepository.ts) keeps seeded data in memory and is the no-credentials fallback. [`supabaseRepository.ts`](src/data/supabaseRepository.ts) implements the same interface against Postgres — the swap happens in [`PassphraseGate`](src/components/PassphraseGate.tsx) after the passphrase is verified, and no view or logic code knows the difference. See [REVIEW.md](REVIEW.md) for the schema mapping and the security posture, including residual risk.
 
+## Lab (agents + evidence)
+
+The LAB workspace is an AI-agent harness (registry, executor, run log, chains)
+with an epistemic layer underneath: datapoints, claims, outputs and the gates
+between them. Its central status is deliberately named for what it delivers:
+
+> **A source-match (status `V`) means the stored value was compared against
+> the cited location by a human. It does not certify the figure is the right
+> figure for the claim citing it.** The gates deliver custody — every number
+> traces to a claimed source location, no agent can promote status, malformed
+> records are refused — never correctness. A well-formed wrong extraction
+> passes every gate; the only defence against it is the human at the match.
+
+Internal SAMB data runs on Anthropic models only, enforced by database
+trigger (`20260817000074`), not configuration.
+
 ## Deployment
 
 Deployed on Vercel (project `dika-personal-os`). The current setup builds from this repo's branch via `build.sh` in the deployment shim; the two `VITE_` values are baked in at build time (they are public client config — the secret is the passphrase, which lives only as a bcrypt hash in the database). To redeploy after pushing changes, trigger a new deployment of the Vercel project. A cleaner long-term setup is connecting the GitHub repo to the Vercel project and setting the two env vars in the dashboard — one-time, in Project Settings → Environment Variables.

@@ -45,14 +45,14 @@ export function guardDatapointWrite(input: LabDatapointWrite): LabDatapointWrite
   return input;
 }
 
-/** G-VERIFY: why this datapoint cannot reach V right now, or null. */
+/** G-VERIFY: why this datapoint cannot reach V (source-matched), or null. */
 export function verifyBlockedReason(datapoint: LabDatapoint, note: string): string | null {
   if (datapoint.status === 'V') return null;
   if (!note.trim()) {
-    return 'G-VERIFY: a verification_note saying what was checked against what is required.';
+    return 'G-VERIFY: a verification_note saying what was compared against what is required.';
   }
   if (datapoint.extractionMethod !== 'manual' && datapoint.internalCheckPassed !== true) {
-    return `G-VERIFY: datapoint ${datapoint.id} was agent-extracted and its internal check has not passed — verify manually or reconcile the document structure first.`;
+    return `G-VERIFY: datapoint ${datapoint.id} was agent-extracted and its internal check has not passed — source-match it manually or reconcile the document structure first.`;
   }
   return null;
 }
@@ -66,6 +66,7 @@ export function claimApprovalBlockers(input: {
   datapoints: readonly LabDatapoint[];
   references: readonly LabReference[];
   conflicts: readonly LabDatapointConflict[];
+  contradictions?: readonly LabClaimContradiction[];
 }): string[] {
   const blockers: string[] = [];
   const linkedDatapoints = input.datapoints.filter((dp) =>
@@ -74,7 +75,7 @@ export function claimApprovalBlockers(input: {
   for (const datapoint of linkedDatapoints) {
     if (datapoint.status !== 'V') {
       blockers.push(
-        `G-CLAIM: supporting datapoint ${datapoint.id} is not verified (${datapoint.status}).`,
+        `G-CLAIM: supporting datapoint ${datapoint.id} is not source-matched (${datapoint.status}).`,
       );
     }
     for (const conflict of input.conflicts) {
@@ -100,6 +101,21 @@ export function claimApprovalBlockers(input: {
   }
   if (input.claim.layer === 'A' && !input.claim.commitmentSourceId) {
     blockers.push('G-CLAIM: a layer A claim requires its commitment source.');
+  }
+  // 1.13: a DIRECT open contradiction blocks approval of either side —
+  // tension and scope_difference stay advisory, on purpose.
+  for (const contradiction of input.contradictions ?? []) {
+    if (
+      contradiction.status === 'open' &&
+      contradiction.severity === 'direct' &&
+      (contradiction.claimAId === input.claim.id || contradiction.claimBId === input.claim.id)
+    ) {
+      const opposing =
+        contradiction.claimAId === input.claim.id ? contradiction.claimBId : contradiction.claimAId;
+      blockers.push(
+        `G-CLAIM: this claim is one side of open DIRECT contradiction ${contradiction.id} with claim ${opposing} — resolve it first.`,
+      );
+    }
   }
   return blockers;
 }
