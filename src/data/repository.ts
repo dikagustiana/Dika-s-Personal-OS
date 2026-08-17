@@ -1,3 +1,4 @@
+import type { LabEvidenceRepository } from './labEvidenceRepository';
 import type { LabRepository } from './labRepository';
 import type { ResearchRepository } from './researchRepository';
 import type { CellWriteOrigin } from './finishLineGuards';
@@ -112,6 +113,13 @@ export interface Repository {
    * the client-side data-boundary guard and the runs-are-read-only rule.
    */
   readonly lab: LabRepository;
+
+  /**
+   * The epistemic layer's seam — what stands behind a number. Holds the
+   * gate mirrors on its mutation path; the database triggers are the
+   * boundary. See labEvidenceRepository.ts.
+   */
+  readonly labEvidence: LabEvidenceRepository;
 
   // IELTS practice results (GROWTH). Sorted by date ascending.
   listIeltsResults(): Promise<IeltsResult[]>;

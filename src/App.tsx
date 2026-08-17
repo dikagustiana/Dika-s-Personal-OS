@@ -17,6 +17,7 @@ import { LabRegistry } from './views/lab/LabRegistry';
 import { LabRun } from './views/lab/LabRun';
 import { LabRuns } from './views/lab/LabRuns';
 import { LabChains } from './views/lab/LabChains';
+import { LabEvidence } from './views/lab/evidence/LabEvidence';
 
 export default function App() {
   const workspace = useAppStore((state) => state.workspace);
@@ -46,6 +47,7 @@ export default function App() {
     if (labView === 'run') view = <LabRun key="lab" />;
     else if (labView === 'runs') view = <LabRuns key="lab" />;
     else if (labView === 'chains') view = <LabChains key="lab" />;
+    else if (labView === 'evidence') view = <LabEvidence key="lab" />;
     else view = <LabRegistry key="lab" />;
   } else if (workspace === 'work') {
     if (workView === 'today') view = <Today key="work" />;

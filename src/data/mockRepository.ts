@@ -1,3 +1,4 @@
+import { MockLabEvidenceRepository } from './labEvidenceRepository';
 import { MockLabRepository } from './labRepository';
 import { MockResearchRepository } from './researchRepository';
 import { IELTS_TOPICS } from '../logic/ielts/topics';
@@ -154,6 +155,9 @@ export class MockRepository implements Repository {
 
   /** Lab likewise: the mock registry reproduces the four ground-truth phantoms. */
   readonly lab = new MockLabRepository();
+
+  /** The epistemic layer's mock runs the same shared gate logic as live. */
+  readonly labEvidence = new MockLabEvidenceRepository();
 
   private viewer: MockViewer = { kind: 'owner' };
 
