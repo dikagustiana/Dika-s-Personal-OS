@@ -4,39 +4,25 @@ Things the Lab brief ruled out of v1 (Part G), plus gaps discovered while
 building that were noted rather than scope-crept. Nothing here is half-built;
 each item is absent on purpose.
 
-## Epistemic layer — the agents wait on step 2, by design
+## Epistemic layer — the agents are BUILT (on the owner's explicit call)
 
-The epistemic brief's build order is explicit: "Do not build agents before
-step 2 works" — and step 2 is the owner walking ONE REAL PROJECT through the
-Evidence screen by hand (committed claims as layer A against a commitment
-source, the blocking parameters as datapoints). The schema, gates,
-bypass-proof SQL suite, and manual-entry UI are live; the agents come after
-that walk-through, not before. Their database write-rails are ALREADY in
-force — the gates key on the passphrase header, which no service-role agent
-carries — so building them later adds capability, never permission.
-
-Role cards, for when they are built (each an agent row + prompts in the
-existing registry, run through run-lab-agent):
-
-- **COORDINATOR** — decomposes requests, delegates, assembles. Writes task
-  records only (a task table comes with it).
-- **LOCATOR** — stage 1 of the two-stage pipeline: given a document, returns
-  candidate locators (page/table/section), never values.
-- **EXTRACTOR** — stage 2: given only the selected text from those locators,
-  returns structured datapoint fields; writes datapoints at IND with
-  extraction_method = agent_from_selected_text (the DB refuses anything
-  else). Stage 3 internal validation records internal_check_passed where
-  the document's hierarchical totals permit reconciliation; full-PDF
-  single-shot extraction is triage only and cannot auto-promote to V.
-- **LITERATURE** — search + reference records at abstract_only only (DB
-  rail in force); promotion needs the full text on disk and the owner.
-- **REVIEWER** — reads everything; writes conflict/contradiction records
-  (unresolved/open only — DB rail in force) and gate-failure reports.
-  Never approvals. The single highest-value agent; build it before DRAFTER.
-- **DRAFTER** — last. Generates outputs at draft citing approved claims
-  only (DB rail in force); G-NUMBER re-scans whatever it writes.
+The brief's step-2 gate ("do not build agents before manual entry is proven
+with a real project") was overridden by the owner's instruction to continue
+to the finish. All six agents are live: registry rows (20260817000078),
+executed by run-evidence-agent, surfaced in Evidence → Agents. Their write
+rails were in force before they existed; the owner's step-2 walk-through of
+a real project remains the right FIRST USE, it just no longer blocks the
+build. The reviewer's proposals, the extractor's stage-3 reconciliation and
+the drafter's number scan are all deterministic code, not model judgment.
 
 Also deferred in the epistemic layer:
+- **Literature SEARCH** — evidence-literature structures PASTED results; it
+  does not search. Wiring a search backend (e.g. an MCP or API the owner
+  trusts) is a separate decision: an agent that searches and cites in one
+  breath is how invented papers arrive.
+- **Locator→extractor text handoff** — stage 1 returns locator strings; the
+  owner pastes the selected region for stage 2 by hand. Automating the
+  slice (page/character offsets) needs a document store, not just prompts.
 - **WIP limiting** — projects carry wip_slot; nothing enforces a portfolio
   cap yet.
 - **Automatic contradiction detection** — the tables and gates exist; the
