@@ -30,6 +30,7 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
     layer: '' as '' | LabClaimLayer,
     commitmentSourceId: '',
     evidenceDirection: 'untested' as LabEvidenceDirection,
+    inferenceStep: '',
   });
   const [expanded, setExpanded] = useState<string | null>(null);
   const [linkPick, setLinkPick] = useState<Record<string, string>>({});
@@ -58,11 +59,12 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
         layer: draft.layer as LabClaimLayer,
         commitmentSourceId: draft.layer === 'A' ? draft.commitmentSourceId || null : null,
         evidenceDirection: draft.evidenceDirection,
+        inferenceStep: draft.inferenceStep.trim(),
       }),
     );
     if (!saved) return;
     setShowForm(false);
-    setDraft({ statement: '', layer: '', commitmentSourceId: '', evidenceDirection: 'untested' });
+    setDraft({ statement: '', layer: '', commitmentSourceId: '', evidenceDirection: 'untested', inferenceStep: '' });
     data.reload();
   };
 
@@ -150,6 +152,16 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
                   </select>
                 </label>
               </div>
+              {(draft.layer === 'B' || draft.layer === 'C') && (
+                <label className={FIELD_LABEL}>
+                  Inference step — how the evidence yields the statement (min 20 chars for approval)
+                  <textarea
+                    className={`${TEXTAREA} min-h-12`}
+                    value={draft.inferenceStep}
+                    onChange={(event) => setDraft({ ...draft, inferenceStep: event.target.value })}
+                  />
+                </label>
+              )}
               <Button type="submit" size="sm" disabled={isPending || !draft.layer}>
                 Create claim
               </Button>
@@ -164,7 +176,7 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
         <div className="grid gap-3">
           {claims.map((claim) => {
             const isOpen = expanded === claim.id;
-            const blockers = claimApprovalBlockers({ claim, datapoints, references, conflicts });
+            const blockers = claimApprovalBlockers({ claim, datapoints, references, conflicts, contradictions });
             return (
               <Card key={claim.id}>
                 <CardContent className="pt-5">
@@ -174,7 +186,15 @@ export function EvidenceClaims({ data, projectId }: { data: EvidenceData; projec
                   >
                     <LayerChip layer={claim.layer} />
                     <ClaimStatusChip status={claim.status} />
-                    <span className="text-sm text-foreground">{claim.statement}</span>
+                    <span className="text-sm text-foreground">
+                      {claim.statement}
+                      {/* The inference step rides INLINE with the layer tag —
+                          for B and C the step is part of the claim, never an
+                          implied footnote. */}
+                      {claim.inferenceStep && (
+                        <span className="text-foreground-muted"> — [{claim.layer}] {claim.inferenceStep}</span>
+                      )}
+                    </span>
                     {claim.createdByRunId && (
                       <span className="ml-auto text-[10px] uppercase tracking-[0.08em] text-foreground-muted">
                         dari run

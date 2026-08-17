@@ -90,6 +90,8 @@ export interface LabRun {
   input: string;
   output: string;
   status: LabRunStatus;
+  /** The RESOLVED model string at dispatch — drift is visible in the log. */
+  model: string;
   error: string | null;
   tokensIn: number | null;
   tokensOut: number | null;

@@ -41,6 +41,7 @@ function run(partial: Partial<LabRun> & Pick<LabRun, 'id' | 'providerId' | 'crea
     stepIndex: null,
     input: '',
     output: '',
+    model: '',
     status: 'ok',
     error: null,
     tokensIn: null,

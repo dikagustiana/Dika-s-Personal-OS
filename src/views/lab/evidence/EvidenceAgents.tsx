@@ -105,7 +105,7 @@ export function EvidenceAgents({ data, projectId }: { data: EvidenceData; projec
             <CardTitle>Two-stage extraction</CardTitle>
             <p className="mt-1 text-xs text-foreground-muted">
               Stage 1 menemukan LOKASI; kamu memilih teksnya; stage 2 mengekstrak dari teks terpilih
-              saja — datapoint lahir IND, verifikasi tetap tanganmu.
+              saja — datapoint lahir IND, source-match tetap tanganmu.
             </p>
           </div>
           <FileSearch className="size-4 text-foreground-muted" />
@@ -254,9 +254,18 @@ export function EvidenceAgents({ data, projectId }: { data: EvidenceData; projec
               {busy === 'review' ? 'Meninjau…' : 'Run reviewer'}
             </Button>
             {reviewReport && (
-              <p className="mt-3 whitespace-pre-wrap rounded-md border border-border-subtle bg-surface-2 px-3 py-2 text-xs leading-5 text-foreground-secondary">
-                {reviewReport}
-              </p>
+              // Prose suppression (phase 3): rows are the record; model prose
+              // is advisory and lives behind a disclosure, never beside the
+              // rows where it could read as data. The [SCOPE: …] line stays
+              // in the prose — it is the report admitting what it did not see.
+              <details className="mt-3 rounded-md border border-border-subtle bg-surface-2 px-3 py-2">
+                <summary className="cursor-pointer text-xs font-semibold text-foreground-secondary">
+                  Reviewer report (prosa model — advisory, bukan data)
+                </summary>
+                <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-foreground-secondary">
+                  {reviewReport}
+                </p>
+              </details>
             )}
           </CardContent>
         </Card>

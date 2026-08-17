@@ -98,6 +98,91 @@ export function runReviewer(input: { projectId: string }) {
   return call<ReviewResult>({ action: 'review', ...input });
 }
 
+/** SCOUT: pasted listings → candidate rows (four fields; the DB assigns tier). */
+export function scoutSources(input: { pastedResults: string; projectId?: string }) {
+  return call<ExtractResult>({ action: 'scout', ...input });
+}
+
+export interface SnapshotResult {
+  runId?: string;
+  storagePath: string;
+  hash: string;
+  sizeBytes: number;
+}
+
+/** Server-side fetch + SHA-256 into storage. No table writes — ingestion stays the owner's. */
+export function snapshotUrl(input: { url: string }) {
+  return call<SnapshotResult>({ action: 'snapshot', ...input });
+}
+
+export interface RecheckResult {
+  runId?: string;
+  changed: boolean;
+  hash: string;
+  storedHash: string;
+}
+
+/** Re-fetch + re-hash + FLAG. Detects that the page changed — never that the figure did. */
+export function recheckSource(input: { sourceDocumentId: string }) {
+  return call<RecheckResult>({ action: 'recheck', ...input });
+}
+
+export interface ProposeSpecResult {
+  runId: string;
+  specId: string;
+  params: string[];
+  skipped: string[];
+}
+
+/** MODELER: propose a DECLARATIVE spec as a draft — never code, never approval. */
+export function proposeModelSpec(input: { projectId: string; brief: string }) {
+  return call<ProposeSpecResult>({ action: 'propose-spec', ...input });
+}
+
+export interface RunModelResult {
+  runId?: string;
+  resultId: string;
+  evaluatorVersion: string;
+  value: number | null;
+  unit: string;
+  summary: Record<string, unknown>;
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checksPassed: boolean;
+  sensitivityPassed: boolean;
+}
+
+/** Runs a spec through the version-pinned evaluator; every check lands as a row. */
+export function runModel(input: { specId: string; seed?: number }) {
+  return call<RunModelResult>({ action: 'run-model', ...input });
+}
+
+export interface FrameCritiqueResult {
+  runId: string;
+  critique: string;
+}
+
+/** The framer critiques a framing. JSON back, no writes — ever. */
+export function critiqueFraming(input: { rawStatement: string; framedQuestion?: string }) {
+  return call<FrameCritiqueResult>({ action: 'frame-critique', ...input });
+}
+
+export interface FrameAlternativesResult {
+  runId: string;
+  alternatives: Array<{
+    framedQuestion: string;
+    why: string;
+    subQuestions: Array<{ statement: string; falsifier: string }>;
+  }>;
+}
+
+/**
+ * 2–3 alternative framings, never one (an anchor is not a choice). The
+ * owner picks; recording the pick is the owner's write, not the framer's.
+ */
+export function proposeFramings(input: { rawStatement: string }) {
+  return call<FrameAlternativesResult>({ action: 'frame-alternatives', ...input });
+}
+
 export interface DraftResult {
   runId: string;
   outputId?: string;

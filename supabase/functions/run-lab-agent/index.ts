@@ -429,6 +429,9 @@ async function handleRun(body: RunBody): Promise<Response> {
     step_index: body.stepIndex ?? null,
     input: body.input,
     status: 'running',
+    // The RESOLVED model string, recorded at dispatch (review 1.14):
+    // provider drift becomes visible retrospectively in the run log.
+    model: provider.model,
   });
 
   const adapter = ADAPTERS[provider.adapter];

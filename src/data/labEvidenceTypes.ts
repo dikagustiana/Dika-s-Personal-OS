@@ -38,6 +38,30 @@ export interface LabSourceDocument {
   localSnapshotPath: string;
   snapshotHash: string;
   retrievedAt: string;
+  /** Recheck bookkeeping (081). The flag means the PAGE changed — never the figure. */
+  lastRecheckedAt: string | null;
+  contentChangedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Curation (SCOUT, 081). Candidates carry title/publisher/url/date — and
+// structurally CANNOT carry notes, summaries or relevance: no columns exist.
+// ---------------------------------------------------------------------------
+
+export type LabCandidateStatus = 'candidate' | 'promoted' | 'dismissed';
+
+export interface LabCandidateSource {
+  id: string;
+  projectId: string | null;
+  title: string;
+  publisher: string;
+  url: string;
+  claimedDate: string | null;
+  /** Trigger-computed from the owner's allowlist. 3 = unknown publisher. */
+  tier: 1 | 2 | 3;
+  status: LabCandidateStatus;
+  promotedSourceDocumentId: string | null;
+  createdByRunId: string | null;
 }
 
 /** IND = extracted, unverified. V = verified. NA = sought, not available. */
@@ -150,6 +174,12 @@ export interface LabClaim {
   approvedByHumanAt: string | null;
   /** The execution-layer run this claim came out of, when it did. */
   createdByRunId: string | null;
+  /**
+   * The step from evidence to statement. Approval requires it (min 20
+   * chars) for layer B, and for layer C — where the step IS the
+   * contribution. Rendered inline with the layer tag, never implied.
+   */
+  inferenceStep: string;
   datapointIds: string[];
   referenceIds: string[];
 }
@@ -160,6 +190,7 @@ export interface LabClaimWrite {
   layer: LabClaimLayer;
   commitmentSourceId: string | null;
   evidenceDirection: LabEvidenceDirection;
+  inferenceStep?: string;
   createdByRunId?: string | null;
 }
 
@@ -205,4 +236,115 @@ export interface LabOutput {
   stale: boolean;
   generatedByRunId: string | null;
   claimIds: string[];
+  /** Which sub-questions this output claims to address — G-FALSIFY input. */
+  subQuestionIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// The question layer (FRAMER intake, 080). The framing decided what evidence
+// was sought before any gate below could act — so the framing is a record.
+// ---------------------------------------------------------------------------
+
+/**
+ * owner_written = the owner typed the framing. owner_selected = the owner
+ * picked one of the framer's proposed alternatives — still an owner act;
+ * there is no agent_framed and there never will be.
+ */
+export type LabFramingSource = 'owner_written' | 'owner_selected';
+
+export interface LabQuestion {
+  id: string;
+  projectId: string;
+  /** The owner's original ask, verbatim — frozen at intake by the guard. */
+  rawStatement: string;
+  framedQuestion: string;
+  framingSource: LabFramingSource;
+}
+
+export interface LabSubQuestion {
+  id: string;
+  questionId: string;
+  statement: string;
+  /** What evidence would show the expected answer is WRONG. Min 20 chars. */
+  falsifier: string;
+  position: number;
+}
+
+export type LabRequirementKind = 'datapoint' | 'reference' | 'model_result';
+
+export interface LabEvidenceRequirement {
+  id: string;
+  subQuestionId: string;
+  description: string;
+  kind: LabRequirementKind;
+  /** Only a source-matched (V) datapoint may land here — G-FALSIFY. */
+  satisfiedByDatapointId: string | null;
+  /** Only a full_text_read reference may land here — G-FALSIFY. */
+  satisfiedByReferenceId: string | null;
+  /** Only a checks-passed, sensitivity-passed, fresh-input model result. */
+  satisfiedByModelResultId: string | null;
+  /** Guard-stamped when satisfaction lands. */
+  satisfiedAt: string | null;
+}
+
+/** One of the framer's 2–3 proposed framings — JSON, never a row. */
+export interface LabFramerAlternative {
+  framedQuestion: string;
+  why: string;
+  subQuestions: Array<{ statement: string; falsifier: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// The MODELER (082). Specs are declarative JSON — arithmetic over named
+// parameters, never code — run only by the version-pinned first-party
+// evaluator. Results are immutable records whose checks are rows.
+// ---------------------------------------------------------------------------
+
+export type LabModelKind = 'expression' | 'monte_carlo' | 'scenario';
+
+export interface LabModelSpec {
+  id: string;
+  projectId: string;
+  name: string;
+  kind: LabModelKind;
+  spec: Record<string, unknown>;
+  /** Guard-computed md5 of the spec JSON; a payload hash is overwritten. */
+  specHash: string;
+  /** The OWNER'S reasoning — approval refuses a byte-for-byte model echo. */
+  rationale: string;
+  status: 'draft' | 'approved';
+  approvedByHumanAt: string | null;
+  createdByRunId: string | null;
+}
+
+export interface LabModelSpecParam {
+  id: string;
+  specId: string;
+  name: string;
+  kind: 'datapoint' | 'assumption';
+  datapointId: string | null;
+  value: number | null;
+  unit: string;
+  justificationReferenceId: string | null;
+  distribution: Record<string, unknown> | null;
+}
+
+export interface LabModelResult {
+  id: string;
+  specId: string;
+  evaluatorVersion: string;
+  seed: number | null;
+  resultValue: number | null;
+  resultUnit: string;
+  resultSummary: Record<string, unknown>;
+  /** Every check as a row: {name, passed, detail}. Failures are records. */
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checksPassed: boolean;
+  sensitivityPassed: boolean | null;
+  inputDatapointIds: string[];
+  /** Cascade-set when an input datapoint loses V. */
+  staleInput: boolean;
+  external: boolean;
+  externalNote: string;
+  createdAt: string;
 }

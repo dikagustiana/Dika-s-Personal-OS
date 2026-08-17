@@ -7,17 +7,24 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '../../../store/appStore';
 import type { ReadResult } from '../../../data/readResult';
 import type {
+  LabCandidateSource,
   LabClaim,
+  LabModelResult,
+  LabModelSpec,
+  LabModelSpecParam,
   LabClaimContradiction,
   LabClaimLayer,
   LabCommitmentSource,
   LabDatapoint,
   LabDatapointConflict,
   LabDatapointStatus,
+  LabEvidenceRequirement,
   LabOutput,
   LabProject,
+  LabQuestion,
   LabReference,
   LabSourceDocument,
+  LabSubQuestion,
   LabTask,
 } from '../../../data/labEvidenceTypes';
 import { cn } from '../../../lib/utils';
@@ -25,15 +32,27 @@ import { LAB_CHIP } from '../labUi';
 
 const DATAPOINT_TONE: Record<LabDatapointStatus, string> = {
   // V is the earned state — filled. IND is the honest default — outlined
-  // amber, because unverified is a fact to see, not an error. NA is a real
+  // amber, because unmatched is a fact to see, not an error. NA is a real
   // answer (sought, not available), muted.
   V: 'bg-primary-dim text-primary',
   IND: 'border border-escalate/40 text-escalate',
   NA: 'border border-border text-foreground-muted',
 };
 
+/**
+ * 1.10: the V code renders as "source-matched", never "verified". The
+ * mechanism delivers custody — a human compared the stored value against
+ * the cited location — not correctness, and a label that claims more than
+ * the mechanism delivers miscalibrates the one reader who matters.
+ */
+const DATAPOINT_LABEL: Record<LabDatapointStatus, string> = {
+  V: 'source-matched',
+  IND: 'IND',
+  NA: 'NA',
+};
+
 export function DatapointStatusChip({ status }: { status: LabDatapointStatus }) {
-  return <span className={cn(LAB_CHIP, DATAPOINT_TONE[status])}>{status}</span>;
+  return <span className={cn(LAB_CHIP, DATAPOINT_TONE[status])}>{DATAPOINT_LABEL[status]}</span>;
 }
 
 const LAYER_TONE: Record<LabClaimLayer, string> = {
@@ -81,6 +100,13 @@ export interface EvidenceData {
   contradictions: ReadResult<LabClaimContradiction> | null;
   outputs: ReadResult<LabOutput> | null;
   tasks: ReadResult<LabTask> | null;
+  questions: ReadResult<LabQuestion> | null;
+  subQuestions: ReadResult<LabSubQuestion> | null;
+  requirements: ReadResult<LabEvidenceRequirement> | null;
+  candidates: ReadResult<LabCandidateSource> | null;
+  modelSpecs: ReadResult<LabModelSpec> | null;
+  modelParams: ReadResult<LabModelSpecParam> | null;
+  modelResults: ReadResult<LabModelResult> | null;
   reload: () => void;
 }
 
@@ -96,6 +122,13 @@ export function useEvidenceData(): EvidenceData {
   const [contradictions, setContradictions] = useState<ReadResult<LabClaimContradiction> | null>(null);
   const [outputs, setOutputs] = useState<ReadResult<LabOutput> | null>(null);
   const [tasks, setTasks] = useState<ReadResult<LabTask> | null>(null);
+  const [questions, setQuestions] = useState<ReadResult<LabQuestion> | null>(null);
+  const [subQuestions, setSubQuestions] = useState<ReadResult<LabSubQuestion> | null>(null);
+  const [requirements, setRequirements] = useState<ReadResult<LabEvidenceRequirement> | null>(null);
+  const [candidates, setCandidates] = useState<ReadResult<LabCandidateSource> | null>(null);
+  const [modelSpecs, setModelSpecs] = useState<ReadResult<LabModelSpec> | null>(null);
+  const [modelParams, setModelParams] = useState<ReadResult<LabModelSpecParam> | null>(null);
+  const [modelResults, setModelResults] = useState<ReadResult<LabModelResult> | null>(null);
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -114,6 +147,13 @@ export function useEvidenceData(): EvidenceData {
     void seam.listContradictions().then(land(setContradictions));
     void seam.listOutputs().then(land(setOutputs));
     void seam.listTasks().then(land(setTasks));
+    void seam.listQuestions().then(land(setQuestions));
+    void seam.listSubQuestions().then(land(setSubQuestions));
+    void seam.listEvidenceRequirements().then(land(setRequirements));
+    void seam.listCandidateSources().then(land(setCandidates));
+    void seam.listModelSpecs().then(land(setModelSpecs));
+    void seam.listModelSpecParams().then(land(setModelParams));
+    void seam.listModelResults().then(land(setModelResults));
     return () => {
       cancelled = true;
     };
@@ -132,6 +172,13 @@ export function useEvidenceData(): EvidenceData {
     contradictions,
     outputs,
     tasks,
+    questions,
+    subQuestions,
+    requirements,
+    candidates,
+    modelSpecs,
+    modelParams,
+    modelResults,
     reload,
   };
 }

@@ -21,15 +21,19 @@ import { rowsOr } from '../labUi';
 import { EvidenceAgents } from './EvidenceAgents';
 import { EvidenceClaims } from './EvidenceClaims';
 import { EvidenceDatapoints } from './EvidenceDatapoints';
+import { EvidenceIntake } from './EvidenceIntake';
+import { EvidenceModels } from './EvidenceModels';
 import { EvidenceOutputs } from './EvidenceOutputs';
 import { EvidenceSources } from './EvidenceSources';
 import { FIELD_LABEL, useEvidenceData } from './evidenceUi';
 
-type EvidenceTab = 'datapoints' | 'claims' | 'outputs' | 'sources' | 'agents';
+type EvidenceTab = 'intake' | 'datapoints' | 'claims' | 'models' | 'outputs' | 'sources' | 'agents';
 
 const TABS: Array<{ id: EvidenceTab; label: string }> = [
+  { id: 'intake', label: 'Intake' },
   { id: 'datapoints', label: 'Datapoints' },
   { id: 'claims', label: 'Claims' },
+  { id: 'models', label: 'Models' },
   { id: 'outputs', label: 'Outputs' },
   { id: 'sources', label: 'Sources' },
   { id: 'agents', label: 'Agents' },
@@ -58,9 +62,17 @@ export function LabEvidence() {
           <p className="page-kicker">Lab / Evidence</p>
           <h1 className="page-title">Evidence</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground-muted">
-            Which datapoint supports which claim, verified against what, gone stale when. A number
+            Which datapoint supports which claim, matched against what, gone stale when. A number
             with nothing standing behind it does not leave this system — that is enforced in the
             database, not requested in a prompt.
+          </p>
+          {/* 1.10: permanent and non-dismissible, because this is the one
+              failure mode no gate can reach. The system certifies CUSTODY,
+              not correctness, and the label must never claim otherwise. */}
+          <p className="mt-3 max-w-2xl border-l-2 border-escalate/60 pl-3 text-xs leading-5 text-foreground-secondary">
+            <span className="font-semibold">What a source-match means:</span> the stored value was
+            compared against the cited location by a human. It does not certify the figure is the
+            right figure for the claim citing it.
           </p>
         </div>
         <Button className="mt-4 md:mt-0" onClick={() => setShowProjectForm((open) => !open)}>
@@ -173,8 +185,10 @@ export function LabEvidence() {
             ))}
           </div>
 
+          {tab === 'intake' && <EvidenceIntake data={data} projectId={activeProject.id} />}
           {tab === 'datapoints' && <EvidenceDatapoints data={data} />}
           {tab === 'claims' && <EvidenceClaims data={data} projectId={activeProject.id} />}
+          {tab === 'models' && <EvidenceModels data={data} projectId={activeProject.id} />}
           {tab === 'outputs' && <EvidenceOutputs data={data} projectId={activeProject.id} />}
           {tab === 'sources' && <EvidenceSources data={data} projectId={activeProject.id} />}
           {tab === 'agents' && <EvidenceAgents data={data} projectId={activeProject.id} />}

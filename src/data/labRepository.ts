@@ -109,6 +109,7 @@ interface RunRow {
   input: string;
   output: string;
   status: LabRun['status'];
+  model: string;
   error: string | null;
   tokens_in: number | null;
   tokens_out: number | null;
@@ -193,6 +194,7 @@ function mapRun(row: RunRow): LabRun {
     input: row.input,
     output: row.output,
     status: row.status,
+    model: row.model,
     error: row.error,
     tokensIn: row.tokens_in,
     tokensOut: row.tokens_out,
@@ -466,6 +468,7 @@ function mockRuns(): LabRun[] {
     providerId: 'lab-provider-anthropic',
     chainId: 'lab-chain-proses',
     stepIndex: 0,
+    model: 'claude-sonnet-4-5',
     input: 'Proses intake cold storage KDU',
     output: 'AS-IS: 9 langkah, 2 handoff tanpa bukti serah terima…',
     status: 'ok',
@@ -483,6 +486,7 @@ function mockRuns(): LabRun[] {
     chainId: 'lab-chain-proses',
     stepIndex: 1,
     parentRunId: 'lab-run-1',
+    model: 'claude-sonnet-4-5',
     input: 'The original request was: Proses intake cold storage KDU…',
     output: 'Judgment: gap serah terima berisiko selisih stok material…',
     status: 'ok',
@@ -497,6 +501,7 @@ function mockRuns(): LabRun[] {
     id: 'lab-run-3',
     agentId: 'lab-agent-deck',
     providerId: 'lab-provider-kimi',
+    model: 'kimi-k2-0905-preview',
     input: 'Struktur deck review bulanan grup',
     output: '',
     status: 'error',

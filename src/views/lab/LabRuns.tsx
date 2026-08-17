@@ -263,6 +263,13 @@ export function LabRuns() {
                               ))}
                             </nav>
                           )}
+                          {run.model && (
+                            <p className="mb-3 text-xs text-foreground-muted">
+                              model: <span className="text-foreground-secondary">{run.model}</span>
+                              {' '}— the resolved string at dispatch; if output quality drifted for
+                              no apparent reason, compare this across dates.
+                            </p>
+                          )}
                           {run.error && (
                             <p className="mb-3 rounded-md border border-destructive/40 bg-card px-3 py-2 text-xs leading-5 text-destructive">
                               {run.error}

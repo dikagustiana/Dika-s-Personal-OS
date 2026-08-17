@@ -24,7 +24,11 @@ import {
 } from './labEvidenceGuards';
 import { okRows, readAbsence, type ReadResult } from './readResult';
 import type {
+  LabCandidateSource,
   LabClaim,
+  LabModelResult,
+  LabModelSpec,
+  LabModelSpecParam,
   LabClaimContradiction,
   LabClaimWrite,
   LabCommitmentSource,
@@ -35,11 +39,16 @@ import type {
   LabDatapointConflict,
   LabDatapointWrite,
   LabDocType,
+  LabEvidenceRequirement,
+  LabFramingSource,
   LabOutput,
   LabOutputType,
   LabProject,
+  LabQuestion,
   LabReference,
+  LabRequirementKind,
   LabSourceDocument,
+  LabSubQuestion,
   LabTask,
 } from './labEvidenceTypes';
 
@@ -130,6 +139,7 @@ export interface LabEvidenceRepository {
     id: string,
     content: string,
     backingDatapoints: readonly LabDatapoint[],
+    simResults?: ReadonlyArray<{ id: string; value: number }>,
   ): Promise<LabOutput>;
   linkOutputClaim(outputId: string, claimId: string): Promise<void>;
   unlinkOutputClaim(outputId: string, claimId: string): Promise<void>;
@@ -140,6 +150,71 @@ export interface LabEvidenceRepository {
   /** The coordinator's delegations, newest first. */
   listTasks(): Promise<ReadResult<LabTask>>;
   updateTaskStatus(id: string, status: LabTask['status'], detail?: string): Promise<LabTask>;
+
+  // The question layer (FRAMER intake, 080). All writes are owner acts —
+  // the framer proposes JSON; nothing here is callable by an agent.
+  listQuestions(): Promise<ReadResult<LabQuestion>>;
+  createQuestion(input: {
+    projectId: string;
+    rawStatement: string;
+    framedQuestion: string;
+    framingSource: LabFramingSource;
+  }): Promise<LabQuestion>;
+  /** raw_statement is frozen at intake; reframing edits only the framing. */
+  reframeQuestion(
+    id: string,
+    framedQuestion: string,
+    framingSource: LabFramingSource,
+  ): Promise<LabQuestion>;
+  listSubQuestions(): Promise<ReadResult<LabSubQuestion>>;
+  createSubQuestion(input: {
+    questionId: string;
+    statement: string;
+    falsifier: string;
+    position?: number;
+  }): Promise<LabSubQuestion>;
+  listEvidenceRequirements(): Promise<ReadResult<LabEvidenceRequirement>>;
+  createEvidenceRequirement(input: {
+    subQuestionId: string;
+    description: string;
+    kind: LabRequirementKind;
+  }): Promise<LabEvidenceRequirement>;
+  /** Only earned evidence lands — G-FALSIFY refuses the rest by name. */
+  satisfyRequirement(
+    id: string,
+    by: { datapointId?: string; referenceId?: string; modelResultId?: string },
+  ): Promise<LabEvidenceRequirement>;
+  linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
+  unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
+
+  // Curation (SCOUT, 081). The tier is trigger-computed from the owner's
+  // allowlist on every write; nothing here can set it.
+  listCandidateSources(): Promise<ReadResult<LabCandidateSource>>;
+  createCandidateSource(input: {
+    projectId: string | null;
+    title: string;
+    publisher: string;
+    url: string;
+    claimedDate: string | null;
+  }): Promise<LabCandidateSource>;
+  /** Owner-only, and the source document (with its snapshot) must exist. */
+  promoteCandidate(id: string, sourceDocumentId: string): Promise<LabCandidateSource>;
+  dismissCandidate(id: string): Promise<LabCandidateSource>;
+
+  // The MODELER (082). Specs are declarative; approval needs the owner's
+  // OWN rationale; results are immutable and their checks are rows.
+  listModelSpecs(): Promise<ReadResult<LabModelSpec>>;
+  listModelSpecParams(): Promise<ReadResult<LabModelSpecParam>>;
+  listModelResults(): Promise<ReadResult<LabModelResult>>;
+  approveModelSpec(id: string, rationale: string): Promise<LabModelSpec>;
+  demoteModelSpec(id: string): Promise<LabModelSpec>;
+  /** The manual path: a result computed OUTSIDE this system, owner-registered. */
+  registerExternalModelResult(input: {
+    specId: string;
+    value: number;
+    unit: string;
+    note: string;
+  }): Promise<LabModelResult>;
 
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
@@ -167,6 +242,36 @@ interface SourceRow {
   local_snapshot_path: string;
   snapshot_hash: string;
   retrieved_at: string;
+  last_rechecked_at: string | null;
+  content_changed_at: string | null;
+}
+
+interface CandidateRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  publisher: string;
+  url: string;
+  claimed_date: string | null;
+  tier: 1 | 2 | 3;
+  status: LabCandidateSource['status'];
+  promoted_source_document_id: string | null;
+  created_by_run_id: string | null;
+}
+
+function mapCandidate(row: CandidateRow): LabCandidateSource {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    publisher: row.publisher,
+    url: row.url,
+    claimedDate: row.claimed_date,
+    tier: row.tier,
+    status: row.status,
+    promotedSourceDocumentId: row.promoted_source_document_id,
+    createdByRunId: row.created_by_run_id,
+  };
 }
 
 interface DatapointRow {
@@ -227,8 +332,161 @@ interface ClaimRow {
   status: LabClaim['status'];
   approved_by_human_at: string | null;
   created_by_run_id: string | null;
+  inference_step: string;
   os_lab_claim_datapoints?: Array<{ datapoint_id: string }>;
   os_lab_claim_references?: Array<{ reference_id: string }>;
+}
+
+interface QuestionRow {
+  id: string;
+  project_id: string;
+  raw_statement: string;
+  framed_question: string;
+  framing_source: LabFramingSource;
+}
+
+interface SubQuestionRow {
+  id: string;
+  question_id: string;
+  statement: string;
+  falsifier: string;
+  position: number;
+}
+
+interface RequirementRow {
+  id: string;
+  sub_question_id: string;
+  description: string;
+  kind: LabRequirementKind;
+  satisfied_by_datapoint_id: string | null;
+  satisfied_by_reference_id: string | null;
+  satisfied_by_model_result_id: string | null;
+  satisfied_at: string | null;
+}
+
+interface ModelSpecRow {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: LabModelSpec['kind'];
+  spec: Record<string, unknown>;
+  spec_hash: string;
+  rationale: string;
+  status: LabModelSpec['status'];
+  approved_by_human_at: string | null;
+  created_by_run_id: string | null;
+}
+
+interface ModelParamRow {
+  id: string;
+  spec_id: string;
+  name: string;
+  kind: LabModelSpecParam['kind'];
+  datapoint_id: string | null;
+  value: number | string | null;
+  unit: string;
+  justification_reference_id: string | null;
+  distribution: Record<string, unknown> | null;
+}
+
+interface ModelResultRow {
+  id: string;
+  spec_id: string;
+  evaluator_version: string;
+  seed: number | null;
+  result_value: number | string | null;
+  result_unit: string;
+  result_summary: Record<string, unknown>;
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checks_passed: boolean;
+  sensitivity_passed: boolean | null;
+  input_datapoint_ids: string[];
+  stale_input: boolean;
+  external: boolean;
+  external_note: string;
+  created_at: string;
+}
+
+function mapModelSpec(row: ModelSpecRow): LabModelSpec {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    kind: row.kind,
+    spec: row.spec,
+    specHash: row.spec_hash,
+    rationale: row.rationale,
+    status: row.status,
+    approvedByHumanAt: row.approved_by_human_at,
+    createdByRunId: row.created_by_run_id,
+  };
+}
+
+function mapModelParam(row: ModelParamRow): LabModelSpecParam {
+  return {
+    id: row.id,
+    specId: row.spec_id,
+    name: row.name,
+    kind: row.kind,
+    datapointId: row.datapoint_id,
+    value: row.value === null ? null : Number(row.value),
+    unit: row.unit,
+    justificationReferenceId: row.justification_reference_id,
+    distribution: row.distribution,
+  };
+}
+
+function mapModelResult(row: ModelResultRow): LabModelResult {
+  return {
+    id: row.id,
+    specId: row.spec_id,
+    evaluatorVersion: row.evaluator_version,
+    seed: row.seed,
+    resultValue: row.result_value === null ? null : Number(row.result_value),
+    resultUnit: row.result_unit,
+    resultSummary: row.result_summary,
+    checks: row.checks,
+    checksPassed: row.checks_passed,
+    sensitivityPassed: row.sensitivity_passed,
+    inputDatapointIds: row.input_datapoint_ids,
+    staleInput: row.stale_input,
+    external: row.external,
+    externalNote: row.external_note,
+    createdAt: row.created_at,
+  };
+}
+
+function mapQuestion(row: QuestionRow): LabQuestion {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    rawStatement: row.raw_statement,
+    framedQuestion: row.framed_question,
+    framingSource: row.framing_source,
+  };
+}
+
+function mapSubQuestion(row: SubQuestionRow): LabSubQuestion {
+  return {
+    id: row.id,
+    questionId: row.question_id,
+    statement: row.statement,
+    falsifier: row.falsifier,
+    position: row.position,
+  };
+}
+
+function mapRequirement(row: RequirementRow): LabEvidenceRequirement {
+  return {
+    id: row.id,
+    subQuestionId: row.sub_question_id,
+    description: row.description,
+    kind: row.kind,
+    satisfiedByDatapointId: row.satisfied_by_datapoint_id,
+    satisfiedByReferenceId: row.satisfied_by_reference_id,
+    satisfiedByModelResultId: row.satisfied_by_model_result_id,
+    satisfiedAt: row.satisfied_at,
+  };
 }
 
 interface ContradictionRow {
@@ -275,6 +533,7 @@ interface OutputRow {
   stale: boolean;
   generated_by_run_id: string | null;
   os_lab_output_claims?: Array<{ claim_id: string }>;
+  os_lab_output_sub_questions?: Array<{ sub_question_id: string }>;
 }
 
 function mapProject(row: ProjectRow): LabProject {
@@ -298,6 +557,8 @@ function mapSource(row: SourceRow): LabSourceDocument {
     localSnapshotPath: row.local_snapshot_path,
     snapshotHash: row.snapshot_hash,
     retrievedAt: row.retrieved_at,
+    lastRecheckedAt: row.last_rechecked_at,
+    contentChangedAt: row.content_changed_at,
   };
 }
 
@@ -368,6 +629,7 @@ function mapClaim(row: ClaimRow): LabClaim {
     status: row.status,
     approvedByHumanAt: row.approved_by_human_at,
     createdByRunId: row.created_by_run_id,
+    inferenceStep: row.inference_step,
     datapointIds: (row.os_lab_claim_datapoints ?? []).map((link) => link.datapoint_id),
     referenceIds: (row.os_lab_claim_references ?? []).map((link) => link.reference_id),
   };
@@ -394,6 +656,7 @@ function mapOutput(row: OutputRow): LabOutput {
     stale: row.stale,
     generatedByRunId: row.generated_by_run_id,
     claimIds: (row.os_lab_output_claims ?? []).map((link) => link.claim_id),
+    subQuestionIds: (row.os_lab_output_sub_questions ?? []).map((link) => link.sub_question_id),
   };
 }
 
@@ -593,6 +856,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
           layer: input.layer,
           commitment_source_id: input.commitmentSourceId,
           evidence_direction: input.evidenceDirection,
+          inference_step: input.inferenceStep ?? '',
           created_by_run_id: input.createdByRunId ?? null,
         })
         .select()
@@ -684,7 +948,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
     async listOutputs() {
       const { data, error } = await client
         .from('os_lab_outputs')
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .order('created_at', { ascending: false });
       if (error) return readAbsence('listLabOutputs', error);
       return okRows(((data ?? []) as OutputRow[]).map(mapOutput));
@@ -693,13 +957,13 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       const { data, error } = await client
         .from('os_lab_outputs')
         .insert({ project_id: input.projectId, output_type: input.outputType })
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('createOutput', error.message);
       return mapOutput(data as OutputRow);
     },
-    async saveOutputContent(id, content, backingDatapoints) {
-      const violations = guardOutputContent(content, backingDatapoints);
+    async saveOutputContent(id, content, backingDatapoints, simResults = []) {
+      const violations = guardOutputContent(content, backingDatapoints, simResults);
       if (violations.length > 0) {
         throw new LabGateError(formatNumberViolations(violations));
       }
@@ -707,7 +971,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ content })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('saveOutputContent', error.message);
       return mapOutput(data as OutputRow);
@@ -727,11 +991,61 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       if (error) fail('unlinkOutputClaim', error.message);
     },
     async finalizeOutput(id) {
+      // 1.4: G-NUMBER re-runs against the CURRENT cited-claim datapoint set
+      // before the status write. The save-time scan can be invalidated by a
+      // later unlink (permitted while draft), so finalization is where the
+      // guarantee must hold — the DB trigger checks citations and the sweep
+      // heartbeat; prose parsing is this layer's half.
+      const { data: outputRow, error: readError } = await client
+        .from('os_lab_outputs')
+        .select('content, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
+        .eq('id', id)
+        .single();
+      if (readError) fail('finalizeOutput', readError.message);
+      const citedClaimIds = ((outputRow as OutputRow).os_lab_output_claims ?? []).map(
+        (link) => link.claim_id,
+      );
+      let backing: LabDatapoint[] = [];
+      if (citedClaimIds.length > 0) {
+        const { data: linkRows, error: linkError } = await client
+          .from('os_lab_claim_datapoints')
+          .select('datapoint_id')
+          .in('claim_id', citedClaimIds);
+        if (linkError) fail('finalizeOutput', linkError.message);
+        const datapointIds = [
+          ...new Set(((linkRows ?? []) as Array<{ datapoint_id: string }>).map((r) => r.datapoint_id)),
+        ];
+        if (datapointIds.length > 0) {
+          const { data: dpRows, error: dpError } = await client
+            .from('os_lab_datapoints')
+            .select('*')
+            .in('id', datapointIds);
+          if (dpError) fail('finalizeOutput', dpError.message);
+          backing = ((dpRows ?? []) as DatapointRow[]).map(mapDatapoint);
+        }
+      }
+      // [sim:<id>] tags stay honest at finalize: only results that passed
+      // every check, passed sensitivity, and stand on fresh inputs count.
+      const { data: simRows } = await client
+        .from('os_lab_model_results')
+        .select('id, result_value')
+        .eq('checks_passed', true)
+        .eq('sensitivity_passed', true)
+        .eq('stale_input', false);
+      const simResults = ((simRows ?? []) as Array<{ id: string; result_value: number | string | null }>)
+        .filter((row) => row.result_value !== null)
+        .map((row) => ({ id: row.id, value: Number(row.result_value) }));
+      const violations = guardOutputContent((outputRow as OutputRow).content, backing, simResults);
+      if (violations.length > 0) {
+        throw new LabGateError(
+          `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked — or a model result gone stale — since the last save no longer backs these figures).`,
+        );
+      }
       const { data, error } = await client
         .from('os_lab_outputs')
         .update({ status: 'final' })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('finalizeOutput', error.message);
       return mapOutput(data as OutputRow);
@@ -741,7 +1055,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ status: 'draft' })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('revertOutputToDraft', error.message);
       return mapOutput(data as OutputRow);
@@ -751,7 +1065,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ stale: false })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('clearOutputStale', error.message);
       return mapOutput(data as OutputRow);
@@ -775,6 +1089,215 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .single();
       if (error) fail('updateTaskStatus', error.message);
       return mapTask(data as TaskRow);
+    },
+
+    async listQuestions() {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabQuestions', error);
+      return okRows(((data ?? []) as QuestionRow[]).map(mapQuestion));
+    },
+    async createQuestion(input) {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .insert({
+          project_id: input.projectId,
+          raw_statement: input.rawStatement,
+          framed_question: input.framedQuestion,
+          framing_source: input.framingSource,
+        })
+        .select()
+        .single();
+      if (error) fail('createQuestion', error.message);
+      return mapQuestion(data as QuestionRow);
+    },
+    async reframeQuestion(id, framedQuestion, framingSource) {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .update({ framed_question: framedQuestion, framing_source: framingSource })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('reframeQuestion', error.message);
+      return mapQuestion(data as QuestionRow);
+    },
+    async listSubQuestions() {
+      const { data, error } = await client
+        .from('os_lab_sub_questions')
+        .select('*')
+        .order('position');
+      if (error) return readAbsence('listLabSubQuestions', error);
+      return okRows(((data ?? []) as SubQuestionRow[]).map(mapSubQuestion));
+    },
+    async createSubQuestion(input) {
+      const { data, error } = await client
+        .from('os_lab_sub_questions')
+        .insert({
+          question_id: input.questionId,
+          statement: input.statement,
+          falsifier: input.falsifier,
+          position: input.position ?? 0,
+        })
+        .select()
+        .single();
+      if (error) fail('createSubQuestion', error.message);
+      return mapSubQuestion(data as SubQuestionRow);
+    },
+    async listEvidenceRequirements() {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .select('*')
+        .order('created_at');
+      if (error) return readAbsence('listLabEvidenceRequirements', error);
+      return okRows(((data ?? []) as RequirementRow[]).map(mapRequirement));
+    },
+    async createEvidenceRequirement(input) {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .insert({
+          sub_question_id: input.subQuestionId,
+          description: input.description,
+          kind: input.kind,
+        })
+        .select()
+        .single();
+      if (error) fail('createEvidenceRequirement', error.message);
+      return mapRequirement(data as RequirementRow);
+    },
+    async satisfyRequirement(id, by) {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .update({
+          satisfied_by_datapoint_id: by.datapointId ?? null,
+          satisfied_by_reference_id: by.referenceId ?? null,
+          satisfied_by_model_result_id: by.modelResultId ?? null,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('satisfyRequirement', error.message);
+      return mapRequirement(data as RequirementRow);
+    },
+    async linkOutputSubQuestion(outputId, subQuestionId) {
+      const { error } = await client
+        .from('os_lab_output_sub_questions')
+        .insert({ output_id: outputId, sub_question_id: subQuestionId });
+      if (error) fail('linkOutputSubQuestion', error.message);
+    },
+    async unlinkOutputSubQuestion(outputId, subQuestionId) {
+      const { error } = await client
+        .from('os_lab_output_sub_questions')
+        .delete()
+        .eq('output_id', outputId)
+        .eq('sub_question_id', subQuestionId);
+      if (error) fail('unlinkOutputSubQuestion', error.message);
+    },
+
+    async listCandidateSources() {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabCandidateSources', error);
+      return okRows(((data ?? []) as CandidateRow[]).map(mapCandidate));
+    },
+    async createCandidateSource(input) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .insert({
+          project_id: input.projectId,
+          title: input.title,
+          publisher: input.publisher,
+          url: input.url,
+          claimed_date: input.claimedDate,
+        })
+        .select()
+        .single();
+      if (error) fail('createCandidateSource', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+    async promoteCandidate(id, sourceDocumentId) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .update({ status: 'promoted', promoted_source_document_id: sourceDocumentId })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('promoteCandidate', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+    async dismissCandidate(id) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .update({ status: 'dismissed' })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('dismissCandidate', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+
+    async listModelSpecs() {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabModelSpecs', error);
+      return okRows(((data ?? []) as ModelSpecRow[]).map(mapModelSpec));
+    },
+    async listModelSpecParams() {
+      const { data, error } = await client
+        .from('os_lab_model_spec_params')
+        .select('*')
+        .order('name');
+      if (error) return readAbsence('listLabModelSpecParams', error);
+      return okRows(((data ?? []) as ModelParamRow[]).map(mapModelParam));
+    },
+    async listModelResults() {
+      const { data, error } = await client
+        .from('os_lab_model_results')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabModelResults', error);
+      return okRows(((data ?? []) as ModelResultRow[]).map(mapModelResult));
+    },
+    async approveModelSpec(id, rationale) {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .update({ status: 'approved', rationale })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('approveModelSpec', error.message);
+      return mapModelSpec(data as ModelSpecRow);
+    },
+    async demoteModelSpec(id) {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .update({ status: 'draft' })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('demoteModelSpec', error.message);
+      return mapModelSpec(data as ModelSpecRow);
+    },
+    async registerExternalModelResult(input) {
+      const { data, error } = await client
+        .from('os_lab_model_results')
+        .insert({
+          spec_id: input.specId,
+          evaluator_version: 'external',
+          result_value: input.value,
+          result_unit: input.unit,
+          external: true,
+          external_note: input.note,
+        })
+        .select()
+        .single();
+      if (error) fail('registerExternalModelResult', error.message);
+      return mapModelResult(data as ModelResultRow);
     },
 
     async staleSweep() {
@@ -816,8 +1339,17 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       localSnapshotPath: 'snapshots/yearbook-2026.pdf',
       snapshotHash: 'mock',
       retrievedAt: EV_NOW(),
+      lastRecheckedAt: null,
+      contentChangedAt: null,
     },
   ];
+  /** The mock's allowlist mirror — same 11 tier-1 institutions as 081. */
+  private publisherTiers = new Map<string, 1 | 2>([
+    ['bps', 1], ['bank indonesia', 1], ['ojk', 1], ['kemenperin', 1],
+    ['kemenkeu', 1], ['kemenhub', 1], ['bkpm', 1], ['world bank', 1],
+    ['adb', 1], ['iea', 1], ['imf', 1],
+  ]);
+  private candidates: LabCandidateSource[] = [];
   private datapoints: LabDatapoint[] = [
     {
       id: 'ev-dp-73',
@@ -868,6 +1400,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'approved',
       approvedByHumanAt: EV_NOW(),
       createdByRunId: null,
+      inferenceStep: 'the matched utilisation figure sits well below the capacity figure on the same basis',
       datapointIds: ['ev-dp-73'],
       referenceIds: [],
     },
@@ -881,6 +1414,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'draft',
       approvedByHumanAt: null,
       createdByRunId: null,
+      inferenceStep: '',
       datapointIds: ['ev-dp-ind'],
       referenceIds: [],
     },
@@ -896,8 +1430,15 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       stale: false,
       generatedByRunId: null,
       claimIds: ['ev-claim-approved'],
+      subQuestionIds: [],
     },
   ];
+  private questions: LabQuestion[] = [];
+  private subQuestions: LabSubQuestion[] = [];
+  private requirements: LabEvidenceRequirement[] = [];
+  private modelSpecs: LabModelSpec[] = [];
+  private modelParams: LabModelSpecParam[] = [];
+  private modelResults: LabModelResult[] = [];
   private counter = 0;
 
   private nextId(prefix: string): string {
@@ -937,6 +1478,8 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       localSnapshotPath: input.localSnapshotPath,
       snapshotHash: input.snapshotHash,
       retrievedAt: EV_NOW(),
+      lastRecheckedAt: null,
+      contentChangedAt: null,
     };
     this.sources.push(source);
     return { ...source };
@@ -1067,6 +1610,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'draft',
       approvedByHumanAt: null,
       createdByRunId: input.createdByRunId ?? null,
+      inferenceStep: input.inferenceStep ?? '',
       datapointIds: [],
       referenceIds: [],
     };
@@ -1119,6 +1663,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       datapoints: this.datapoints,
       references: this.references,
       conflicts: this.conflicts,
+      contradictions: this.contradictions,
     });
     if (blockers.length > 0) throw new LabGateError(blockers[0]);
     claim.status = 'approved';
@@ -1176,6 +1721,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       stale: false,
       generatedByRunId: null,
       claimIds: [],
+      subQuestionIds: [],
     };
     this.outputs.push(output);
     return { ...output };
@@ -1184,10 +1730,11 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     id: string,
     content: string,
     backingDatapoints: readonly LabDatapoint[],
+    simResults: ReadonlyArray<{ id: string; value: number }> = [],
   ): Promise<LabOutput> {
     const output = this.outputs.find((row) => row.id === id);
     if (!output) throw new Error(`saveOutputContent: no output ${id}`);
-    const violations = guardOutputContent(content, backingDatapoints);
+    const violations = guardOutputContent(content, backingDatapoints, simResults);
     if (violations.length > 0) {
       throw new LabGateError(formatNumberViolations(violations));
     }
@@ -1227,10 +1774,28 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
   async finalizeOutput(id: string): Promise<LabOutput> {
     const output = this.outputs.find((row) => row.id === id);
     if (!output) throw new Error(`finalizeOutput: no output ${id}`);
+    // 1.4: same re-scan as the live implementation — the current cited
+    // claims' datapoints, not the set that held at save time.
+    const citedClaims = this.claims.filter((claim) => output.claimIds.includes(claim.id));
+    const backing = this.datapoints.filter((datapoint) =>
+      citedClaims.some((claim) => claim.datapointIds.includes(datapoint.id)),
+    );
+    const eligibleSims = this.modelResults
+      .filter((result) => result.checksPassed && result.sensitivityPassed === true && !result.staleInput)
+      .filter((result) => result.resultValue !== null)
+      .map((result) => ({ id: result.id, value: result.resultValue as number }));
+    const violations = guardOutputContent(output.content, backing, eligibleSims);
+    if (violations.length > 0) {
+      throw new LabGateError(
+        `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked — or a model result gone stale — since the last save no longer backs these figures).`,
+      );
+    }
     const blockers = outputFinalizeBlockers({
       stale: output.stale,
-      citedClaims: this.claims.filter((claim) => output.claimIds.includes(claim.id)),
+      citedClaims,
       contradictions: this.contradictions,
+      addressedSubQuestionIds: output.subQuestionIds,
+      requirements: this.requirements,
     });
     if (blockers.length > 0) throw new LabGateError(blockers[0]);
     output.status = 'final';
@@ -1260,6 +1825,263 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     task.status = status;
     if (detail !== undefined) task.detail = detail;
     return { ...task };
+  }
+
+  async listQuestions(): Promise<ReadResult<LabQuestion>> {
+    return okRows(this.questions.map((row) => ({ ...row })));
+  }
+  async createQuestion(input: {
+    projectId: string;
+    rawStatement: string;
+    framedQuestion: string;
+    framingSource: LabFramingSource;
+  }): Promise<LabQuestion> {
+    if (input.framedQuestion.trim().length < 20) {
+      throw new LabGateError('G-FRAME: a framed question under 20 characters is a label, not a question.');
+    }
+    const question: LabQuestion = { id: this.nextId('ev-question'), ...input };
+    this.questions.push(question);
+    return { ...question };
+  }
+  async reframeQuestion(
+    id: string,
+    framedQuestion: string,
+    framingSource: LabFramingSource,
+  ): Promise<LabQuestion> {
+    const question = this.questions.find((row) => row.id === id);
+    if (!question) throw new Error(`reframeQuestion: no question ${id}`);
+    if (framedQuestion.trim().length < 20) {
+      throw new LabGateError('G-FRAME: a framed question under 20 characters is a label, not a question.');
+    }
+    // rawStatement is untouchable here by construction — no parameter exists.
+    question.framedQuestion = framedQuestion;
+    question.framingSource = framingSource;
+    return { ...question };
+  }
+  async listSubQuestions(): Promise<ReadResult<LabSubQuestion>> {
+    return okRows(this.subQuestions.map((row) => ({ ...row })));
+  }
+  async createSubQuestion(input: {
+    questionId: string;
+    statement: string;
+    falsifier: string;
+    position?: number;
+  }): Promise<LabSubQuestion> {
+    if (input.falsifier.trim().length < 20) {
+      throw new LabGateError(
+        'G-FRAME: a falsifier under 20 characters names no evidence — say what would show the expected answer is wrong.',
+      );
+    }
+    const subQuestion: LabSubQuestion = {
+      id: this.nextId('ev-subq'),
+      questionId: input.questionId,
+      statement: input.statement,
+      falsifier: input.falsifier,
+      position: input.position ?? 0,
+    };
+    this.subQuestions.push(subQuestion);
+    return { ...subQuestion };
+  }
+  async listEvidenceRequirements(): Promise<ReadResult<LabEvidenceRequirement>> {
+    return okRows(this.requirements.map((row) => ({ ...row })));
+  }
+  async createEvidenceRequirement(input: {
+    subQuestionId: string;
+    description: string;
+    kind: LabRequirementKind;
+  }): Promise<LabEvidenceRequirement> {
+    const requirement: LabEvidenceRequirement = {
+      id: this.nextId('ev-req'),
+      subQuestionId: input.subQuestionId,
+      description: input.description,
+      kind: input.kind,
+      satisfiedByDatapointId: null,
+      satisfiedByReferenceId: null,
+      satisfiedByModelResultId: null,
+      satisfiedAt: null,
+    };
+    this.requirements.push(requirement);
+    return { ...requirement };
+  }
+  async satisfyRequirement(
+    id: string,
+    by: { datapointId?: string; referenceId?: string; modelResultId?: string },
+  ): Promise<LabEvidenceRequirement> {
+    const requirement = this.requirements.find((row) => row.id === id);
+    if (!requirement) throw new Error(`satisfyRequirement: no requirement ${id}`);
+    if (by.datapointId) {
+      if (requirement.kind !== 'datapoint') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is reference-kind — a datapoint cannot satisfy it.`);
+      }
+      const datapoint = this.datapoints.find((row) => row.id === by.datapointId);
+      if (!datapoint || datapoint.status !== 'V') {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by datapoint ${by.datapointId} — it is not source-matched. Only V evidence satisfies a requirement.`,
+        );
+      }
+      requirement.satisfiedByDatapointId = by.datapointId;
+      requirement.satisfiedByReferenceId = null;
+    } else if (by.referenceId) {
+      if (requirement.kind !== 'reference') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is datapoint-kind — a reference cannot satisfy it.`);
+      }
+      const reference = this.references.find((row) => row.id === by.referenceId);
+      if (!reference || reference.verificationLevel !== 'full_text_read') {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by reference ${by.referenceId} — an abstract locates a paper, it cannot satisfy an evidence requirement.`,
+        );
+      }
+      requirement.satisfiedByReferenceId = by.referenceId;
+      requirement.satisfiedByDatapointId = null;
+    } else if (by.modelResultId) {
+      if (requirement.kind !== 'model_result') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is not model_result-kind.`);
+      }
+      const result = this.modelResults.find((row) => row.id === by.modelResultId);
+      if (!result || !result.checksPassed || result.sensitivityPassed !== true || result.staleInput) {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by model result ${by.modelResultId} — it must exist, pass every check, pass sensitivity, and stand on fresh inputs.`,
+        );
+      }
+      requirement.satisfiedByModelResultId = by.modelResultId;
+      requirement.satisfiedByDatapointId = null;
+      requirement.satisfiedByReferenceId = null;
+    } else {
+      requirement.satisfiedByDatapointId = null;
+      requirement.satisfiedByReferenceId = null;
+      requirement.satisfiedByModelResultId = null;
+      requirement.satisfiedAt = null;
+      return { ...requirement };
+    }
+    requirement.satisfiedAt = EV_NOW();
+    return { ...requirement };
+  }
+  async linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void> {
+    const output = this.outputs.find((row) => row.id === outputId);
+    if (!output) throw new Error(`linkOutputSubQuestion: no output ${outputId}`);
+    if (output.status === 'final') {
+      throw new LabGateError(
+        `G-OUTPUT: output ${outputId} is final — revert it to draft before changing which sub-questions it addresses.`,
+      );
+    }
+    if (!output.subQuestionIds.includes(subQuestionId)) output.subQuestionIds.push(subQuestionId);
+  }
+  async unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void> {
+    const output = this.outputs.find((row) => row.id === outputId);
+    if (!output) return;
+    if (output.status === 'final') {
+      throw new LabGateError(
+        `G-OUTPUT: output ${outputId} is final — revert it to draft before changing which sub-questions it addresses.`,
+      );
+    }
+    output.subQuestionIds = output.subQuestionIds.filter((id) => id !== subQuestionId);
+  }
+
+  async listCandidateSources(): Promise<ReadResult<LabCandidateSource>> {
+    return okRows(this.candidates.map((row) => ({ ...row })));
+  }
+  async createCandidateSource(input: {
+    projectId: string | null;
+    title: string;
+    publisher: string;
+    url: string;
+    claimedDate: string | null;
+  }): Promise<LabCandidateSource> {
+    const candidate: LabCandidateSource = {
+      id: this.nextId('ev-candidate'),
+      projectId: input.projectId,
+      title: input.title,
+      publisher: input.publisher,
+      url: input.url,
+      claimedDate: input.claimedDate,
+      // The allowlist decides, mirroring the trigger — never the caller.
+      tier: this.publisherTiers.get(input.publisher.toLowerCase()) ?? 3,
+      status: 'candidate',
+      promotedSourceDocumentId: null,
+      createdByRunId: null,
+    };
+    this.candidates.push(candidate);
+    return { ...candidate };
+  }
+  async promoteCandidate(id: string, sourceDocumentId: string): Promise<LabCandidateSource> {
+    const candidate = this.candidates.find((row) => row.id === id);
+    if (!candidate) throw new Error(`promoteCandidate: no candidate ${id}`);
+    const source = this.sources.find((row) => row.id === sourceDocumentId);
+    if (!source || !source.localSnapshotPath) {
+      throw new LabGateError(
+        `G-SCOUT: candidate ${id} cannot be promoted without its source document — ingest the document (with its mandatory snapshot) first, then point the candidate at it.`,
+      );
+    }
+    candidate.status = 'promoted';
+    candidate.promotedSourceDocumentId = sourceDocumentId;
+    return { ...candidate };
+  }
+  async dismissCandidate(id: string): Promise<LabCandidateSource> {
+    const candidate = this.candidates.find((row) => row.id === id);
+    if (!candidate) throw new Error(`dismissCandidate: no candidate ${id}`);
+    candidate.status = 'dismissed';
+    return { ...candidate };
+  }
+
+  async listModelSpecs(): Promise<ReadResult<LabModelSpec>> {
+    return okRows(this.modelSpecs.map((row) => ({ ...row })));
+  }
+  async listModelSpecParams(): Promise<ReadResult<LabModelSpecParam>> {
+    return okRows(this.modelParams.map((row) => ({ ...row })));
+  }
+  async listModelResults(): Promise<ReadResult<LabModelResult>> {
+    return okRows(this.modelResults.map((row) => ({ ...row })));
+  }
+  async approveModelSpec(id: string, rationale: string): Promise<LabModelSpec> {
+    const spec = this.modelSpecs.find((row) => row.id === id);
+    if (!spec) throw new Error(`approveModelSpec: no spec ${id}`);
+    if (rationale.trim().length < 20) {
+      throw new LabGateError(
+        `G-MODEL: spec ${id} cannot be approved without a rationale (min 20 chars) — why this structure answers the question, in the owner's words.`,
+      );
+    }
+    spec.status = 'approved';
+    spec.rationale = rationale;
+    spec.approvedByHumanAt = EV_NOW();
+    return { ...spec };
+  }
+  async demoteModelSpec(id: string): Promise<LabModelSpec> {
+    const spec = this.modelSpecs.find((row) => row.id === id);
+    if (!spec) throw new Error(`demoteModelSpec: no spec ${id}`);
+    spec.status = 'draft';
+    spec.approvedByHumanAt = null;
+    return { ...spec };
+  }
+  async registerExternalModelResult(input: {
+    specId: string;
+    value: number;
+    unit: string;
+    note: string;
+  }): Promise<LabModelResult> {
+    if (input.note.trim().length < 20) {
+      throw new LabGateError(
+        'G-MODEL: an external result needs a note (min 20 chars) saying where it was computed and how to reproduce it.',
+      );
+    }
+    const result: LabModelResult = {
+      id: this.nextId('ev-result'),
+      specId: input.specId,
+      evaluatorVersion: 'external',
+      seed: null,
+      resultValue: input.value,
+      resultUnit: input.unit,
+      resultSummary: {},
+      checks: [],
+      checksPassed: false,
+      sensitivityPassed: null,
+      inputDatapointIds: [],
+      staleInput: false,
+      external: true,
+      externalNote: input.note,
+      createdAt: EV_NOW(),
+    };
+    this.modelResults.push(result);
+    return { ...result };
   }
 
   async staleSweep(): Promise<number> {

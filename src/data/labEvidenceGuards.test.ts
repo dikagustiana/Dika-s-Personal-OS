@@ -15,6 +15,7 @@ import type {
   LabDatapoint,
   LabDatapointConflict,
   LabDatapointWrite,
+  LabEvidenceRequirement,
   LabReference,
 } from './labEvidenceTypes';
 
@@ -63,6 +64,7 @@ function claim(partial: Partial<LabClaim> & Pick<LabClaim, 'id'>): LabClaim {
     status: 'draft',
     approvedByHumanAt: null,
     createdByRunId: null,
+    inferenceStep: 'derived by direct comparison of the matched series',
     datapointIds: [],
     referenceIds: [],
     ...partial,
@@ -153,6 +155,76 @@ describe('claimApprovalBlockers (G-CLAIM)', () => {
       }),
     ).toEqual([]);
   });
+
+  it('1.13: a DIRECT open contradiction blocks either side; tension stays advisory', () => {
+    const contradictions: LabClaimContradiction[] = [
+      { id: 'x-direct', claimAId: 'c4', claimBId: 'c5', severity: 'direct', status: 'open', resolutionNote: '' },
+      { id: 'x-tension', claimAId: 'c6', claimBId: 'c7', severity: 'tension', status: 'open', resolutionNote: '' },
+    ];
+    const blocked = claimApprovalBlockers({
+      claim: claim({ id: 'c5', layer: 'C' }),
+      datapoints: [],
+      references: [],
+      conflicts: [],
+      contradictions,
+    });
+    expect(blocked.some((b) => b.includes('x-direct') && b.includes('c4'))).toBe(true);
+    expect(
+      claimApprovalBlockers({
+        claim: claim({ id: 'c6', layer: 'C' }),
+        datapoints: [],
+        references: [],
+        conflicts: [],
+        contradictions,
+      }),
+    ).toEqual([]);
+    // resolved direct contradictions no longer block
+    expect(
+      claimApprovalBlockers({
+        claim: claim({ id: 'c5', layer: 'C' }),
+        datapoints: [],
+        references: [],
+        conflicts: [],
+        contradictions: [{ ...contradictions[0], status: 'resolved' }],
+      }),
+    ).toEqual([]);
+  });
+
+  it('phase 2: layer B requires evidence AND the inference step; C requires the step', () => {
+    // B with no evidence — refused naming the claim.
+    const noEvidence = claimApprovalBlockers({
+      claim: claim({ id: 'c-b-bare' }),
+      datapoints: [],
+      references: [],
+      conflicts: [],
+    });
+    expect(noEvidence.some((b) => b.includes('c-b-bare') && b.includes('no evidence'))).toBe(true);
+    // B with evidence but a bare inference step — refused naming the step.
+    const noStep = claimApprovalBlockers({
+      claim: claim({ id: 'c-b-nostep', datapointIds: ['dp-clean'], inferenceStep: 'short' }),
+      datapoints: [datapoint({ id: 'dp-clean', status: 'V' })],
+      references: [],
+      conflicts: [],
+    });
+    expect(noStep.some((b) => b.includes('c-b-nostep') && b.includes('inference step'))).toBe(true);
+    // C without the step — refused; the step IS the contribution.
+    const cNoStep = claimApprovalBlockers({
+      claim: claim({ id: 'c-c-nostep', layer: 'C', inferenceStep: '' }),
+      datapoints: [],
+      references: [],
+      conflicts: [],
+    });
+    expect(cNoStep.some((b) => b.includes('c-c-nostep') && b.includes('inference step'))).toBe(true);
+    // C with the step and nothing else — approvable.
+    expect(
+      claimApprovalBlockers({
+        claim: claim({ id: 'c-c-ok', layer: 'C' }),
+        datapoints: [],
+        references: [],
+        conflicts: [],
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe('outputFinalizeBlockers (G-OUTPUT / G-LAYER)', () => {
@@ -189,5 +261,50 @@ describe('outputFinalizeBlockers (G-OUTPUT / G-LAYER)', () => {
         contradictions: [],
       }),
     ).toEqual([]);
+  });
+
+  it('G-FALSIFY: an addressed sub-question with no satisfied requirement blocks, by name', () => {
+    const requirements: LabEvidenceRequirement[] = [
+      {
+        id: 'req-open',
+        subQuestionId: 'subq-open',
+        description: 'an import realisation series',
+        kind: 'datapoint',
+        satisfiedByDatapointId: null,
+        satisfiedByReferenceId: null,
+        satisfiedByModelResultId: null,
+        satisfiedAt: null,
+      },
+      {
+        id: 'req-met',
+        subQuestionId: 'subq-met',
+        description: 'a utilisation rate',
+        kind: 'datapoint',
+        satisfiedByDatapointId: 'dp-v',
+        satisfiedByReferenceId: null,
+        satisfiedByModelResultId: null,
+        satisfiedAt: '2026-08-17T00:00:00Z',
+      },
+    ];
+    const blockers = outputFinalizeBlockers({
+      stale: false,
+      citedClaims: [],
+      contradictions: [],
+      addressedSubQuestionIds: ['subq-open', 'subq-met'],
+      requirements,
+    });
+    expect(blockers.some((b) => b.includes('G-FALSIFY') && b.includes('subq-open'))).toBe(true);
+    expect(blockers.some((b) => b.includes('subq-met'))).toBe(false);
+    // A sub-question with NO requirements at all blocks too — nothing could
+    // ever have falsified it.
+    expect(
+      outputFinalizeBlockers({
+        stale: false,
+        citedClaims: [],
+        contradictions: [],
+        addressedSubQuestionIds: ['subq-none'],
+        requirements,
+      }).some((b) => b.includes('subq-none')),
+    ).toBe(true);
   });
 });

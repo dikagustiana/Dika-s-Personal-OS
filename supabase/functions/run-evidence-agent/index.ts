@@ -13,7 +13,14 @@
 // WRITE SCOPE OF THIS FUNCTION: os_lab_runs (audit), os_lab_tasks
 // (coordinator), os_lab_datapoints (extract), os_lab_references
 // (literature), os_lab_datapoint_conflicts + os_lab_claim_contradictions
-// (review), os_lab_outputs + os_lab_output_claims (draft). Nothing else.
+// (review), os_lab_outputs + os_lab_output_claims (draft),
+// os_lab_candidate_sources (scout — candidate rows only, tier assigned by
+// the trigger), the recheck flag columns on os_lab_source_documents
+// (recheck — the one keyless UPDATE shape 081 permits), and snapshot blobs
+// in the lab-artifacts bucket (snapshot). Nothing else.
+// The FRAMER actions (frame-critique, frame-alternatives) write NOTHING
+// beyond the run row: the framer's write scope is EMPTY, and the G-FRAME
+// guards (20260817000080) refuse it at the database if this ever drifts.
 // Keep this paragraph greppable and true.
 //
 // Every action is owner-initiated (checkAppKey before anything billable);
@@ -25,12 +32,31 @@
 // carries the full text either way.
 
 import { checkAppKey } from '../_shared/appKeyAuth.ts';
+import {
+  EVALUATOR_VERSION,
+  evaluateModelSpec,
+  expressionParams,
+  parseExpression,
+  type Distribution,
+  type ModelParamInput,
+  type ModelSpecInput,
+} from '../_shared/modelEval.ts';
+import { numberAppearsIn } from '../_shared/numberEcho.ts';
 import { scanNumbers, type ScanViolation } from '../_shared/numberScan.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const MAX_TOKENS = Number(Deno.env.get('LAB_MODEL_MAX_TOKENS') ?? '8000');
 const MAX_INPUT_CHARS = 200_000;
+/**
+ * The WIP cap (review 1.9): extraction refuses while this many datapoints
+ * sit unverified at IND. Extraction is the faucet; the owner's source-match
+ * rate is the system's clock speed, and this is the single control that
+ * prevents batch rubber-stamping. A feature, not friction.
+ */
+const IND_WIP_CAP = 25;
+/** The review's context window (1.12) — and it must SAY when it truncates. */
+const REVIEW_WINDOW = 200;
 
 /** Same key resolution as run-lab-agent, so the two cannot drift. */
 function keyFor(providerName: string): string {
@@ -95,6 +121,21 @@ async function restSelect<T>(table: string, query: string): Promise<T[]> {
   });
   if (!response.ok) throw new Error(`read ${table} failed (${response.status})`);
   return (await response.json()) as T[];
+}
+
+/** Exact row count without fetching rows — for caps and scope reporting. */
+async function restCount(table: string, query: string): Promise<number> {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=id&${query}`, {
+    method: 'HEAD',
+    headers: {
+      apikey: SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
+      Prefer: 'count=exact',
+    },
+  });
+  if (!response.ok) throw new Error(`count ${table} failed (${response.status})`);
+  const total = Number((response.headers.get('content-range') ?? '').split('/')[1]);
+  return Number.isFinite(total) ? total : 0;
 }
 
 interface ProviderRow {
@@ -246,6 +287,9 @@ async function runAgent(slug: string, input: string): Promise<{ runId: string; p
     provider_id: provider.id,
     input,
     status: 'running',
+    // 1.14: the RESOLVED model string, recorded at dispatch — provider
+    // drift becomes visible retrospectively in the run log.
+    model: provider.model,
   });
 
   try {
@@ -341,6 +385,19 @@ async function handleExtract(body: {
   )[0];
   if (!source) return json({ error: 'No such source document — ingest it (with its snapshot) first.' }, 404);
 
+  // 1.9: the WIP cap, BEFORE anything is billed. Extraction refuses while
+  // the unverified backlog is at the cap — the owner's source-match rate is
+  // the clock speed, and a growing IND pile is the batch-rubber-stamp setup.
+  const openInd = await restCount('os_lab_datapoints', 'status=eq.IND');
+  if (openInd >= IND_WIP_CAP) {
+    return json(
+      {
+        error: `WIP cap: ${openInd} datapoints are already open at IND (cap ${IND_WIP_CAP}). Extraction is refused until some are source-matched or marked NA — verification is the way forward, not more extraction.`,
+      },
+      409,
+    );
+  }
+
   const { runId, parsed } = await runAgent(
     'evidence-extractor',
     `QUANTITY SOUGHT:\n${body.quantity}\n\nSELECTED TEXT (extract from this and nothing else):\n${body.selectedText}`,
@@ -357,17 +414,38 @@ async function handleExtract(body: {
       skipped.push(`value=${String(entry.value)} — missing or malformed field (G-EXTRACT refuses placeholders)`);
       continue;
     }
+    // 1.1 THE ECHO CHECK: the extracted literal must APPEAR in the text it
+    // was supposedly extracted from, under some legitimate locale reading.
+    // Without this, the function wrote whatever value the model returned,
+    // and a fabricated-but-plausible figure acquired a source citation.
+    // A false rejection costs this skipped line; a false acceptance costs
+    // the whole extraction guarantee.
+    if (!numberAppearsIn(value, body.selectedText)) {
+      skipped.push(
+        `value=${value} — echo check: this number does not appear in the selected text under any locale reading (en/id/space grouping, %, sign). A figure the text does not contain cannot be extracted from it.`,
+      );
+      continue;
+    }
     // STAGE 3, deterministic: when the region showed components and a stated
     // total, THE CODE checks the arithmetic — the model only transcribed it.
-    // No structure → null → the datapoint needs manual verification to reach V.
+    // 1.2: the OPERANDS are model-supplied too, so each component and the
+    // stated total must themselves pass the echo check. If any fails, the
+    // check is NULL (unknown) — never true (a fabricated-but-consistent
+    // triple would mint its own V credential) and never false (we did not
+    // learn the document contradicts itself; we learned nothing).
     let internalCheck: boolean | null = null;
     const components = Array.isArray(entry.components)
       ? entry.components.filter((component): component is number => typeof component === 'number')
       : [];
     const statedTotal = num(entry.statedTotal);
     if (components.length > 0 && statedTotal !== null) {
-      const sum = components.reduce((total, component) => total + component, 0);
-      internalCheck = Math.abs(sum - statedTotal) <= Math.max(0.51, Math.abs(statedTotal) * 0.001);
+      const operandsEcho =
+        numberAppearsIn(statedTotal, body.selectedText) &&
+        components.every((component) => numberAppearsIn(component, body.selectedText));
+      if (operandsEcho) {
+        const sum = components.reduce((total, component) => total + component, 0);
+        internalCheck = Math.abs(sum - statedTotal) <= Math.max(0.51, Math.abs(statedTotal) * 0.001);
+      }
     }
     try {
       const datapoint = await restInsert<{ id: string }>('os_lab_datapoints', {
@@ -424,14 +502,37 @@ async function handleLiterature(body: { pastedResults: string }): Promise<Respon
 async function handleReview(body: { projectId: string }): Promise<Response> {
   // Cross-project on purpose: datapoints are shared, and the higher-value
   // catch is a new finding colliding with a commitment made elsewhere.
+  //
+  // 1.12: the recency window must not truncate SILENTLY, and it must never
+  // drop the commitments. Every layer-A claim rides along regardless of
+  // age (they are the commitments, and they are few — precisely the rows a
+  // recency-ordered window drops first), the response reports the scope
+  // actually loaded, and when the totals exceed the window the report says
+  // so. A review that admits what it did not look at is worth more than
+  // one that implies it looked at everything.
+  const totalDatapoints = await restCount('os_lab_datapoints', 'status=neq.__none__');
+  const totalClaims = await restCount('os_lab_claims', 'status=neq.__none__');
   const datapoints = await restSelect<Record<string, unknown>>(
     'os_lab_datapoints',
-    'select=id,value,unit,year,definition_scope,status&order=retrieved_at.desc&limit=200',
+    `select=id,value,unit,year,definition_scope,status&order=retrieved_at.desc&limit=${REVIEW_WINDOW}`,
   );
-  const claims = await restSelect<Record<string, unknown>>(
+  const recentClaims = await restSelect<Record<string, unknown>>(
     'os_lab_claims',
-    'select=id,project_id,statement,layer,status&order=created_at.desc&limit=200',
+    `select=id,project_id,statement,layer,status&order=created_at.desc&limit=${REVIEW_WINDOW}`,
   );
+  const layerAClaims = await restSelect<Record<string, unknown>>(
+    'os_lab_claims',
+    'select=id,project_id,statement,layer,status&layer=eq.A',
+  );
+  const claimsById = new Map<string, Record<string, unknown>>();
+  for (const claim of [...layerAClaims, ...recentClaims]) claimsById.set(String(claim.id), claim);
+  const claims = [...claimsById.values()];
+
+  const truncated = totalDatapoints > datapoints.length || totalClaims > claims.length;
+  const scopeNote = truncated
+    ? `[SCOPE: this review saw ${datapoints.length} of ${totalDatapoints} datapoints and ${claims.length} of ${totalClaims} claims (every layer-A claim included). Rows beyond the window were NOT reviewed.] `
+    : '';
+
   const context = JSON.stringify({ projectId: body.projectId, datapoints, claims });
   if (context.length > MAX_INPUT_CHARS) {
     return json({ error: 'The evidence base exceeds the review window — narrow it first.' }, 400);
@@ -485,7 +586,17 @@ async function handleReview(body: { projectId: string }): Promise<Response> {
       skipped.push(`contradiction ${a}↔${b} — could not be recorded`);
     }
   }
-  return json({ runId, report: str(parsed.report), created, skipped });
+  return json({
+    runId,
+    report: scopeNote + str(parsed.report),
+    created,
+    skipped,
+    datapointsInScope: datapoints.length,
+    claimsInScope: claims.length,
+    layerACount: layerAClaims.length,
+    totalDatapoints,
+    totalClaims,
+  });
 }
 
 /** DRAFT: from approved claims only; the number scan gates the write. */
@@ -545,14 +656,21 @@ async function handleDraft(body: {
     allowed.add(Number(datapoint.value));
     if (datapoint.year !== null) allowed.add(datapoint.year);
   }
-  const violations: ScanViolation[] = scanNumbers(content, allowed);
+  // 1.3: the drafter may not mint its own escape hatch. Tags ([C]/[sim])
+  // and quotation marks exempt nothing on THIS path — an agent emitting any
+  // figure followed by [C], or wrapped in quotes, would otherwise ship it.
+  // The exemptions are the owner's to grant, in the editor, by hand.
+  const violations: ScanViolation[] = scanNumbers(content, allowed, {
+    allowTags: false,
+    allowQuotes: false,
+  });
   if (violations.length > 0) {
     return json(
       {
         runId,
         blocked: violations,
         error:
-          'G-NUMBER: the draft carries figures no datapoint stands behind — it was not saved. The text is in the run log; the routes forward are a verified datapoint or an explicit [C]/[sim] tag.',
+          "G-NUMBER: the draft carries figures no datapoint stands behind — it was not saved. Tags and quotation marks are the owner's to grant, never the drafter's: the routes forward are a verified datapoint cited through an approved claim, or the owner tagging the figure by hand in the editor. The full text is in the run log.",
       },
       409,
     );
@@ -580,6 +698,347 @@ async function handleDraft(body: {
     }
   }
   return json({ runId, outputId: output.id, citedClaimIds: linked });
+}
+
+/**
+ * MODELER (phase 4): propose a DECLARATIVE spec as a draft. The expression
+ * must parse under the first-party grammar (A5: arithmetic, never code) or
+ * the whole proposal is refused; parameters must bind supplied V datapoints
+ * or carry full-text-justified values — anything else is skipped by name.
+ * The 082 rails re-check every write underneath.
+ */
+async function handleProposeSpec(body: { projectId: string; brief: string }): Promise<Response> {
+  const verified = await restSelect<{ id: string; value: number | string; unit: string; definition_scope: string }>(
+    'os_lab_datapoints',
+    'select=id,value,unit,definition_scope&status=eq.V&order=retrieved_at.desc&limit=100',
+  );
+  const fullText = await restSelect<{ id: string; title: string }>(
+    'os_lab_references',
+    'select=id,title&verification_level=eq.full_text_read&limit=100',
+  );
+  const { runId, parsed } = await runAgent(
+    'evidence-modeler',
+    JSON.stringify({ brief: body.brief, verifiedDatapoints: verified, fullTextReferences: fullText }),
+  );
+
+  const kind = str(parsed.kind);
+  if (!['expression', 'monte_carlo', 'scenario'].includes(kind)) {
+    return json({ error: `The modeler proposed an unknown kind '${kind}'. The full text is in the run log.`, runId }, 502);
+  }
+  const spec = (parsed.spec ?? {}) as Record<string, unknown>;
+  const expression = str(spec.expression);
+  try {
+    // A5's teeth: the grammar IS the gate. Anything that does not parse as
+    // plain arithmetic never becomes a spec row.
+    parseExpression(expression);
+  } catch (error) {
+    return json(
+      {
+        error: `The proposed expression is not plain arithmetic (${error instanceof Error ? error.message : 'unparseable'}) — refused before any row exists.`,
+        runId,
+      },
+      502,
+    );
+  }
+
+  const specRow = await restInsert<{ id: string }>('os_lab_model_specs', {
+    project_id: body.projectId,
+    name: str(parsed.name) || 'untitled model',
+    kind,
+    spec,
+    created_by_run_id: runId,
+  });
+
+  const verifiedIds = new Set(verified.map((row) => row.id));
+  const fullTextIds = new Set(fullText.map((row) => row.id));
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of Array.isArray(parsed.params) ? parsed.params : []) {
+    const entry = raw as Record<string, unknown>;
+    const name = str(entry.name);
+    const paramKind = str(entry.kind);
+    if (!/^[a-z_][a-z0-9_]*$/.test(name)) {
+      skipped.push(`'${name}' — not a legal parameter name`);
+      continue;
+    }
+    if (paramKind === 'datapoint' && !verifiedIds.has(str(entry.datapointId))) {
+      skipped.push(`'${name}' — datapoint ${str(entry.datapointId) || '(none)'} is not a supplied V datapoint`);
+      continue;
+    }
+    if (paramKind === 'assumption' && (num(entry.value) === null || !fullTextIds.has(str(entry.justificationReferenceId)))) {
+      skipped.push(`'${name}' — an assumption needs a value AND a supplied full-text justification`);
+      continue;
+    }
+    if (paramKind !== 'datapoint' && paramKind !== 'assumption') {
+      skipped.push(`'${name}' — kind '${paramKind}' does not exist; evidence or justified assumption only`);
+      continue;
+    }
+    try {
+      const param = await restInsert<{ id: string }>('os_lab_model_spec_params', {
+        spec_id: specRow.id,
+        name,
+        kind: paramKind,
+        datapoint_id: paramKind === 'datapoint' ? str(entry.datapointId) : null,
+        value: paramKind === 'assumption' ? num(entry.value) : null,
+        unit: str(entry.unit),
+        justification_reference_id: paramKind === 'assumption' ? str(entry.justificationReferenceId) : null,
+        distribution: entry.distribution ?? null,
+      });
+      created.push(param.id);
+    } catch (error) {
+      skipped.push(`'${name}' — ${error instanceof Error ? error.message : 'refused'}`);
+    }
+  }
+  return json({ runId, specId: specRow.id, params: created, skipped });
+}
+
+/**
+ * RUN-MODEL (phase 4): the owner runs an approved-or-draft spec through the
+ * version-pinned evaluator. Every check lands as a row — a failed run is a
+ * RECORDED failure, never an absent one. Datapoint parameters resolve to
+ * their CURRENT values and must still be V at run time.
+ */
+async function handleRunModel(body: { specId: string; seed: number }): Promise<Response> {
+  const spec = (
+    await restSelect<{ id: string; kind: string; spec: Record<string, unknown> }>(
+      'os_lab_model_specs',
+      `select=id,kind,spec&id=eq.${body.specId}&limit=1`,
+    )
+  )[0];
+  if (!spec) return json({ error: 'No such model spec.' }, 404);
+  const paramRows = await restSelect<{
+    name: string;
+    kind: string;
+    datapoint_id: string | null;
+    value: number | string | null;
+    unit: string;
+    distribution: Distribution | null;
+  }>('os_lab_model_spec_params', `spec_id=eq.${body.specId}&order=name`);
+
+  const params: ModelParamInput[] = [];
+  const inputDatapointIds: string[] = [];
+  for (const row of paramRows) {
+    if (row.kind === 'datapoint' && row.datapoint_id) {
+      const datapoint = (
+        await restSelect<{ id: string; value: number | string; status: string }>(
+          'os_lab_datapoints',
+          `select=id,value,status&id=eq.${row.datapoint_id}&limit=1`,
+        )
+      )[0];
+      if (!datapoint || datapoint.status !== 'V') {
+        return json(
+          {
+            error: `G-MODEL: parameter '${row.name}' binds datapoint ${row.datapoint_id}, which is not source-matched right now (${datapoint?.status ?? 'missing'}) — re-match it, then run.`,
+          },
+          409,
+        );
+      }
+      params.push({ name: row.name, value: Number(datapoint.value), unit: row.unit, distribution: row.distribution });
+      inputDatapointIds.push(datapoint.id);
+    } else {
+      params.push({ name: row.name, value: Number(row.value ?? 0), unit: row.unit, distribution: row.distribution });
+    }
+  }
+
+  const specInput: ModelSpecInput = {
+    kind: spec.kind as ModelSpecInput['kind'],
+    expression: str(spec.spec.expression),
+    outputUnit: str(spec.spec.outputUnit),
+    bounds: (spec.spec.bounds ?? undefined) as ModelSpecInput['bounds'],
+    identities: (spec.spec.identities ?? undefined) as ModelSpecInput['identities'],
+    iterations: typeof spec.spec.iterations === 'number' ? spec.spec.iterations : undefined,
+    scenarios: (spec.spec.scenarios ?? undefined) as ModelSpecInput['scenarios'],
+  };
+  // Sanity: every expression parameter must be supplied.
+  try {
+    const wanted = expressionParams(parseExpression(specInput.expression));
+    for (const name of wanted) {
+      if (!params.some((param) => param.name === name)) {
+        return json({ error: `The expression names '${name}' and the spec has no such parameter.` }, 422);
+      }
+    }
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Unparseable expression.' }, 422);
+  }
+
+  const outcome = evaluateModelSpec(specInput, params, body.seed);
+  const result = await restInsert<{ id: string }>('os_lab_model_results', {
+    spec_id: spec.id,
+    evaluator_version: EVALUATOR_VERSION,
+    seed: body.seed,
+    result_value: outcome.value,
+    result_unit: outcome.unit,
+    result_summary: outcome.summary,
+    checks: outcome.checks,
+    checks_passed: outcome.checksPassed,
+    sensitivity_passed: outcome.sensitivityPassed,
+    input_datapoint_ids: inputDatapointIds,
+  });
+  return json({ resultId: result.id, ...outcome });
+}
+
+/**
+ * FRAME (phase 2): critique and alternatives, JSON out, NO table writes.
+ * The framing decides what evidence gets sought before any downstream gate
+ * can act — so the framer exists — but recording a framing is the owner's
+ * act, always: os_lab_questions has no keyless write path at all.
+ */
+async function handleFrameCritique(body: {
+  rawStatement: string;
+  framedQuestion: string;
+}): Promise<Response> {
+  const { runId, parsed } = await runAgent(
+    'evidence-framer',
+    `MODE critique\n\nRAW ASK:\n${body.rawStatement}\n\nCURRENT FRAMED QUESTION:\n${body.framedQuestion || '(none yet)'}`,
+  );
+  const critique = str(parsed.critique).trim();
+  if (!critique) {
+    return json({ error: 'The framer returned no critique. The full text is in the run log.', runId }, 502);
+  }
+  return json({ runId, critique });
+}
+
+async function handleFrameAlternatives(body: { rawStatement: string }): Promise<Response> {
+  const { runId, parsed } = await runAgent(
+    'evidence-framer',
+    `MODE alternatives\n\nRAW ASK:\n${body.rawStatement}`,
+  );
+  const alternatives = (Array.isArray(parsed.alternatives) ? parsed.alternatives : [])
+    .map((raw) => {
+      const entry = raw as Record<string, unknown>;
+      return {
+        framedQuestion: str(entry.framedQuestion).trim(),
+        why: str(entry.why).trim(),
+        subQuestions: (Array.isArray(entry.subQuestions) ? entry.subQuestions : [])
+          .map((sq) => ({
+            statement: str((sq as { statement?: unknown }).statement).trim(),
+            falsifier: str((sq as { falsifier?: unknown }).falsifier).trim(),
+          }))
+          .filter((sq) => sq.statement && sq.falsifier.length >= 20),
+      };
+    })
+    .filter((alternative) => alternative.framedQuestion.length >= 20)
+    .slice(0, 3);
+  // 2–3, never one: a single option is an anchor, not a choice. Enforced in
+  // code, not requested in the prompt.
+  if (alternatives.length < 2) {
+    return json(
+      {
+        error:
+          'The framer returned fewer than two viable framings — a single option is an anchor, not a choice. The full text is in the run log.',
+        runId,
+      },
+      502,
+    );
+  }
+  return json({ runId, alternatives });
+}
+
+/**
+ * SCOUT (phase 3): pasted search listings → candidate rows. Four fields;
+ * anything else the model emitted dies in this mapping, because
+ * os_lab_candidate_sources has no columns for judgement — by design, so an
+ * agent's "highly relevant!" can never masquerade as a record. The trigger
+ * assigns tier from the owner's allowlist and forces status=candidate.
+ */
+async function handleScout(body: { pastedResults: string; projectId?: string }): Promise<Response> {
+  const { runId, parsed } = await runAgent('evidence-scout', body.pastedResults);
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of Array.isArray(parsed.candidates) ? parsed.candidates : []) {
+    const entry = raw as Record<string, unknown>;
+    const title = str(entry.title).trim();
+    if (!title) {
+      skipped.push('(untitled) — not an identifiable source');
+      continue;
+    }
+    const claimedDate = str(entry.claimedDate);
+    try {
+      const candidate = await restInsert<{ id: string }>('os_lab_candidate_sources', {
+        project_id: body.projectId ?? null,
+        title,
+        publisher: str(entry.publisher),
+        url: str(entry.url),
+        claimed_date: /^\d{4}-\d{2}-\d{2}$/.test(claimedDate) ? claimedDate : null,
+        created_by_run_id: runId,
+      });
+      created.push(candidate.id);
+    } catch (error) {
+      skipped.push(`"${title}" — ${error instanceof Error ? error.message : 'refused'}`);
+    }
+  }
+  return json({ runId, created, skipped });
+}
+
+const MAX_SNAPSHOT_BYTES = 20_000_000;
+const SNAPSHOT_BUCKET = 'lab-artifacts';
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function fetchForSnapshot(url: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs can be snapshotted.');
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok) throw new Error(`Fetch failed (${response.status}).`);
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > MAX_SNAPSHOT_BYTES) {
+    throw new Error(`Document too large (${bytes.byteLength} bytes, max ${MAX_SNAPSHOT_BYTES}).`);
+  }
+  return { bytes, mime: response.headers.get('content-type') ?? 'application/octet-stream' };
+}
+
+/**
+ * SNAPSHOT (phase 3): fetch a URL server-side, hash it, store the bytes.
+ * NO table writes — the CLIENT creates the source document and promotes the
+ * candidate under the owner key, so ingestion stays an owner act end to end.
+ */
+async function handleSnapshot(body: { url: string }): Promise<Response> {
+  const { bytes, mime } = await fetchForSnapshot(body.url);
+  const hash = await sha256Hex(bytes);
+  const storagePath = `snapshots/${Date.now()}-${hash.slice(0, 12)}`;
+  const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/${SNAPSHOT_BUCKET}/${storagePath}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, 'Content-Type': mime },
+    body: bytes,
+  });
+  if (!upload.ok) return json({ error: `Storage upload failed (${upload.status})` }, 502);
+  return json({ storagePath, hash, sizeBytes: bytes.byteLength });
+}
+
+/**
+ * RECHECK (phase 3): re-fetch, re-hash, FLAG — never demote. The flag means
+ * "the page changed", NOT "the figure changed"; deciding what follows is
+ * the owner's, with the datapoints' V untouched by construction (the 081
+ * guard's keyless shape admits only the two flag columns).
+ */
+async function handleRecheck(body: { sourceDocumentId: string }): Promise<Response> {
+  const source = (
+    await restSelect<{ id: string; url: string; snapshot_hash: string }>(
+      'os_lab_source_documents',
+      `select=id,url,snapshot_hash&id=eq.${body.sourceDocumentId}&limit=1`,
+    )
+  )[0];
+  if (!source) return json({ error: 'No such source document.' }, 404);
+  if (!source.url) {
+    return json({ error: 'This source has no URL — offline documents are rechecked by hand against the snapshot.' }, 400);
+  }
+  if (!source.snapshot_hash) {
+    return json({ error: 'This source has no stored snapshot hash — re-ingest it via the snapshot action first.' }, 409);
+  }
+  const { bytes } = await fetchForSnapshot(source.url);
+  const hash = await sha256Hex(bytes);
+  const changed = hash !== source.snapshot_hash;
+  await restUpdate('os_lab_source_documents', source.id, {
+    last_rechecked_at: new Date().toISOString(),
+    // The flag reflects the LATEST recheck: set on change, cleared when the
+    // page matches the snapshot again.
+    content_changed_at: changed ? new Date().toISOString() : null,
+  });
+  return json({ changed, hash, storedHash: source.snapshot_hash });
 }
 
 // ---------------------------------------------------------------------------
@@ -653,6 +1112,43 @@ Deno.serve(async (request) => {
       const projectId = str(body.projectId);
       if (!projectId) return json({ error: 'No projectId supplied' }, 400);
       return await handleReview({ projectId });
+    }
+    if (action === 'scout') {
+      const pastedResults = str(body.pastedResults);
+      if (!pastedResults) return json({ error: 'No pastedResults supplied' }, 400);
+      return await handleScout({ pastedResults, projectId: str(body.projectId) || undefined });
+    }
+    if (action === 'snapshot') {
+      const url = str(body.url);
+      if (!url) return json({ error: 'No url supplied' }, 400);
+      return await handleSnapshot({ url });
+    }
+    if (action === 'recheck') {
+      const sourceDocumentId = str(body.sourceDocumentId);
+      if (!sourceDocumentId) return json({ error: 'No sourceDocumentId supplied' }, 400);
+      return await handleRecheck({ sourceDocumentId });
+    }
+    if (action === 'propose-spec') {
+      const projectId = str(body.projectId);
+      const brief = str(body.brief);
+      if (!projectId || !brief) return json({ error: 'projectId and brief are required' }, 400);
+      return await handleProposeSpec({ projectId, brief });
+    }
+    if (action === 'run-model') {
+      const specId = str(body.specId);
+      if (!specId) return json({ error: 'No specId supplied' }, 400);
+      const seed = typeof body.seed === 'number' && Number.isFinite(body.seed) ? body.seed : 1;
+      return await handleRunModel({ specId, seed });
+    }
+    if (action === 'frame-critique') {
+      const rawStatement = str(body.rawStatement);
+      if (!rawStatement) return json({ error: 'No rawStatement supplied' }, 400);
+      return await handleFrameCritique({ rawStatement, framedQuestion: str(body.framedQuestion) });
+    }
+    if (action === 'frame-alternatives') {
+      const rawStatement = str(body.rawStatement);
+      if (!rawStatement) return json({ error: 'No rawStatement supplied' }, 400);
+      return await handleFrameAlternatives({ rawStatement });
     }
     if (action === 'draft') {
       const projectId = str(body.projectId);

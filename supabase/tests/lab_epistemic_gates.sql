@@ -46,6 +46,26 @@ declare
   v_output uuid;
   v_output_vol uuid;
   v_ref_agent uuid;
+  v_question uuid;       -- FRAMER (080)
+  v_subq_met uuid;       -- sub-question whose requirement gets satisfied
+  v_subq_open uuid;      -- sub-question left unsatisfied (G-FALSIFY)
+  v_req_met uuid;
+  v_req_open uuid;
+  v_req_ref uuid;
+  v_ref_f uuid;          -- abstract-only reference for the F cases
+  v_dp_ind_f uuid;       -- IND datapoint for the F cases
+  v_output_f uuid;
+  v_claim_b2 uuid;       -- layer B claim for the inference_step cases
+  v_claim_c2 uuid;       -- layer C claim for the inference_step cases
+  v_candidate uuid;      -- SCOUT (081)
+  v_candidate_blog uuid;
+  v_spec uuid;           -- MODELER (082)
+  v_run_echo uuid;
+  v_result_good uuid;
+  v_result_bad uuid;
+  v_result_stale uuid;
+  v_req_model uuid;
+  v_dp_ind_m uuid;       -- an IND datapoint for the M3 refusal
   v_stamp timestamptz;
   v_text text;
   v_int int;
@@ -71,6 +91,11 @@ begin
   insert into public.os_lab_commitment_sources (project_id, title, type, committed_at, document_path)
   values (v_project, 't-essay', 'essay', current_date, 'commitments/t-essay.md')
   returning id into v_commit;
+
+  -- The heartbeat (079): finalization refuses while the sweep has never
+  -- run, so the fixture runs it once up front — the output cases below
+  -- assert their ORIGINAL causes, and the heartbeat gets its own cases.
+  perform public.os_lab_stale_sweep();
 
   -- ==== G-EXTRACT ==========================================================
   -- 1. definition_scope under 20 characters is refused, not placeholdered.
@@ -161,8 +186,9 @@ begin
   values (7.3, 'cold-storage utilisation rate, national aggregate', v_source, 'p.12', 'volatile', 'manual')
   returning id into v_dp_conflict_a;
 
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-claim: utilisation is materially below capacity', 'B')
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-claim: utilisation is materially below capacity', 'B',
+          'the matched utilisation figure sits well below the capacity figure on the same basis')
   returning id into v_claim;
   insert into public.os_lab_claim_datapoints values (v_claim, v_dp_conflict_a);
 
@@ -321,6 +347,666 @@ begin
   exception when others then null;
   end;
 
+  -- ==== HARDENING (079) ====================================================
+
+  -- H1. extraction_method is provenance and frozen after insert.
+  begin
+    update public.os_lab_datapoints
+       set extraction_method = 'agent_from_full_pdf' where id = v_dp_manual;
+    insert into gate_findings values ('H1: extraction_method was relabelled after insert');
+  exception when others then
+    if sqlerrm not ilike '%provenance%' then
+      insert into gate_findings values ('H1: freeze refused with the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- H2. the sweep heartbeat gates finalization, naming the SWEEP.
+  delete from public.os_lab_sweep_log;
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized with the sweep never having run');
+  exception when others then
+    if sqlerrm not ilike '%sweep%' then
+      insert into gate_findings values ('H2: empty-heartbeat refusal did not name the sweep: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_sweep_log (ran_at, rows_demoted)
+  values (now() - interval '50 hours', 0);
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized with a 50-hour-old heartbeat');
+  exception when others then
+    if sqlerrm not ilike '%sweep%' then
+      insert into gate_findings values ('H2: stale-heartbeat refusal did not name the sweep: ' || sqlerrm);
+    end if;
+  end;
+  perform public.os_lab_stale_sweep();
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized citing a non-approved claim once the heartbeat was fresh');
+  exception when others then
+    if sqlerrm not like '%' || v_claim_x || '%' then
+      insert into gate_findings values ('H2: with a fresh heartbeat the refusal should be the unapproved claim: ' || sqlerrm);
+    end if;
+  end;
+
+  -- H3. a DIRECT open contradiction blocks approval of either side.
+  --     (v_claim_x ↔ v_claim_y carry one from case 20.)
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_y;
+    insert into gate_findings values ('H3: approved one side of an open DIRECT contradiction');
+  exception when others then
+    if sqlerrm not ilike '%direct%' or sqlerrm not like '%' || v_claim_x || '%' then
+      insert into gate_findings values ('H3: refusal did not name the contradiction and opposing claim: ' || sqlerrm);
+    end if;
+  end;
+  --     tension stays advisory: an open tension does not block.
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-tension-a', 'C',
+          'inferred from the divergence between the two matched series')
+  returning id into v_dp_conflict_a; -- reuse var as claim id
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-tension-b', 'C',
+          'inferred from the same divergence read the other way')
+  returning id into v_dp_conflict_b;
+  insert into public.os_lab_claim_contradictions (claim_a_id, claim_b_id, severity)
+  values (v_dp_conflict_a, v_dp_conflict_b, 'tension');
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_dp_conflict_a;
+  exception when others then
+    insert into gate_findings values ('H3 over-blocks: a tension contradiction blocked approval: ' || sqlerrm);
+  end;
+
+  -- H4. models are pinned: no aliases, and a marker is required.
+  begin
+    update public.os_lab_providers set model = 'claude-latest' where name = 'anthropic';
+    insert into gate_findings values ('H4: a -latest alias was accepted as a model string');
+  exception when others then
+    if sqlerrm not ilike '%alias%' then
+      insert into gate_findings values ('H4: alias refused with the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_providers set model = 'kimi-preview' where name = 'kimi';
+    insert into gate_findings values ('H4: a model string with no version/date marker was accepted');
+  exception when others then null;
+  end;
+  --     grandfathering: an edit that does NOT touch the model passes even
+  --     on the alias row that predates the guard.
+  begin
+    update public.os_lab_providers set is_active = true where name = 'deepseek';
+  exception when others then
+    insert into gate_findings values ('H4 over-blocks: a non-model edit on the grandfathered row was refused: ' || sqlerrm);
+  end;
+
+  -- H5. runs record the resolved model string.
+  insert into public.os_lab_runs (agent_id, provider_id, input, status, model)
+  select a.id, p.id, 'h5 probe', 'error', p.model
+    from public.os_lab_agents a, public.os_lab_providers p
+   where a.slug = 'ceo-briefing-deck' and p.name = 'kimi';
+  select count(*) into v_int from public.os_lab_runs
+   where input = 'h5 probe' and model <> '';
+  if v_int <> 1 then
+    insert into gate_findings values ('H5: the runs row did not record the resolved model string');
+  end if;
+
+  -- ==== FRAMER (080) =======================================================
+
+  -- F0. the honest intake lands: question, sub-questions, requirements.
+  begin
+    insert into public.os_lab_questions (project_id, raw_statement, framed_question, framing_source)
+    values (v_project, 'is cold-chain the bottleneck?',
+            'which cold-chain segment binds national capacity growth first', 'owner_written')
+    returning id into v_question;
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 'is utilisation below nameplate capacity?',
+            'a source-matched utilisation figure at or above nameplate capacity')
+    returning id into v_subq_met;
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 'does the licensing regime bind imports?',
+            'an import realisation series unchanged across the regulation date')
+    returning id into v_subq_open;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_met, 'a source-matched national utilisation rate', 'datapoint')
+    returning id into v_req_met;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_open, 'an import realisation series spanning the regulation date', 'datapoint')
+    returning id into v_req_open;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_met, 'a full-text study of utilisation methodology', 'reference')
+    returning id into v_req_ref;
+  exception when others then
+    insert into gate_findings values ('F0 over-blocks: an honest owner intake was refused: ' || sqlerrm);
+  end;
+
+  -- F1. a sub-question without a real falsifier is a row that cannot exist.
+  begin
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 't-lazy', 'none');
+    insert into gate_findings values ('F1: a sub-question with a 4-char falsifier was accepted');
+  exception when others then null;
+  end;
+
+  -- F2. the framer''s write scope is EMPTY: keyless writes refused on all four.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_questions (project_id, raw_statement, framed_question, framing_source)
+    values (v_project, 'agent ask', 'an agent-framed question, which must not exist', 'owner_written');
+    insert into gate_findings values ('F2: AGENT inserted a question');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 't-agent-subq', 'an agent-invented falsifier long enough to pass');
+    insert into gate_findings values ('F2: AGENT inserted a sub-question');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_open, 't-agent-req', 'datapoint');
+    insert into gate_findings values ('F2: AGENT inserted an evidence requirement');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_output_sub_questions values (v_output, v_subq_open);
+    insert into gate_findings values ('F2: AGENT linked an output to a sub-question');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+
+  -- F3. raw_statement is frozen at intake, even for the owner.
+  begin
+    update public.os_lab_questions
+       set raw_statement = 'quietly different ask' where id = v_question;
+    insert into gate_findings values ('F3: raw_statement was rewritten after intake');
+  exception when others then
+    if sqlerrm not like '%' || v_question || '%' then
+      insert into gate_findings values ('F3: freeze refusal did not name the question: ' || sqlerrm);
+    end if;
+  end;
+  --     reframing (framed_question) stays open — over-blocking check.
+  begin
+    update public.os_lab_questions
+       set framed_question = 'which cold-chain segment binds capacity growth first, and where',
+           framing_source = 'owner_selected'
+     where id = v_question;
+  exception when others then
+    insert into gate_findings values ('F3 over-blocks: an owner reframe was refused: ' || sqlerrm);
+  end;
+
+  -- F4. only source-matched evidence satisfies a requirement.
+  insert into public.os_lab_datapoints
+    (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
+  values (55, 'import realisation series, customs clearance basis, monthly', v_source, 'tab 9', 'slow', 'manual')
+  returning id into v_dp_ind_f;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_datapoint_id = v_dp_ind_f where id = v_req_met;
+    insert into gate_findings values ('F4: an IND datapoint satisfied an evidence requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_req_met || '%' or sqlerrm not like '%' || v_dp_ind_f || '%' then
+      insert into gate_findings values ('F4: IND refusal did not name requirement and datapoint: ' || sqlerrm);
+    end if;
+  end;
+  --     a V datapoint does, and the guard stamps satisfied_at.
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_datapoint_id = v_dp_manual where id = v_req_met;
+    select satisfied_at into v_stamp from public.os_lab_evidence_requirements where id = v_req_met;
+    if v_stamp is null then
+      insert into gate_findings values ('F4: satisfaction landed but satisfied_at was not stamped');
+    end if;
+  exception when others then
+    insert into gate_findings values ('F4 over-blocks: a V datapoint was refused as satisfaction: ' || sqlerrm);
+  end;
+  --     kind-consistency is a row fact: a reference on a datapoint-kind row.
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_reference_id = v_ref where id = v_req_open;
+    insert into gate_findings values ('F4: a reference satisfied a datapoint-kind requirement');
+  exception when others then null;
+  end;
+  --     an abstract-only reference cannot satisfy a reference-kind row.
+  insert into public.os_lab_references (title) values ('t-abstract-f') returning id into v_ref_f;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_reference_id = v_ref_f where id = v_req_ref;
+    insert into gate_findings values ('F4: an abstract_only reference satisfied a requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_ref_f || '%' then
+      insert into gate_findings values ('F4: abstract refusal did not name the reference: ' || sqlerrm);
+    end if;
+  end;
+
+  -- F5. G-FALSIFY: an output addressing a sub-question with no satisfied
+  --     requirement cannot finalize, and the refusal names the sub-question.
+  insert into public.os_lab_outputs (project_id, output_type)
+  values (v_project, 'briefing') returning id into v_output_f;
+  insert into public.os_lab_output_claims values (v_output_f, v_claim);
+  insert into public.os_lab_output_sub_questions values (v_output_f, v_subq_met);
+  insert into public.os_lab_output_sub_questions values (v_output_f, v_subq_open);
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output_f;
+    insert into gate_findings values ('F5: finalized addressing a sub-question with no satisfied requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_subq_open || '%' then
+      insert into gate_findings values ('F5: G-FALSIFY refusal did not name the sub-question: ' || sqlerrm);
+    end if;
+  end;
+  --     satisfy the open requirement (source-match the IND row first) and
+  --     the same finalize lands — the gate reads coverage, not vibes.
+  update public.os_lab_datapoints
+     set status = 'V', verification_note = 'checked against the customs clearance table'
+   where id = v_dp_ind_f;
+  update public.os_lab_evidence_requirements
+     set satisfied_by_datapoint_id = v_dp_ind_f where id = v_req_open;
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output_f;
+    select status into v_text from public.os_lab_outputs where id = v_output_f;
+    if v_text <> 'final' then
+      insert into gate_findings values ('F5: a fully-covered finalize did not land (status ' || v_text || ')');
+    end if;
+  exception when others then
+    insert into gate_findings values ('F5 over-blocks: a fully-covered finalize was refused: ' || sqlerrm);
+  end;
+  --     a final output''s sub-question links are pinned.
+  begin
+    delete from public.os_lab_output_sub_questions
+     where output_id = v_output_f and sub_question_id = v_subq_open;
+    insert into gate_findings values ('F5: a sub-question was unlinked from a final output');
+  exception when others then null;
+  end;
+
+  -- F6. layer B approval requires evidence AND the inference step.
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-b2: the series is flat across the date', 'B')
+  returning id into v_claim_b2;
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_b2;
+    insert into gate_findings values ('F6: a layer B claim approved with no evidence linked');
+  exception when others then
+    if sqlerrm not like '%' || v_claim_b2 || '%' then
+      insert into gate_findings values ('F6: no-evidence refusal did not name the claim: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_claim_datapoints values (v_claim_b2, v_dp_ind_f);
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_b2;
+    insert into gate_findings values ('F6: a layer B claim approved without an inference_step');
+  exception when others then
+    if sqlerrm not ilike '%inference_step%' then
+      insert into gate_findings values ('F6: refusal did not name inference_step: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_claims
+       set status = 'approved',
+           inference_step = 'the matched series shows no level shift across the regulation date'
+     where id = v_claim_b2;
+  exception when others then
+    insert into gate_findings values ('F6 over-blocks: evidence + inference_step approval refused: ' || sqlerrm);
+  end;
+
+  -- F7. layer C approval requires the inference step — the step IS the
+  --     contribution and it gets recorded.
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-c2: the regime is not the binding constraint', 'C')
+  returning id into v_claim_c2;
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_c2;
+    insert into gate_findings values ('F7: a layer C claim approved without an inference_step');
+  exception when others then
+    if sqlerrm not ilike '%inference_step%' then
+      insert into gate_findings values ('F7: refusal did not name inference_step: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_claims
+       set status = 'approved',
+           inference_step = 'if imports were bound by licensing, the realisation series would shift; it does not'
+     where id = v_claim_c2;
+  exception when others then
+    insert into gate_findings values ('F7 over-blocks: a layer C approval with the step was refused: ' || sqlerrm);
+  end;
+
+  -- F8. the coverage views agree with what just happened.
+  select satisfied_count into v_int
+    from public.os_lab_sub_question_coverage where sub_question_id = v_subq_open;
+  if v_int <> 1 then
+    insert into gate_findings values ('F8: sub-question coverage view shows ' || v_int || ' satisfied, expected 1');
+  end if;
+
+  -- ==== SCOUT (081) ========================================================
+
+  -- S0. the tier comes from the allowlist, never the payload — owner too.
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, publisher, url, tier)
+    values (v_project, 't-candidate-bps', 'BPS', 'https://example.invalid/bps', 3)
+    returning id into v_candidate;
+    if (select tier from public.os_lab_candidate_sources where id = v_candidate) <> 1 then
+      insert into gate_findings values ('S0: BPS candidate did not get allowlist tier 1');
+    end if;
+  exception when others then
+    insert into gate_findings values ('S0 over-blocks: an honest owner candidate was refused: ' || sqlerrm);
+  end;
+
+  -- S1. the SCOUT (keyless): candidate-only, tier recomputed from the
+  --     allowlist even when the payload lies.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, publisher, tier)
+    values (v_project, 't-candidate-blog', 'Some Blog', 1)
+    returning id into v_candidate_blog;
+    if (select tier from public.os_lab_candidate_sources where id = v_candidate_blog) <> 3 then
+      insert into gate_findings values ('S1: an unknown publisher kept the payload''s tier claim');
+    end if;
+    if (select status from public.os_lab_candidate_sources where id = v_candidate_blog) <> 'candidate' then
+      insert into gate_findings values ('S1: a keyless candidate landed at a status other than candidate');
+    end if;
+  exception when others then
+    insert into gate_findings values ('S1 over-blocks: the scout''s legitimate candidate insert was refused: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, status)
+    values (v_project, 't-agent-promoted', 'promoted');
+    insert into gate_findings values ('S1: AGENT inserted a candidate at status promoted');
+  exception when others then null;
+  end;
+  -- S2. keyless curation is refused outright.
+  begin
+    update public.os_lab_candidate_sources set status = 'dismissed' where id = v_candidate;
+    insert into gate_findings values ('S2: AGENT dismissed a candidate');
+  exception when others then null;
+  end;
+  -- S2b. the allowlist itself is owner-only.
+  begin
+    insert into public.os_lab_publisher_tiers (publisher, tier) values ('Agent Times', 1);
+    insert into gate_findings values ('S2: AGENT wrote the publisher allowlist');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+
+  -- S3. promotion requires the snapshot-backed source document, by name.
+  begin
+    update public.os_lab_candidate_sources set status = 'promoted' where id = v_candidate;
+    insert into gate_findings values ('S3: promoted a candidate with no source document');
+  exception when others then
+    if sqlerrm not like '%' || v_candidate || '%' then
+      insert into gate_findings values ('S3: refusal did not name the candidate: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_candidate_sources
+       set status = 'promoted', promoted_source_document_id = v_source
+     where id = v_candidate;
+  exception when others then
+    insert into gate_findings values ('S3 over-blocks: promotion with a snapshot-backed document was refused: ' || sqlerrm);
+  end;
+
+  -- S4. the recheck (keyless): flag columns only; substance is refused.
+  perform set_config('request.headers', '{}', true);
+  begin
+    update public.os_lab_source_documents
+       set last_rechecked_at = now(), content_changed_at = now()
+     where id = v_source;
+  exception when others then
+    insert into gate_findings values ('S4 over-blocks: the keyless recheck flag write was refused: ' || sqlerrm);
+  end;
+  begin
+    update public.os_lab_source_documents set title = 'rewritten by the recheck' where id = v_source;
+    insert into gate_findings values ('S4: a keyless write touched source-document substance');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_source_documents (title, doc_type, local_snapshot_path)
+    values ('t-agent-source', 'news', 'snapshots/x.pdf');
+    insert into gate_findings values ('S4: AGENT ingested a source document');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  --     and the flag demoted nothing: the V datapoint on v_source stands.
+  select status into v_text from public.os_lab_datapoints where id = v_dp_manual;
+  if v_text <> 'V' then
+    insert into gate_findings values ('S4: the recheck flag demoted a datapoint (is ' || v_text || ')');
+  end if;
+
+  -- S5. judgement columns are structurally absent — a regression tripwire.
+  select count(*) into v_int
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'os_lab_candidate_sources'
+     and column_name in ('notes', 'summary', 'assessment', 'relevance', 'relevance_score', 'quality');
+  if v_int > 0 then
+    insert into gate_findings values ('S5: a judgement column appeared on os_lab_candidate_sources');
+  end if;
+
+  -- ==== MODELER (082) ======================================================
+
+  -- M0. the spec_hash is guard-computed — a forged payload hash is overwritten.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, spec_hash)
+    values (v_project, 't-model', 'expression',
+            '{"expression": "price * volume", "outputUnit": "IDR"}'::jsonb, 'forged')
+    returning id into v_spec;
+    if (select spec_hash from public.os_lab_model_specs where id = v_spec) = 'forged' then
+      insert into gate_findings values ('M0: a payload spec_hash survived the guard');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M0 over-blocks: an honest owner spec draft was refused: ' || sqlerrm);
+  end;
+
+  -- M1. born draft, always; approval needs the owner AND a rationale.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, status)
+    values (v_project, 't-born-approved', 'expression', '{}'::jsonb, 'approved');
+    insert into gate_findings values ('M1: a spec was inserted directly at approved');
+  exception when others then null;
+  end;
+  perform set_config('request.headers', '{}', true);
+  begin
+    update public.os_lab_model_specs set status = 'approved' where id = v_spec;
+    insert into gate_findings values ('M1: AGENT approved a model spec');
+  exception when others then null;
+  end;
+  --     the modeler's write scope: a keyless DRAFT lands; a keyless
+  --     rationale does not.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec)
+    values (v_project, 't-agent-draft', 'expression', '{"expression": "x", "outputUnit": ""}'::jsonb);
+  exception when others then
+    insert into gate_findings values ('M1 over-blocks: the modeler''s draft proposal was refused: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, rationale)
+    values (v_project, 't-agent-rationale', 'expression', '{}'::jsonb, 'an agent-authored rationale long enough');
+    insert into gate_findings values ('M1: AGENT supplied a rationale on insert');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  begin
+    update public.os_lab_model_specs set status = 'approved' where id = v_spec;
+    insert into gate_findings values ('M1: approved with no rationale at all');
+  exception when others then
+    if sqlerrm not like '%' || v_spec || '%' or sqlerrm not ilike '%rationale%' then
+      insert into gate_findings values ('M1: refusal did not name the spec and the rationale: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M2. a rationale pasted from the generating run's output is refused.
+  insert into public.os_lab_runs (agent_id, provider_id, input, status, output, model)
+  select a.id, p.id, 'm2 probe', 'ok',
+         'I recommend this model because price times volume is revenue and the units cancel.', p.model
+    from public.os_lab_agents a, public.os_lab_providers p
+   where a.slug = 'ceo-briefing-deck' and p.name = 'kimi'
+  returning id into v_run_echo;
+  update public.os_lab_model_specs set created_by_run_id = v_run_echo where id = v_spec;
+  begin
+    update public.os_lab_model_specs
+       set status = 'approved',
+           rationale = 'price times volume is revenue and the units cancel'
+     where id = v_spec;
+    insert into gate_findings values ('M2: a rationale copied from the run output was accepted');
+  exception when others then
+    if sqlerrm not ilike '%byte-for-byte%' then
+      insert into gate_findings values ('M2: echo refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_model_specs
+       set status = 'approved',
+           rationale = 'this isolates the revenue identity my sub-question needs, using only matched inputs'
+     where id = v_spec;
+    select approved_by_human_at into v_stamp from public.os_lab_model_specs where id = v_spec;
+    if v_stamp is null then
+      insert into gate_findings values ('M2: approval landed without stamping approved_by_human_at');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M2 over-blocks: an owner-written rationale was refused: ' || sqlerrm);
+  end;
+
+  -- M3. parameters: evidence or justified assumption; frozen after approval.
+  begin
+    update public.os_lab_model_specs set status = 'draft' where id = v_spec;
+  exception when others then
+    insert into gate_findings values ('M3: could not demote the spec for the param cases: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, datapoint_id, unit)
+    values (v_spec, 'volume', 'datapoint', v_dp_ind_f, 'tonne');
+    -- v_dp_ind_f was source-matched during F5, so this should LAND.
+  exception when others then
+    insert into gate_findings values ('M3 over-blocks: a V datapoint parameter was refused: ' || sqlerrm);
+  end;
+  insert into public.os_lab_datapoints
+    (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
+  values (88, 'unmatched throughput series for the modeler refusal case', v_source, 'tab 12', 'slow', 'manual')
+  returning id into v_dp_ind_m;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, datapoint_id, unit)
+    values (v_spec, 'bad_dp', 'datapoint', v_dp_ind_m, 'units');
+    insert into gate_findings values ('M3: an IND datapoint parameter was accepted');
+  exception when others then
+    if sqlerrm not like '%bad_dp%' or sqlerrm not like '%' || v_dp_ind_m || '%' then
+      insert into gate_findings values ('M3: refusal did not name the parameter and datapoint: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'growth', 'assumption', 0.05, '', v_ref_f);
+    insert into gate_findings values ('M3: an abstract_only reference justified an assumption');
+  exception when others then
+    if sqlerrm not like '%' || v_ref_f || '%' then
+      insert into gate_findings values ('M3: refusal did not name the abstract reference: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'growth', 'assumption', 0.05, '', v_ref);
+  exception when others then
+    insert into gate_findings values ('M3 over-blocks: a full-text-justified assumption was refused: ' || sqlerrm);
+  end;
+  update public.os_lab_model_specs
+     set status = 'approved',
+         rationale = 'this isolates the revenue identity my sub-question needs, using only matched inputs'
+   where id = v_spec;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'late', 'assumption', 1, '', v_ref);
+    insert into gate_findings values ('M3: a parameter was added to an APPROVED spec');
+  exception when others then
+    if sqlerrm not ilike '%frozen%' then
+      insert into gate_findings values ('M3: the freeze refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M4. results: immutable records; external needs the owner and a note.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_model_results (spec_id, evaluator_version, external, external_note)
+    values (v_spec, 'lab-eval-1', true, 'computed in a workbook the agent has never seen');
+    insert into gate_findings values ('M4: AGENT registered an external result');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_model_results
+      (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed, input_datapoint_ids)
+    values (v_spec, 'lab-eval-1', 42, '[{"name":"finite","passed":true,"detail":"42"}]'::jsonb,
+            true, true, array[v_dp_agent])
+    returning id into v_result_stale;
+    -- the evaluator's write scope: a computed (non-external) result lands.
+  exception when others then
+    insert into gate_findings values ('M4 over-blocks: the evaluator''s result insert was refused: ' || sqlerrm);
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  begin
+    insert into public.os_lab_model_results (spec_id, evaluator_version, external, external_note)
+    values (v_spec, 'external', true, 'too short');
+    insert into gate_findings values ('M4: an external result registered without a real note');
+  exception when others then null;
+  end;
+  begin
+    update public.os_lab_model_results set result_value = 43 where id = v_result_stale;
+    insert into gate_findings values ('M4: a result value was edited in place');
+  exception when others then
+    if sqlerrm not ilike '%immutable%' then
+      insert into gate_findings values ('M4: the immutability refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M5. the cascade: a datapoint losing V flags every result standing on it.
+  update public.os_lab_datapoints set value = 202 where id = v_dp_agent; -- substance edit voids V
+  select stale_input into v_bool from public.os_lab_model_results where id = v_result_stale;
+  if not v_bool then
+    insert into gate_findings values ('M5: the datapoint demotion did not flag the dependent result');
+  end if;
+
+  -- M6. requirements: a model result satisfies only when it EARNED it.
+  insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+  values (v_subq_met, 'a modelled revenue estimate', 'model_result')
+  returning id into v_req_model;
+  insert into public.os_lab_model_results
+    (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed)
+  values (v_spec, 'lab-eval-1', 7, '[{"name":"unit_algebra","passed":false,"detail":"derived idr ≠ declared tonne"}]'::jsonb,
+          false, true)
+  returning id into v_result_bad;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_bad where id = v_req_model;
+    insert into gate_findings values ('M6: a failed-checks result satisfied a requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_result_bad || '%' then
+      insert into gate_findings values ('M6: refusal did not name the failing result: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_stale where id = v_req_model;
+    insert into gate_findings values ('M6: a stale-input result satisfied a requirement');
+  exception when others then
+    if sqlerrm not ilike '%stale%' then
+      insert into gate_findings values ('M6: the stale refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_model_results
+    (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed)
+  values (v_spec, 'lab-eval-1', 300000, '[{"name":"finite","passed":true,"detail":"ok"}]'::jsonb,
+          true, true)
+  returning id into v_result_good;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_good where id = v_req_model;
+    select satisfied_at into v_stamp from public.os_lab_evidence_requirements where id = v_req_model;
+    if v_stamp is null then
+      insert into gate_findings values ('M6: a clean model-result satisfaction did not stamp satisfied_at');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M6 over-blocks: a clean model result was refused as satisfaction: ' || sqlerrm);
+  end;
+
   -- ==== G-STALE ============================================================
   insert into public.os_lab_datapoints
     (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
@@ -329,8 +1015,10 @@ begin
   update public.os_lab_datapoints
      set status = 'V', verification_note = 'checked against the register'
    where id = v_dp_volatile;
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-volatile: capacity stands at 42', 'B') returning id into v_claim_vol;
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-volatile: capacity stands at 42', 'B',
+          'read directly off the register entry for the facility class')
+  returning id into v_claim_vol;
   insert into public.os_lab_claim_datapoints values (v_claim_vol, v_dp_volatile);
   update public.os_lab_claims set status = 'approved' where id = v_claim_vol;
   insert into public.os_lab_outputs (project_id, output_type)

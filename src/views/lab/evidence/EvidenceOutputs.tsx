@@ -40,6 +40,7 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
   const [newType, setNewType] = useState<'' | LabOutputType>('');
   const [content, setContent] = useState('');
   const [linkPick, setLinkPick] = useState('');
+  const [subQuestionPick, setSubQuestionPick] = useState('');
   /** Violations from the LAST save attempt — the blocking panel's content. */
   const [blockedNumbers, setBlockedNumbers] = useState<ReturnType<typeof checkOutputNumbers>>([]);
 
@@ -47,6 +48,15 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
   const claims = rowsOr(data.claims);
   const datapoints = rowsOr(data.datapoints);
   const contradictions = rowsOr(data.contradictions);
+  const subQuestions = rowsOr(data.subQuestions);
+  const requirements = rowsOr(data.requirements);
+  // [sim:<id>] may exempt a figure ONLY via a result that passed every
+  // check, passed sensitivity, and stands on fresh inputs (conditions 1-4;
+  // the scan enforces 5: the value matches).
+  const simResults = rowsOr(data.modelResults)
+    .filter((result) => result.checksPassed && result.sensitivityPassed === true && !result.staleInput)
+    .filter((result) => result.resultValue !== null)
+    .map((result) => ({ id: result.id, value: result.resultValue as number }));
   const selected = outputs.find((output) => output.id === selectedId);
 
   const citedClaims = useMemo(
@@ -62,7 +72,14 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
     [datapoints, citedClaims],
   );
   const finalizeBlockers = selected
-    ? outputFinalizeBlockers({ stale: selected.stale, citedClaims, contradictions })
+    ? outputFinalizeBlockers({
+        stale: selected.stale,
+        citedClaims,
+        contradictions,
+        // G-FALSIFY: each addressed sub-question needs a satisfied requirement.
+        addressedSubQuestionIds: selected.subQuestionIds,
+        requirements,
+      })
     : [];
 
   const open = (id: string) => {
@@ -76,11 +93,11 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
     if (!selected) return;
     // G-NUMBER, interactively: the same scan the repository re-runs on the
     // mutation path. Violations render the blocking panel and NO save fires.
-    const violations = checkOutputNumbers(content, backing);
+    const violations = checkOutputNumbers(content, backing, { simResults });
     setBlockedNumbers(violations);
     if (violations.length > 0) return;
     const saved = await mutate('Save output', () =>
-      repository.labEvidence.saveOutputContent(selected.id, content, backing),
+      repository.labEvidence.saveOutputContent(selected.id, content, backing, simResults),
     );
     if (saved) data.reload();
   };
@@ -260,6 +277,53 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
                 </Button>
               </div>
 
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="surface-label">Addresses</span>
+                {selected.subQuestionIds.length === 0 && (
+                  <span className="text-foreground-muted">
+                    belum menautkan sub-pertanyaan — G-FALSIFY hanya menggigit yang ditautkan
+                  </span>
+                )}
+                {selected.subQuestionIds.map((id) => {
+                  const subQuestion = subQuestions.find((row) => row.id === id);
+                  return subQuestion ? (
+                    <span key={id} className="rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5">
+                      {subQuestion.statement.slice(0, 48)}
+                    </span>
+                  ) : null;
+                })}
+                <select
+                  className="native-select text-xs"
+                  value={subQuestionPick}
+                  onChange={(event) => setSubQuestionPick(event.target.value)}
+                  aria-label="Address a sub-question"
+                >
+                  <option value="">— address sub-question —</option>
+                  {subQuestions
+                    .filter((subQuestion) => !selected.subQuestionIds.includes(subQuestion.id))
+                    .map((subQuestion) => (
+                      <option key={subQuestion.id} value={subQuestion.id}>
+                        {subQuestion.statement.slice(0, 50)}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending || !subQuestionPick}
+                  onClick={() =>
+                    void mutate('Address sub-question', () =>
+                      repository.labEvidence.linkOutputSubQuestion(selected.id, subQuestionPick),
+                    ).then(() => {
+                      setSubQuestionPick('');
+                      data.reload();
+                    })
+                  }
+                >
+                  Link
+                </Button>
+              </div>
+
               <label className={FIELD_LABEL}>
                 Content — angka yang boleh: {backing.length === 0 ? 'tidak ada (belum ada datapoint di balik kutipan)' : backing.map((datapoint) => datapoint.value).join(', ')}
                 <textarea
@@ -288,10 +352,10 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
                     ))}
                   </ul>
                   <p className="mt-2 text-xs leading-5 text-foreground-muted">
-                    Jalan keluar: buat datapoint terverifikasi dan kutip klaim yang memakainya, atau
-                    tandai angkanya secara eksplisit — {'"'}9.100 [C]{'"'} untuk inferensi layer C,
-                    {' "'}9.100 [sim]{'"'} untuk keluaran model. Angka dalam kutipan {'"'}…{'"'} milik
-                    sumber yang dikutip.
+                    Jalan keluar: buat datapoint ter-source-match dan kutip klaim yang memakainya,
+                    tandai {'"'}9.100 [C]{'"'} untuk inferensi layer C, atau {'"'}12500
+                    [sim:&lt;result id&gt;]{'"'} yang menamai hasil evaluator yang LULUS semua check
+                    dan nilainya cocok. Angka dalam kutipan {'"'}…{'"'} milik sumber yang dikutip.
                   </p>
                 </div>
               )}

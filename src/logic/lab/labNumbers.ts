@@ -8,8 +8,8 @@
  *
  *   1. Inside a cited quotation — a "double-quoted span" or a markdown
  *      blockquote line. Quoted numbers belong to the quoted source.
- *   2. Tagged [sim] — a model or simulation output, asserted as such rather
- *      than as an empirical datum.
+ *   2. Tagged [sim:<model_result_id>] — a model output naming the exact
+ *      evaluator result it came from, value-checked against that result.
  *   3. Tagged [C] — a layer C inference, explicitly owned as the
  *      researcher's own number.
  *
@@ -36,14 +36,39 @@ export interface NumberViolation {
 
 /** Numeric tokens: digits with optional thousands/decimal parts and %. */
 const NUMBER_TOKEN = /\d+(?:[.,]\d+)*%?/g;
-/** An accepted tag immediately after a token: [C] inference, [sim] model output. */
-const TRAILING_TAG = /^\s*\[(?:C|sim)\]/;
+/**
+ * An accepted tag immediately after a token: [C] inference, or
+ * [sim:<model_result_id>] naming the EXACT evaluator result the figure came
+ * from. A bare [sim] exempts nothing any more — an untraceable simulation
+ * claim was the drafter-shaped hole in this gate.
+ */
+const TRAILING_TAG = /^\s*\[(C|sim:([0-9a-fA-F][0-9a-fA-F-]{7,}))\]/;
 /** An ordered-list marker: the token is the line's own numbering, not a figure. */
 const LIST_MARKER = /(?:^|\n)\s*$/;
 
 function parseToken(token: string): number {
-  // "1,234.56" and "1234.56" both parse; the en-style comma is grouping.
-  return Number(token.replace(/%$/, '').replaceAll(',', ''));
+  // Separator-aware, both locales: "2,15" is 2.15 (id decimal), "1.234.567"
+  // is 1234567 (id grouping), "1,234.56" stays 1234.56 (en). The old
+  // strip-all-commas parse read "2,15" as 215, which both missed real id
+  // figures and let a datapoint of 215 wrongly back the token "2,15".
+  const t = token.replace(/%$/, '');
+  const lastComma = t.lastIndexOf(',');
+  const lastDot = t.lastIndexOf('.');
+  const last = Math.max(lastComma, lastDot);
+  if (last === -1) return Number(t);
+  const tail = t.length - last - 1;
+  const sepCount = (t.match(/[.,]/g) ?? []).length;
+  // id decimal: the LAST separator is a comma with 1–2 decimal digits.
+  if (last === lastComma && (tail === 1 || tail === 2)) {
+    return Number(`${t.slice(0, last).replace(/[.,]/g, '')}.${t.slice(last + 1)}`);
+  }
+  // id grouping: last separator is a period over exactly 3 digits, with
+  // other separators present ("1.234.567").
+  if (last === lastDot && tail === 3 && sepCount > 1) {
+    return Number(t.replace(/[.,]/g, ''));
+  }
+  // Historical en behaviour: commas group, periods decimal.
+  return Number(t.replaceAll(',', ''));
 }
 
 /** Character ranges lying inside "..." / “...” quotation spans. */
@@ -73,6 +98,27 @@ function inAnyRange(index: number, ranges: Array<[number, number]>): boolean {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
+/** The spans of well-formed tags themselves: a tag id's digits are markup,
+ *  not figures — skipped only while tags are consulted at all. */
+const TAG_SPAN = /\[(?:C|sim:[0-9a-fA-F][0-9a-fA-F-]{7,})\]/g;
+
+function tagRanges(content: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const match of content.matchAll(TAG_SPAN)) {
+    ranges.push([match.index, match.index + match[0].length]);
+  }
+  return ranges;
+}
+
+/** Condition 5 of the [sim:<id>] exemption: the token IS the result's value. */
+function simValueMatches(tokenValue: number, resultValue: number): boolean {
+  return (
+    Math.abs(tokenValue - resultValue) <=
+    1e-9 * Math.max(1, Math.abs(tokenValue), Math.abs(resultValue))
+  );
+}
+
+
 /** The numbers a set of datapoints can stand behind: values and years. */
 export function backedNumbers(datapoints: readonly LabDatapoint[]): Set<number> {
   const backed = new Set<number>();
@@ -84,16 +130,39 @@ export function backedNumbers(datapoints: readonly LabDatapoint[]): Set<number> 
 }
 
 /**
+ * The exemptions a caller may switch OFF. The owner's editor keeps both on:
+ * a human typing [C] is exactly what the tag asserts, and a human quoting a
+ * source is a two-keystroke convenience. The DRAFTER gets neither — an
+ * agent minting its own escape hatch (any figure + [C], or any figure in
+ * quotes) is the hole these flags close. The exemption CONSTANTS are never
+ * touched, only whether they are consulted.
+ */
+export interface ScanOptions {
+  allowTags?: boolean;
+  allowQuotes?: boolean;
+  /**
+   * The model results a [sim:<id>] tag may point at. The CALLER pre-filters
+   * to results that (1) exist, (2) passed every check, (3) passed the
+   * sensitivity smoke test, and (4) have no stale inputs; the scan enforces
+   * (5): the tagged token equals the result's value within tolerance. Five
+   * conditions, none of them the model's to assert.
+   */
+  simResults?: ReadonlyArray<{ id: string; value: number }>;
+}
+
+/**
  * Scans output content and returns every numeric token that nothing stands
  * behind. Empty array = the output may be saved.
  */
 export function checkOutputNumbers(
   content: string,
   datapoints: readonly LabDatapoint[],
+  { allowTags = true, allowQuotes = true, simResults = [] }: ScanOptions = {},
 ): NumberViolation[] {
   const backed = backedNumbers(datapoints);
   const quoted = quotedRanges(content);
   const blockquoted = blockquoteRanges(content);
+  const tagged = tagRanges(content);
   const violations: NumberViolation[] = [];
 
   for (const match of content.matchAll(NUMBER_TOKEN)) {
@@ -108,8 +177,16 @@ export function checkOutputNumbers(
     ) {
       continue;
     }
-    if (inAnyRange(index, quoted) || inAnyRange(index, blockquoted)) continue;
-    if (TRAILING_TAG.test(content.slice(index + token.length))) continue;
+    if (allowQuotes && (inAnyRange(index, quoted) || inAnyRange(index, blockquoted))) continue;
+    if (allowTags && inAnyRange(index, tagged)) continue;
+    if (allowTags) {
+      const tag = TRAILING_TAG.exec(content.slice(index + token.length));
+      if (tag && tag[1] === 'C') continue;
+      if (tag && tag[2]) {
+        const result = simResults.find((entry) => entry.id === tag[2]);
+        if (result && simValueMatches(parseToken(token), result.value)) continue;
+      }
+    }
     if (backed.has(parseToken(token))) continue;
 
     violations.push({
