@@ -72,6 +72,11 @@ begin
   values (v_project, 't-essay', 'essay', current_date, 'commitments/t-essay.md')
   returning id into v_commit;
 
+  -- The heartbeat (079): finalization refuses while the sweep has never
+  -- run, so the fixture runs it once up front — the output cases below
+  -- assert their ORIGINAL causes, and the heartbeat gets its own cases.
+  perform public.os_lab_stale_sweep();
+
   -- ==== G-EXTRACT ==========================================================
   -- 1. definition_scope under 20 characters is refused, not placeholdered.
   begin
@@ -320,6 +325,105 @@ begin
     insert into gate_findings values ('G-LAYER: an output now cites both sides of an open contradiction');
   exception when others then null;
   end;
+
+  -- ==== HARDENING (079) ====================================================
+
+  -- H1. extraction_method is provenance and frozen after insert.
+  begin
+    update public.os_lab_datapoints
+       set extraction_method = 'agent_from_full_pdf' where id = v_dp_manual;
+    insert into gate_findings values ('H1: extraction_method was relabelled after insert');
+  exception when others then
+    if sqlerrm not ilike '%provenance%' then
+      insert into gate_findings values ('H1: freeze refused with the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- H2. the sweep heartbeat gates finalization, naming the SWEEP.
+  delete from public.os_lab_sweep_log;
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized with the sweep never having run');
+  exception when others then
+    if sqlerrm not ilike '%sweep%' then
+      insert into gate_findings values ('H2: empty-heartbeat refusal did not name the sweep: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_sweep_log (ran_at, rows_demoted)
+  values (now() - interval '50 hours', 0);
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized with a 50-hour-old heartbeat');
+  exception when others then
+    if sqlerrm not ilike '%sweep%' then
+      insert into gate_findings values ('H2: stale-heartbeat refusal did not name the sweep: ' || sqlerrm);
+    end if;
+  end;
+  perform public.os_lab_stale_sweep();
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output;
+    insert into gate_findings values ('H2: finalized citing a non-approved claim once the heartbeat was fresh');
+  exception when others then
+    if sqlerrm not like '%' || v_claim_x || '%' then
+      insert into gate_findings values ('H2: with a fresh heartbeat the refusal should be the unapproved claim: ' || sqlerrm);
+    end if;
+  end;
+
+  -- H3. a DIRECT open contradiction blocks approval of either side.
+  --     (v_claim_x ↔ v_claim_y carry one from case 20.)
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_y;
+    insert into gate_findings values ('H3: approved one side of an open DIRECT contradiction');
+  exception when others then
+    if sqlerrm not ilike '%direct%' or sqlerrm not like '%' || v_claim_x || '%' then
+      insert into gate_findings values ('H3: refusal did not name the contradiction and opposing claim: ' || sqlerrm);
+    end if;
+  end;
+  --     tension stays advisory: an open tension does not block.
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-tension-a', 'C') returning id into v_dp_conflict_a; -- reuse var as claim id
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-tension-b', 'C') returning id into v_dp_conflict_b;
+  insert into public.os_lab_claim_contradictions (claim_a_id, claim_b_id, severity)
+  values (v_dp_conflict_a, v_dp_conflict_b, 'tension');
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_dp_conflict_a;
+  exception when others then
+    insert into gate_findings values ('H3 over-blocks: a tension contradiction blocked approval: ' || sqlerrm);
+  end;
+
+  -- H4. models are pinned: no aliases, and a marker is required.
+  begin
+    update public.os_lab_providers set model = 'claude-latest' where name = 'anthropic';
+    insert into gate_findings values ('H4: a -latest alias was accepted as a model string');
+  exception when others then
+    if sqlerrm not ilike '%alias%' then
+      insert into gate_findings values ('H4: alias refused with the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_providers set model = 'kimi-preview' where name = 'kimi';
+    insert into gate_findings values ('H4: a model string with no version/date marker was accepted');
+  exception when others then null;
+  end;
+  --     grandfathering: an edit that does NOT touch the model passes even
+  --     on the alias row that predates the guard.
+  begin
+    update public.os_lab_providers set is_active = true where name = 'deepseek';
+  exception when others then
+    insert into gate_findings values ('H4 over-blocks: a non-model edit on the grandfathered row was refused: ' || sqlerrm);
+  end;
+
+  -- H5. runs record the resolved model string.
+  insert into public.os_lab_runs (agent_id, provider_id, input, status, model)
+  select a.id, p.id, 'h5 probe', 'error', p.model
+    from public.os_lab_agents a, public.os_lab_providers p
+   where a.slug = 'ceo-briefing-deck' and p.name = 'kimi';
+  select count(*) into v_int from public.os_lab_runs
+   where input = 'h5 probe' and model <> '';
+  if v_int <> 1 then
+    insert into gate_findings values ('H5: the runs row did not record the resolved model string');
+  end if;
 
   -- ==== G-STALE ============================================================
   insert into public.os_lab_datapoints

@@ -20,7 +20,28 @@ const TRAILING_TAG = /^\s*\[(?:C|sim)\]/;
 const LIST_MARKER = /(?:^|\n)\s*$/;
 
 function parseToken(token: string): number {
-  return Number(token.replace(/%$/, '').replaceAll(',', ''));
+  // Separator-aware, both locales: "2,15" is 2.15 (id decimal), "1.234.567"
+  // is 1234567 (id grouping), "1,234.56" stays 1234.56 (en). The old
+  // strip-all-commas parse read "2,15" as 215, which both missed real id
+  // figures and let a datapoint of 215 wrongly back the token "2,15".
+  const t = token.replace(/%$/, '');
+  const lastComma = t.lastIndexOf(',');
+  const lastDot = t.lastIndexOf('.');
+  const last = Math.max(lastComma, lastDot);
+  if (last === -1) return Number(t);
+  const tail = t.length - last - 1;
+  const sepCount = (t.match(/[.,]/g) ?? []).length;
+  // id decimal: the LAST separator is a comma with 1–2 decimal digits.
+  if (last === lastComma && (tail === 1 || tail === 2)) {
+    return Number(`${t.slice(0, last).replace(/[.,]/g, '')}.${t.slice(last + 1)}`);
+  }
+  // id grouping: last separator is a period over exactly 3 digits, with
+  // other separators present ("1.234.567").
+  if (last === lastDot && tail === 3 && sepCount > 1) {
+    return Number(t.replace(/[.,]/g, ''));
+  }
+  // Historical en behaviour: commas group, periods decimal.
+  return Number(t.replaceAll(',', ''));
 }
 
 function quotedRanges(content: string): Array<[number, number]> {
@@ -48,8 +69,25 @@ function inAnyRange(index: number, ranges: Array<[number, number]>): boolean {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
+/**
+ * The exemptions a caller may switch OFF. The owner's editor keeps both on:
+ * a human typing [C] is exactly what the tag asserts, and a human quoting a
+ * source is a two-keystroke convenience. The DRAFTER gets neither — an
+ * agent minting its own escape hatch (any figure + [C], or any figure in
+ * quotes) is the hole these flags close. The exemption CONSTANTS are never
+ * touched, only whether they are consulted.
+ */
+export interface ScanOptions {
+  allowTags?: boolean;
+  allowQuotes?: boolean;
+}
+
 /** Scans content against the allowed numbers (datapoint values and years). */
-export function scanNumbers(content: string, allowed: ReadonlySet<number>): ScanViolation[] {
+export function scanNumbers(
+  content: string,
+  allowed: ReadonlySet<number>,
+  { allowTags = true, allowQuotes = true }: ScanOptions = {},
+): ScanViolation[] {
   const quoted = quotedRanges(content);
   const blockquoted = blockquoteRanges(content);
   const violations: ScanViolation[] = [];
@@ -63,8 +101,8 @@ export function scanNumbers(content: string, allowed: ReadonlySet<number>): Scan
     ) {
       continue;
     }
-    if (inAnyRange(index, quoted) || inAnyRange(index, blockquoted)) continue;
-    if (TRAILING_TAG.test(content.slice(index + token.length))) continue;
+    if (allowQuotes && (inAnyRange(index, quoted) || inAnyRange(index, blockquoted))) continue;
+    if (allowTags && TRAILING_TAG.test(content.slice(index + token.length))) continue;
     if (allowed.has(parseToken(token))) continue;
     violations.push({
       token,
