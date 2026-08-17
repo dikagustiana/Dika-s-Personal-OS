@@ -182,7 +182,9 @@ export function outputFinalizeBlockers(input: {
     const satisfied = (input.requirements ?? []).some(
       (requirement) =>
         requirement.subQuestionId === subQuestionId &&
-        (requirement.satisfiedByDatapointId !== null || requirement.satisfiedByReferenceId !== null),
+        (requirement.satisfiedByDatapointId !== null ||
+          requirement.satisfiedByReferenceId !== null ||
+          requirement.satisfiedByModelResultId !== null),
     );
     if (!satisfied) {
       blockers.push(
@@ -201,8 +203,9 @@ export function outputFinalizeBlockers(input: {
 export function guardOutputContent(
   content: string,
   backingDatapoints: readonly LabDatapoint[],
+  simResults: ReadonlyArray<{ id: string; value: number }> = [],
 ): NumberViolation[] {
-  return checkOutputNumbers(content, backingDatapoints);
+  return checkOutputNumbers(content, backingDatapoints, { simResults });
 }
 
 export function formatNumberViolations(violations: readonly NumberViolation[]): string {
@@ -211,6 +214,6 @@ export function formatNumberViolations(violations: readonly NumberViolation[]): 
     violations
       .map((violation) => `"${violation.token}" (…${violation.context}…)`)
       .join('; ') +
-    ' — no datapoint stands behind these. Create one, or tag the figure [C] (inference) or [sim] (model output).'
+    ' — no datapoint stands behind these. Create one, or tag the figure [C] (inference) or [sim:<result id>] (a passing model result whose value matches).'
   );
 }

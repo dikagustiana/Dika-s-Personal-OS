@@ -16,7 +16,7 @@ export interface ScanViolation {
 }
 
 const NUMBER_TOKEN = /\d+(?:[.,]\d+)*%?/g;
-const TRAILING_TAG = /^\s*\[(?:C|sim)\]/;
+const TRAILING_TAG = /^\s*\[(C|sim:([0-9a-fA-F][0-9a-fA-F-]{7,}))\]/;
 const LIST_MARKER = /(?:^|\n)\s*$/;
 
 function parseToken(token: string): number {
@@ -69,6 +69,27 @@ function inAnyRange(index: number, ranges: Array<[number, number]>): boolean {
   return ranges.some(([start, end]) => index >= start && index < end);
 }
 
+/** The spans of well-formed tags themselves: a tag id's digits are markup,
+ *  not figures — skipped only while tags are consulted at all. */
+const TAG_SPAN = /\[(?:C|sim:[0-9a-fA-F][0-9a-fA-F-]{7,})\]/g;
+
+function tagRanges(content: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  for (const match of content.matchAll(TAG_SPAN)) {
+    ranges.push([match.index, match.index + match[0].length]);
+  }
+  return ranges;
+}
+
+/** Condition 5 of the [sim:<id>] exemption: the token IS the result's value. */
+function simValueMatches(tokenValue: number, resultValue: number): boolean {
+  return (
+    Math.abs(tokenValue - resultValue) <=
+    1e-9 * Math.max(1, Math.abs(tokenValue), Math.abs(resultValue))
+  );
+}
+
+
 /**
  * The exemptions a caller may switch OFF. The owner's editor keeps both on:
  * a human typing [C] is exactly what the tag asserts, and a human quoting a
@@ -80,16 +101,25 @@ function inAnyRange(index: number, ranges: Array<[number, number]>): boolean {
 export interface ScanOptions {
   allowTags?: boolean;
   allowQuotes?: boolean;
+  /**
+   * The model results a [sim:<id>] tag may point at. The CALLER pre-filters
+   * to results that (1) exist, (2) passed every check, (3) passed the
+   * sensitivity smoke test, and (4) have no stale inputs; the scan enforces
+   * (5): the tagged token equals the result's value within tolerance. Five
+   * conditions, none of them the model's to assert.
+   */
+  simResults?: ReadonlyArray<{ id: string; value: number }>;
 }
 
 /** Scans content against the allowed numbers (datapoint values and years). */
 export function scanNumbers(
   content: string,
   allowed: ReadonlySet<number>,
-  { allowTags = true, allowQuotes = true }: ScanOptions = {},
+  { allowTags = true, allowQuotes = true, simResults = [] }: ScanOptions = {},
 ): ScanViolation[] {
   const quoted = quotedRanges(content);
   const blockquoted = blockquoteRanges(content);
+  const tagged = tagRanges(content);
   const violations: ScanViolation[] = [];
   for (const match of content.matchAll(NUMBER_TOKEN)) {
     const token = match[0];
@@ -102,7 +132,15 @@ export function scanNumbers(
       continue;
     }
     if (allowQuotes && (inAnyRange(index, quoted) || inAnyRange(index, blockquoted))) continue;
-    if (allowTags && TRAILING_TAG.test(content.slice(index + token.length))) continue;
+    if (allowTags && inAnyRange(index, tagged)) continue;
+    if (allowTags) {
+      const tag = TRAILING_TAG.exec(content.slice(index + token.length));
+      if (tag && tag[1] === 'C') continue;
+      if (tag && tag[2]) {
+        const result = simResults.find((entry) => entry.id === tag[2]);
+        if (result && simValueMatches(parseToken(token), result.value)) continue;
+      }
+    }
     if (allowed.has(parseToken(token))) continue;
     violations.push({
       token,

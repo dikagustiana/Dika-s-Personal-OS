@@ -270,7 +270,7 @@ export interface LabSubQuestion {
   position: number;
 }
 
-export type LabRequirementKind = 'datapoint' | 'reference';
+export type LabRequirementKind = 'datapoint' | 'reference' | 'model_result';
 
 export interface LabEvidenceRequirement {
   id: string;
@@ -281,6 +281,8 @@ export interface LabEvidenceRequirement {
   satisfiedByDatapointId: string | null;
   /** Only a full_text_read reference may land here — G-FALSIFY. */
   satisfiedByReferenceId: string | null;
+  /** Only a checks-passed, sensitivity-passed, fresh-input model result. */
+  satisfiedByModelResultId: string | null;
   /** Guard-stamped when satisfaction lands. */
   satisfiedAt: string | null;
 }
@@ -290,4 +292,59 @@ export interface LabFramerAlternative {
   framedQuestion: string;
   why: string;
   subQuestions: Array<{ statement: string; falsifier: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// The MODELER (082). Specs are declarative JSON — arithmetic over named
+// parameters, never code — run only by the version-pinned first-party
+// evaluator. Results are immutable records whose checks are rows.
+// ---------------------------------------------------------------------------
+
+export type LabModelKind = 'expression' | 'monte_carlo' | 'scenario';
+
+export interface LabModelSpec {
+  id: string;
+  projectId: string;
+  name: string;
+  kind: LabModelKind;
+  spec: Record<string, unknown>;
+  /** Guard-computed md5 of the spec JSON; a payload hash is overwritten. */
+  specHash: string;
+  /** The OWNER'S reasoning — approval refuses a byte-for-byte model echo. */
+  rationale: string;
+  status: 'draft' | 'approved';
+  approvedByHumanAt: string | null;
+  createdByRunId: string | null;
+}
+
+export interface LabModelSpecParam {
+  id: string;
+  specId: string;
+  name: string;
+  kind: 'datapoint' | 'assumption';
+  datapointId: string | null;
+  value: number | null;
+  unit: string;
+  justificationReferenceId: string | null;
+  distribution: Record<string, unknown> | null;
+}
+
+export interface LabModelResult {
+  id: string;
+  specId: string;
+  evaluatorVersion: string;
+  seed: number | null;
+  resultValue: number | null;
+  resultUnit: string;
+  resultSummary: Record<string, unknown>;
+  /** Every check as a row: {name, passed, detail}. Failures are records. */
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checksPassed: boolean;
+  sensitivityPassed: boolean | null;
+  inputDatapointIds: string[];
+  /** Cascade-set when an input datapoint loses V. */
+  staleInput: boolean;
+  external: boolean;
+  externalNote: string;
+  createdAt: string;
 }

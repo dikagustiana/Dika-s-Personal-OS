@@ -26,6 +26,9 @@ import { okRows, readAbsence, type ReadResult } from './readResult';
 import type {
   LabCandidateSource,
   LabClaim,
+  LabModelResult,
+  LabModelSpec,
+  LabModelSpecParam,
   LabClaimContradiction,
   LabClaimWrite,
   LabCommitmentSource,
@@ -136,6 +139,7 @@ export interface LabEvidenceRepository {
     id: string,
     content: string,
     backingDatapoints: readonly LabDatapoint[],
+    simResults?: ReadonlyArray<{ id: string; value: number }>,
   ): Promise<LabOutput>;
   linkOutputClaim(outputId: string, claimId: string): Promise<void>;
   unlinkOutputClaim(outputId: string, claimId: string): Promise<void>;
@@ -175,10 +179,10 @@ export interface LabEvidenceRepository {
     description: string;
     kind: LabRequirementKind;
   }): Promise<LabEvidenceRequirement>;
-  /** Only V datapoints / full-text references land — G-FALSIFY refuses the rest. */
+  /** Only earned evidence lands — G-FALSIFY refuses the rest by name. */
   satisfyRequirement(
     id: string,
-    by: { datapointId?: string; referenceId?: string },
+    by: { datapointId?: string; referenceId?: string; modelResultId?: string },
   ): Promise<LabEvidenceRequirement>;
   linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
   unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
@@ -196,6 +200,21 @@ export interface LabEvidenceRepository {
   /** Owner-only, and the source document (with its snapshot) must exist. */
   promoteCandidate(id: string, sourceDocumentId: string): Promise<LabCandidateSource>;
   dismissCandidate(id: string): Promise<LabCandidateSource>;
+
+  // The MODELER (082). Specs are declarative; approval needs the owner's
+  // OWN rationale; results are immutable and their checks are rows.
+  listModelSpecs(): Promise<ReadResult<LabModelSpec>>;
+  listModelSpecParams(): Promise<ReadResult<LabModelSpecParam>>;
+  listModelResults(): Promise<ReadResult<LabModelResult>>;
+  approveModelSpec(id: string, rationale: string): Promise<LabModelSpec>;
+  demoteModelSpec(id: string): Promise<LabModelSpec>;
+  /** The manual path: a result computed OUTSIDE this system, owner-registered. */
+  registerExternalModelResult(input: {
+    specId: string;
+    value: number;
+    unit: string;
+    note: string;
+  }): Promise<LabModelResult>;
 
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
@@ -341,7 +360,100 @@ interface RequirementRow {
   kind: LabRequirementKind;
   satisfied_by_datapoint_id: string | null;
   satisfied_by_reference_id: string | null;
+  satisfied_by_model_result_id: string | null;
   satisfied_at: string | null;
+}
+
+interface ModelSpecRow {
+  id: string;
+  project_id: string;
+  name: string;
+  kind: LabModelSpec['kind'];
+  spec: Record<string, unknown>;
+  spec_hash: string;
+  rationale: string;
+  status: LabModelSpec['status'];
+  approved_by_human_at: string | null;
+  created_by_run_id: string | null;
+}
+
+interface ModelParamRow {
+  id: string;
+  spec_id: string;
+  name: string;
+  kind: LabModelSpecParam['kind'];
+  datapoint_id: string | null;
+  value: number | string | null;
+  unit: string;
+  justification_reference_id: string | null;
+  distribution: Record<string, unknown> | null;
+}
+
+interface ModelResultRow {
+  id: string;
+  spec_id: string;
+  evaluator_version: string;
+  seed: number | null;
+  result_value: number | string | null;
+  result_unit: string;
+  result_summary: Record<string, unknown>;
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checks_passed: boolean;
+  sensitivity_passed: boolean | null;
+  input_datapoint_ids: string[];
+  stale_input: boolean;
+  external: boolean;
+  external_note: string;
+  created_at: string;
+}
+
+function mapModelSpec(row: ModelSpecRow): LabModelSpec {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    name: row.name,
+    kind: row.kind,
+    spec: row.spec,
+    specHash: row.spec_hash,
+    rationale: row.rationale,
+    status: row.status,
+    approvedByHumanAt: row.approved_by_human_at,
+    createdByRunId: row.created_by_run_id,
+  };
+}
+
+function mapModelParam(row: ModelParamRow): LabModelSpecParam {
+  return {
+    id: row.id,
+    specId: row.spec_id,
+    name: row.name,
+    kind: row.kind,
+    datapointId: row.datapoint_id,
+    value: row.value === null ? null : Number(row.value),
+    unit: row.unit,
+    justificationReferenceId: row.justification_reference_id,
+    distribution: row.distribution,
+  };
+}
+
+function mapModelResult(row: ModelResultRow): LabModelResult {
+  return {
+    id: row.id,
+    specId: row.spec_id,
+    evaluatorVersion: row.evaluator_version,
+    seed: row.seed,
+    resultValue: row.result_value === null ? null : Number(row.result_value),
+    resultUnit: row.result_unit,
+    resultSummary: row.result_summary,
+    checks: row.checks,
+    checksPassed: row.checks_passed,
+    sensitivityPassed: row.sensitivity_passed,
+    inputDatapointIds: row.input_datapoint_ids,
+    staleInput: row.stale_input,
+    external: row.external,
+    externalNote: row.external_note,
+    createdAt: row.created_at,
+  };
 }
 
 function mapQuestion(row: QuestionRow): LabQuestion {
@@ -372,6 +484,7 @@ function mapRequirement(row: RequirementRow): LabEvidenceRequirement {
     kind: row.kind,
     satisfiedByDatapointId: row.satisfied_by_datapoint_id,
     satisfiedByReferenceId: row.satisfied_by_reference_id,
+    satisfiedByModelResultId: row.satisfied_by_model_result_id,
     satisfiedAt: row.satisfied_at,
   };
 }
@@ -849,8 +962,8 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       if (error) fail('createOutput', error.message);
       return mapOutput(data as OutputRow);
     },
-    async saveOutputContent(id, content, backingDatapoints) {
-      const violations = guardOutputContent(content, backingDatapoints);
+    async saveOutputContent(id, content, backingDatapoints, simResults = []) {
+      const violations = guardOutputContent(content, backingDatapoints, simResults);
       if (violations.length > 0) {
         throw new LabGateError(formatNumberViolations(violations));
       }
@@ -911,10 +1024,21 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
           backing = ((dpRows ?? []) as DatapointRow[]).map(mapDatapoint);
         }
       }
-      const violations = guardOutputContent((outputRow as OutputRow).content, backing);
+      // [sim:<id>] tags stay honest at finalize: only results that passed
+      // every check, passed sensitivity, and stand on fresh inputs count.
+      const { data: simRows } = await client
+        .from('os_lab_model_results')
+        .select('id, result_value')
+        .eq('checks_passed', true)
+        .eq('sensitivity_passed', true)
+        .eq('stale_input', false);
+      const simResults = ((simRows ?? []) as Array<{ id: string; result_value: number | string | null }>)
+        .filter((row) => row.result_value !== null)
+        .map((row) => ({ id: row.id, value: Number(row.result_value) }));
+      const violations = guardOutputContent((outputRow as OutputRow).content, backing, simResults);
       if (violations.length > 0) {
         throw new LabGateError(
-          `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked since the last save no longer backs these figures).`,
+          `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked — or a model result gone stale — since the last save no longer backs these figures).`,
         );
       }
       const { data, error } = await client
@@ -1048,6 +1172,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .update({
           satisfied_by_datapoint_id: by.datapointId ?? null,
           satisfied_by_reference_id: by.referenceId ?? null,
+          satisfied_by_model_result_id: by.modelResultId ?? null,
         })
         .eq('id', id)
         .select()
@@ -1112,6 +1237,67 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .single();
       if (error) fail('dismissCandidate', error.message);
       return mapCandidate(data as CandidateRow);
+    },
+
+    async listModelSpecs() {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabModelSpecs', error);
+      return okRows(((data ?? []) as ModelSpecRow[]).map(mapModelSpec));
+    },
+    async listModelSpecParams() {
+      const { data, error } = await client
+        .from('os_lab_model_spec_params')
+        .select('*')
+        .order('name');
+      if (error) return readAbsence('listLabModelSpecParams', error);
+      return okRows(((data ?? []) as ModelParamRow[]).map(mapModelParam));
+    },
+    async listModelResults() {
+      const { data, error } = await client
+        .from('os_lab_model_results')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabModelResults', error);
+      return okRows(((data ?? []) as ModelResultRow[]).map(mapModelResult));
+    },
+    async approveModelSpec(id, rationale) {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .update({ status: 'approved', rationale })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('approveModelSpec', error.message);
+      return mapModelSpec(data as ModelSpecRow);
+    },
+    async demoteModelSpec(id) {
+      const { data, error } = await client
+        .from('os_lab_model_specs')
+        .update({ status: 'draft' })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('demoteModelSpec', error.message);
+      return mapModelSpec(data as ModelSpecRow);
+    },
+    async registerExternalModelResult(input) {
+      const { data, error } = await client
+        .from('os_lab_model_results')
+        .insert({
+          spec_id: input.specId,
+          evaluator_version: 'external',
+          result_value: input.value,
+          result_unit: input.unit,
+          external: true,
+          external_note: input.note,
+        })
+        .select()
+        .single();
+      if (error) fail('registerExternalModelResult', error.message);
+      return mapModelResult(data as ModelResultRow);
     },
 
     async staleSweep() {
@@ -1250,6 +1436,9 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
   private questions: LabQuestion[] = [];
   private subQuestions: LabSubQuestion[] = [];
   private requirements: LabEvidenceRequirement[] = [];
+  private modelSpecs: LabModelSpec[] = [];
+  private modelParams: LabModelSpecParam[] = [];
+  private modelResults: LabModelResult[] = [];
   private counter = 0;
 
   private nextId(prefix: string): string {
@@ -1541,10 +1730,11 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     id: string,
     content: string,
     backingDatapoints: readonly LabDatapoint[],
+    simResults: ReadonlyArray<{ id: string; value: number }> = [],
   ): Promise<LabOutput> {
     const output = this.outputs.find((row) => row.id === id);
     if (!output) throw new Error(`saveOutputContent: no output ${id}`);
-    const violations = guardOutputContent(content, backingDatapoints);
+    const violations = guardOutputContent(content, backingDatapoints, simResults);
     if (violations.length > 0) {
       throw new LabGateError(formatNumberViolations(violations));
     }
@@ -1590,10 +1780,14 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     const backing = this.datapoints.filter((datapoint) =>
       citedClaims.some((claim) => claim.datapointIds.includes(datapoint.id)),
     );
-    const violations = guardOutputContent(output.content, backing);
+    const eligibleSims = this.modelResults
+      .filter((result) => result.checksPassed && result.sensitivityPassed === true && !result.staleInput)
+      .filter((result) => result.resultValue !== null)
+      .map((result) => ({ id: result.id, value: result.resultValue as number }));
+    const violations = guardOutputContent(output.content, backing, eligibleSims);
     if (violations.length > 0) {
       throw new LabGateError(
-        `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked since the last save no longer backs these figures).`,
+        `G-NUMBER at finalize: ${formatNumberViolations(violations)} (a claim unlinked — or a model result gone stale — since the last save no longer backs these figures).`,
       );
     }
     const blockers = outputFinalizeBlockers({
@@ -1703,6 +1897,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       kind: input.kind,
       satisfiedByDatapointId: null,
       satisfiedByReferenceId: null,
+      satisfiedByModelResultId: null,
       satisfiedAt: null,
     };
     this.requirements.push(requirement);
@@ -1710,7 +1905,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
   }
   async satisfyRequirement(
     id: string,
-    by: { datapointId?: string; referenceId?: string },
+    by: { datapointId?: string; referenceId?: string; modelResultId?: string },
   ): Promise<LabEvidenceRequirement> {
     const requirement = this.requirements.find((row) => row.id === id);
     if (!requirement) throw new Error(`satisfyRequirement: no requirement ${id}`);
@@ -1738,9 +1933,23 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       }
       requirement.satisfiedByReferenceId = by.referenceId;
       requirement.satisfiedByDatapointId = null;
+    } else if (by.modelResultId) {
+      if (requirement.kind !== 'model_result') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is not model_result-kind.`);
+      }
+      const result = this.modelResults.find((row) => row.id === by.modelResultId);
+      if (!result || !result.checksPassed || result.sensitivityPassed !== true || result.staleInput) {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by model result ${by.modelResultId} — it must exist, pass every check, pass sensitivity, and stand on fresh inputs.`,
+        );
+      }
+      requirement.satisfiedByModelResultId = by.modelResultId;
+      requirement.satisfiedByDatapointId = null;
+      requirement.satisfiedByReferenceId = null;
     } else {
       requirement.satisfiedByDatapointId = null;
       requirement.satisfiedByReferenceId = null;
+      requirement.satisfiedByModelResultId = null;
       requirement.satisfiedAt = null;
       return { ...requirement };
     }
@@ -1812,6 +2021,67 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     if (!candidate) throw new Error(`dismissCandidate: no candidate ${id}`);
     candidate.status = 'dismissed';
     return { ...candidate };
+  }
+
+  async listModelSpecs(): Promise<ReadResult<LabModelSpec>> {
+    return okRows(this.modelSpecs.map((row) => ({ ...row })));
+  }
+  async listModelSpecParams(): Promise<ReadResult<LabModelSpecParam>> {
+    return okRows(this.modelParams.map((row) => ({ ...row })));
+  }
+  async listModelResults(): Promise<ReadResult<LabModelResult>> {
+    return okRows(this.modelResults.map((row) => ({ ...row })));
+  }
+  async approveModelSpec(id: string, rationale: string): Promise<LabModelSpec> {
+    const spec = this.modelSpecs.find((row) => row.id === id);
+    if (!spec) throw new Error(`approveModelSpec: no spec ${id}`);
+    if (rationale.trim().length < 20) {
+      throw new LabGateError(
+        `G-MODEL: spec ${id} cannot be approved without a rationale (min 20 chars) — why this structure answers the question, in the owner's words.`,
+      );
+    }
+    spec.status = 'approved';
+    spec.rationale = rationale;
+    spec.approvedByHumanAt = EV_NOW();
+    return { ...spec };
+  }
+  async demoteModelSpec(id: string): Promise<LabModelSpec> {
+    const spec = this.modelSpecs.find((row) => row.id === id);
+    if (!spec) throw new Error(`demoteModelSpec: no spec ${id}`);
+    spec.status = 'draft';
+    spec.approvedByHumanAt = null;
+    return { ...spec };
+  }
+  async registerExternalModelResult(input: {
+    specId: string;
+    value: number;
+    unit: string;
+    note: string;
+  }): Promise<LabModelResult> {
+    if (input.note.trim().length < 20) {
+      throw new LabGateError(
+        'G-MODEL: an external result needs a note (min 20 chars) saying where it was computed and how to reproduce it.',
+      );
+    }
+    const result: LabModelResult = {
+      id: this.nextId('ev-result'),
+      specId: input.specId,
+      evaluatorVersion: 'external',
+      seed: null,
+      resultValue: input.value,
+      resultUnit: input.unit,
+      resultSummary: {},
+      checks: [],
+      checksPassed: false,
+      sensitivityPassed: null,
+      inputDatapointIds: [],
+      staleInput: false,
+      external: true,
+      externalNote: input.note,
+      createdAt: EV_NOW(),
+    };
+    this.modelResults.push(result);
+    return { ...result };
   }
 
   async staleSweep(): Promise<number> {

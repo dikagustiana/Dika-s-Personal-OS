@@ -55,9 +55,18 @@ describe('checkOutputNumbers', () => {
     ).toEqual([]);
   });
 
-  it('lets tagged numbers through: [C] inference and [sim] model output', () => {
+  it('lets tagged numbers through: [C] inference and [sim:<id>] naming a matching result', () => {
     expect(checkOutputNumbers('We infer roughly 9,100 [C] units.', BACKING)).toEqual([]);
-    expect(checkOutputNumbers('The model projects 12500 [sim] by 2025.', BACKING)).toEqual([]);
+    // Phase 4: [sim] must NAME the evaluator result and match its value.
+    // A bare [sim] — an untraceable simulation claim — no longer exempts.
+    expect(
+      checkOutputNumbers('The model projects 12500 [sim:aaaabbbb-cccc-dddd-eeee-ffff00001111] by 2025.', BACKING, {
+        simResults: [{ id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111', value: 12500 }],
+      }),
+    ).toEqual([]);
+    expect(
+      checkOutputNumbers('The model projects 12500 [sim] by 2025.', BACKING).map((violation) => violation.token),
+    ).toEqual(['12500']);
   });
 
   it('does not let a tag on one number cover its neighbour', () => {

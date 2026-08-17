@@ -9,6 +9,9 @@ import type { ReadResult } from '../../../data/readResult';
 import type {
   LabCandidateSource,
   LabClaim,
+  LabModelResult,
+  LabModelSpec,
+  LabModelSpecParam,
   LabClaimContradiction,
   LabClaimLayer,
   LabCommitmentSource,
@@ -101,6 +104,9 @@ export interface EvidenceData {
   subQuestions: ReadResult<LabSubQuestion> | null;
   requirements: ReadResult<LabEvidenceRequirement> | null;
   candidates: ReadResult<LabCandidateSource> | null;
+  modelSpecs: ReadResult<LabModelSpec> | null;
+  modelParams: ReadResult<LabModelSpecParam> | null;
+  modelResults: ReadResult<LabModelResult> | null;
   reload: () => void;
 }
 
@@ -120,6 +126,9 @@ export function useEvidenceData(): EvidenceData {
   const [subQuestions, setSubQuestions] = useState<ReadResult<LabSubQuestion> | null>(null);
   const [requirements, setRequirements] = useState<ReadResult<LabEvidenceRequirement> | null>(null);
   const [candidates, setCandidates] = useState<ReadResult<LabCandidateSource> | null>(null);
+  const [modelSpecs, setModelSpecs] = useState<ReadResult<LabModelSpec> | null>(null);
+  const [modelParams, setModelParams] = useState<ReadResult<LabModelSpecParam> | null>(null);
+  const [modelResults, setModelResults] = useState<ReadResult<LabModelResult> | null>(null);
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -142,6 +151,9 @@ export function useEvidenceData(): EvidenceData {
     void seam.listSubQuestions().then(land(setSubQuestions));
     void seam.listEvidenceRequirements().then(land(setRequirements));
     void seam.listCandidateSources().then(land(setCandidates));
+    void seam.listModelSpecs().then(land(setModelSpecs));
+    void seam.listModelSpecParams().then(land(setModelParams));
+    void seam.listModelResults().then(land(setModelResults));
     return () => {
       cancelled = true;
     };
@@ -164,6 +176,9 @@ export function useEvidenceData(): EvidenceData {
     subQuestions,
     requirements,
     candidates,
+    modelSpecs,
+    modelParams,
+    modelResults,
     reload,
   };
 }

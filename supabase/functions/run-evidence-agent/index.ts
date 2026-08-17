@@ -32,6 +32,15 @@
 // carries the full text either way.
 
 import { checkAppKey } from '../_shared/appKeyAuth.ts';
+import {
+  EVALUATOR_VERSION,
+  evaluateModelSpec,
+  expressionParams,
+  parseExpression,
+  type Distribution,
+  type ModelParamInput,
+  type ModelSpecInput,
+} from '../_shared/modelEval.ts';
 import { numberAppearsIn } from '../_shared/numberEcho.ts';
 import { scanNumbers, type ScanViolation } from '../_shared/numberScan.ts';
 
@@ -692,6 +701,183 @@ async function handleDraft(body: {
 }
 
 /**
+ * MODELER (phase 4): propose a DECLARATIVE spec as a draft. The expression
+ * must parse under the first-party grammar (A5: arithmetic, never code) or
+ * the whole proposal is refused; parameters must bind supplied V datapoints
+ * or carry full-text-justified values — anything else is skipped by name.
+ * The 082 rails re-check every write underneath.
+ */
+async function handleProposeSpec(body: { projectId: string; brief: string }): Promise<Response> {
+  const verified = await restSelect<{ id: string; value: number | string; unit: string; definition_scope: string }>(
+    'os_lab_datapoints',
+    'select=id,value,unit,definition_scope&status=eq.V&order=retrieved_at.desc&limit=100',
+  );
+  const fullText = await restSelect<{ id: string; title: string }>(
+    'os_lab_references',
+    'select=id,title&verification_level=eq.full_text_read&limit=100',
+  );
+  const { runId, parsed } = await runAgent(
+    'evidence-modeler',
+    JSON.stringify({ brief: body.brief, verifiedDatapoints: verified, fullTextReferences: fullText }),
+  );
+
+  const kind = str(parsed.kind);
+  if (!['expression', 'monte_carlo', 'scenario'].includes(kind)) {
+    return json({ error: `The modeler proposed an unknown kind '${kind}'. The full text is in the run log.`, runId }, 502);
+  }
+  const spec = (parsed.spec ?? {}) as Record<string, unknown>;
+  const expression = str(spec.expression);
+  try {
+    // A5's teeth: the grammar IS the gate. Anything that does not parse as
+    // plain arithmetic never becomes a spec row.
+    parseExpression(expression);
+  } catch (error) {
+    return json(
+      {
+        error: `The proposed expression is not plain arithmetic (${error instanceof Error ? error.message : 'unparseable'}) — refused before any row exists.`,
+        runId,
+      },
+      502,
+    );
+  }
+
+  const specRow = await restInsert<{ id: string }>('os_lab_model_specs', {
+    project_id: body.projectId,
+    name: str(parsed.name) || 'untitled model',
+    kind,
+    spec,
+    created_by_run_id: runId,
+  });
+
+  const verifiedIds = new Set(verified.map((row) => row.id));
+  const fullTextIds = new Set(fullText.map((row) => row.id));
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of Array.isArray(parsed.params) ? parsed.params : []) {
+    const entry = raw as Record<string, unknown>;
+    const name = str(entry.name);
+    const paramKind = str(entry.kind);
+    if (!/^[a-z_][a-z0-9_]*$/.test(name)) {
+      skipped.push(`'${name}' — not a legal parameter name`);
+      continue;
+    }
+    if (paramKind === 'datapoint' && !verifiedIds.has(str(entry.datapointId))) {
+      skipped.push(`'${name}' — datapoint ${str(entry.datapointId) || '(none)'} is not a supplied V datapoint`);
+      continue;
+    }
+    if (paramKind === 'assumption' && (num(entry.value) === null || !fullTextIds.has(str(entry.justificationReferenceId)))) {
+      skipped.push(`'${name}' — an assumption needs a value AND a supplied full-text justification`);
+      continue;
+    }
+    if (paramKind !== 'datapoint' && paramKind !== 'assumption') {
+      skipped.push(`'${name}' — kind '${paramKind}' does not exist; evidence or justified assumption only`);
+      continue;
+    }
+    try {
+      const param = await restInsert<{ id: string }>('os_lab_model_spec_params', {
+        spec_id: specRow.id,
+        name,
+        kind: paramKind,
+        datapoint_id: paramKind === 'datapoint' ? str(entry.datapointId) : null,
+        value: paramKind === 'assumption' ? num(entry.value) : null,
+        unit: str(entry.unit),
+        justification_reference_id: paramKind === 'assumption' ? str(entry.justificationReferenceId) : null,
+        distribution: entry.distribution ?? null,
+      });
+      created.push(param.id);
+    } catch (error) {
+      skipped.push(`'${name}' — ${error instanceof Error ? error.message : 'refused'}`);
+    }
+  }
+  return json({ runId, specId: specRow.id, params: created, skipped });
+}
+
+/**
+ * RUN-MODEL (phase 4): the owner runs an approved-or-draft spec through the
+ * version-pinned evaluator. Every check lands as a row — a failed run is a
+ * RECORDED failure, never an absent one. Datapoint parameters resolve to
+ * their CURRENT values and must still be V at run time.
+ */
+async function handleRunModel(body: { specId: string; seed: number }): Promise<Response> {
+  const spec = (
+    await restSelect<{ id: string; kind: string; spec: Record<string, unknown> }>(
+      'os_lab_model_specs',
+      `select=id,kind,spec&id=eq.${body.specId}&limit=1`,
+    )
+  )[0];
+  if (!spec) return json({ error: 'No such model spec.' }, 404);
+  const paramRows = await restSelect<{
+    name: string;
+    kind: string;
+    datapoint_id: string | null;
+    value: number | string | null;
+    unit: string;
+    distribution: Distribution | null;
+  }>('os_lab_model_spec_params', `spec_id=eq.${body.specId}&order=name`);
+
+  const params: ModelParamInput[] = [];
+  const inputDatapointIds: string[] = [];
+  for (const row of paramRows) {
+    if (row.kind === 'datapoint' && row.datapoint_id) {
+      const datapoint = (
+        await restSelect<{ id: string; value: number | string; status: string }>(
+          'os_lab_datapoints',
+          `select=id,value,status&id=eq.${row.datapoint_id}&limit=1`,
+        )
+      )[0];
+      if (!datapoint || datapoint.status !== 'V') {
+        return json(
+          {
+            error: `G-MODEL: parameter '${row.name}' binds datapoint ${row.datapoint_id}, which is not source-matched right now (${datapoint?.status ?? 'missing'}) — re-match it, then run.`,
+          },
+          409,
+        );
+      }
+      params.push({ name: row.name, value: Number(datapoint.value), unit: row.unit, distribution: row.distribution });
+      inputDatapointIds.push(datapoint.id);
+    } else {
+      params.push({ name: row.name, value: Number(row.value ?? 0), unit: row.unit, distribution: row.distribution });
+    }
+  }
+
+  const specInput: ModelSpecInput = {
+    kind: spec.kind as ModelSpecInput['kind'],
+    expression: str(spec.spec.expression),
+    outputUnit: str(spec.spec.outputUnit),
+    bounds: (spec.spec.bounds ?? undefined) as ModelSpecInput['bounds'],
+    identities: (spec.spec.identities ?? undefined) as ModelSpecInput['identities'],
+    iterations: typeof spec.spec.iterations === 'number' ? spec.spec.iterations : undefined,
+    scenarios: (spec.spec.scenarios ?? undefined) as ModelSpecInput['scenarios'],
+  };
+  // Sanity: every expression parameter must be supplied.
+  try {
+    const wanted = expressionParams(parseExpression(specInput.expression));
+    for (const name of wanted) {
+      if (!params.some((param) => param.name === name)) {
+        return json({ error: `The expression names '${name}' and the spec has no such parameter.` }, 422);
+      }
+    }
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Unparseable expression.' }, 422);
+  }
+
+  const outcome = evaluateModelSpec(specInput, params, body.seed);
+  const result = await restInsert<{ id: string }>('os_lab_model_results', {
+    spec_id: spec.id,
+    evaluator_version: EVALUATOR_VERSION,
+    seed: body.seed,
+    result_value: outcome.value,
+    result_unit: outcome.unit,
+    result_summary: outcome.summary,
+    checks: outcome.checks,
+    checks_passed: outcome.checksPassed,
+    sensitivity_passed: outcome.sensitivityPassed,
+    input_datapoint_ids: inputDatapointIds,
+  });
+  return json({ resultId: result.id, ...outcome });
+}
+
+/**
  * FRAME (phase 2): critique and alternatives, JSON out, NO table writes.
  * The framing decides what evidence gets sought before any downstream gate
  * can act — so the framer exists — but recording a framing is the owner's
@@ -941,6 +1127,18 @@ Deno.serve(async (request) => {
       const sourceDocumentId = str(body.sourceDocumentId);
       if (!sourceDocumentId) return json({ error: 'No sourceDocumentId supplied' }, 400);
       return await handleRecheck({ sourceDocumentId });
+    }
+    if (action === 'propose-spec') {
+      const projectId = str(body.projectId);
+      const brief = str(body.brief);
+      if (!projectId || !brief) return json({ error: 'projectId and brief are required' }, 400);
+      return await handleProposeSpec({ projectId, brief });
+    }
+    if (action === 'run-model') {
+      const specId = str(body.specId);
+      if (!specId) return json({ error: 'No specId supplied' }, 400);
+      const seed = typeof body.seed === 'number' && Number.isFinite(body.seed) ? body.seed : 1;
+      return await handleRunModel({ specId, seed });
     }
     if (action === 'frame-critique') {
       const rawStatement = str(body.rawStatement);

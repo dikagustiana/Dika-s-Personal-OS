@@ -272,6 +272,7 @@ describe('outputFinalizeBlockers (G-OUTPUT / G-LAYER)', () => {
         kind: 'datapoint',
         satisfiedByDatapointId: null,
         satisfiedByReferenceId: null,
+        satisfiedByModelResultId: null,
         satisfiedAt: null,
       },
       {
@@ -281,6 +282,7 @@ describe('outputFinalizeBlockers (G-OUTPUT / G-LAYER)', () => {
         kind: 'datapoint',
         satisfiedByDatapointId: 'dp-v',
         satisfiedByReferenceId: null,
+        satisfiedByModelResultId: null,
         satisfiedAt: '2026-08-17T00:00:00Z',
       },
     ];

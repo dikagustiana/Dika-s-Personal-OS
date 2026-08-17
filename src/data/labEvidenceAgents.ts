@@ -127,6 +127,35 @@ export function recheckSource(input: { sourceDocumentId: string }) {
   return call<RecheckResult>({ action: 'recheck', ...input });
 }
 
+export interface ProposeSpecResult {
+  runId: string;
+  specId: string;
+  params: string[];
+  skipped: string[];
+}
+
+/** MODELER: propose a DECLARATIVE spec as a draft — never code, never approval. */
+export function proposeModelSpec(input: { projectId: string; brief: string }) {
+  return call<ProposeSpecResult>({ action: 'propose-spec', ...input });
+}
+
+export interface RunModelResult {
+  runId?: string;
+  resultId: string;
+  evaluatorVersion: string;
+  value: number | null;
+  unit: string;
+  summary: Record<string, unknown>;
+  checks: Array<{ name: string; passed: boolean; detail: string }>;
+  checksPassed: boolean;
+  sensitivityPassed: boolean;
+}
+
+/** Runs a spec through the version-pinned evaluator; every check lands as a row. */
+export function runModel(input: { specId: string; seed?: number }) {
+  return call<RunModelResult>({ action: 'run-model', ...input });
+}
+
 export interface FrameCritiqueResult {
   runId: string;
   critique: string;

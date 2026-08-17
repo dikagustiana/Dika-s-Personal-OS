@@ -29,8 +29,9 @@ const serverSource = readFileSync(
 const INVARIANTS = [
   // The token grammar: what counts as a number at all.
   String.raw`const NUMBER_TOKEN = /\d+(?:[.,]\d+)*%?/g;`,
-  // The exception markers: the only escape hatches.
-  String.raw`const TRAILING_TAG = /^\s*\[(?:C|sim)\]/;`,
+  // The exception markers: the only escape hatches. [sim:<result_id>] must
+  // name the evaluator result it came from; bare [sim] exempts nothing.
+  String.raw`const TRAILING_TAG = /^\s*\[(C|sim:([0-9a-fA-F][0-9a-fA-F-]{7,}))\]/;`,
   String.raw`const LIST_MARKER = /(?:^|\n)\s*$/;`,
   // The separator-aware parse: both locale branches and the fallback.
   String.raw`if (last === lastComma && (tail === 1 || tail === 2)) {`,
@@ -42,7 +43,13 @@ const INVARIANTS = [
   String.raw`if (/^\s*>/.test(line)) ranges.push([lineStart, lineStart + line.length]);`,
   // The option gates: exemptions consulted, constants untouched.
   String.raw`if (allowQuotes && (inAnyRange(index, quoted) || inAnyRange(index, blockquoted))) continue;`,
-  String.raw`if (allowTags && TRAILING_TAG.test(content.slice(index + token.length))) continue;`,
+  String.raw`const tag = TRAILING_TAG.exec(content.slice(index + token.length));`,
+  String.raw`if (tag && tag[1] === 'C') continue;`,
+  String.raw`if (result && simValueMatches(parseToken(token), result.value)) continue;`,
+  String.raw`const TAG_SPAN = /\[(?:C|sim:[0-9a-fA-F][0-9a-fA-F-]{7,})\]/g;`,
+  String.raw`if (allowTags && inAnyRange(index, tagged)) continue;`,
+  // Condition 5 of the [sim:<id>] exemption: value-within-tolerance.
+  String.raw`1e-9 * Math.max(1, Math.abs(tokenValue), Math.abs(resultValue))`,
 ];
 
 describe('§1 line invariants', () => {
@@ -136,7 +143,30 @@ const VECTORS: Vector[] = [
   },
   // --- tags, both option states ----------------------------------------------
   { name: '[C] exempt by default', content: 'roughly 9,100 [C] units', backing: [], expect: [] },
-  { name: '[sim] exempt by default', content: 'projects 12500 [sim] by then', backing: [], expect: [] },
+  // Phase 4: a bare [sim] no longer exempts — an untraceable simulation
+  // claim was the drafter-shaped hole in this gate.
+  { name: 'bare [sim] no longer exempts', content: 'projects 12500 [sim] by then', backing: [], expect: ['12500'] },
+  {
+    name: '[sim:<id>] exempts when the named result matches the value',
+    content: 'projects 12500 [sim:aaaabbbb-cccc-dddd-eeee-ffff00001111] by then',
+    backing: [],
+    options: { simResults: [{ id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111', value: 12500 }] },
+    expect: [],
+  },
+  {
+    name: '[sim:<id>] blocked when the id names no supplied result',
+    content: 'projects 12500 [sim:aaaabbbb-cccc-dddd-eeee-ffff00001111] by then',
+    backing: [],
+    options: { simResults: [] },
+    expect: ['12500'],
+  },
+  {
+    name: '[sim:<id>] blocked when the value does not match the result',
+    content: 'projects 12500 [sim:aaaabbbb-cccc-dddd-eeee-ffff00001111] by then',
+    backing: [],
+    options: { simResults: [{ id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111', value: 9000 }] },
+    expect: ['12500'],
+  },
   {
     name: '[C] blocked with allowTags off',
     content: 'roughly 9,100 [C] units',
@@ -145,11 +175,16 @@ const VECTORS: Vector[] = [
     expect: ['9,100'],
   },
   {
-    name: '[sim] blocked with allowTags off',
-    content: 'projects 12500 [sim] by then',
+    name: '[sim:<id>] blocked with allowTags off even when the result matches',
+    content: 'projects 12500 [sim:aaaabbbb-cccc-dddd-eeee-ffff00001111] by then',
     backing: [],
-    options: { allowTags: false },
-    expect: ['12500'],
+    options: {
+      allowTags: false,
+      simResults: [{ id: 'aaaabbbb-cccc-dddd-eeee-ffff00001111', value: 12500 }],
+    },
+    // Drafter posture: the tag exempts nothing AND its id digits are just
+    // unbacked tokens — a figure smuggled inside tag markup still violates.
+    expect: ['12500', '00001111'],
   },
   {
     name: 'tagged but backed passes with allowTags off',

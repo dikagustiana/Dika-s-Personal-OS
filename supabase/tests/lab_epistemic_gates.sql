@@ -59,6 +59,13 @@ declare
   v_claim_c2 uuid;       -- layer C claim for the inference_step cases
   v_candidate uuid;      -- SCOUT (081)
   v_candidate_blog uuid;
+  v_spec uuid;           -- MODELER (082)
+  v_run_echo uuid;
+  v_result_good uuid;
+  v_result_bad uuid;
+  v_result_stale uuid;
+  v_req_model uuid;
+  v_dp_ind_m uuid;       -- an IND datapoint for the M3 refusal
   v_stamp timestamptz;
   v_text text;
   v_int int;
@@ -774,6 +781,231 @@ begin
   if v_int > 0 then
     insert into gate_findings values ('S5: a judgement column appeared on os_lab_candidate_sources');
   end if;
+
+  -- ==== MODELER (082) ======================================================
+
+  -- M0. the spec_hash is guard-computed — a forged payload hash is overwritten.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, spec_hash)
+    values (v_project, 't-model', 'expression',
+            '{"expression": "price * volume", "outputUnit": "IDR"}'::jsonb, 'forged')
+    returning id into v_spec;
+    if (select spec_hash from public.os_lab_model_specs where id = v_spec) = 'forged' then
+      insert into gate_findings values ('M0: a payload spec_hash survived the guard');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M0 over-blocks: an honest owner spec draft was refused: ' || sqlerrm);
+  end;
+
+  -- M1. born draft, always; approval needs the owner AND a rationale.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, status)
+    values (v_project, 't-born-approved', 'expression', '{}'::jsonb, 'approved');
+    insert into gate_findings values ('M1: a spec was inserted directly at approved');
+  exception when others then null;
+  end;
+  perform set_config('request.headers', '{}', true);
+  begin
+    update public.os_lab_model_specs set status = 'approved' where id = v_spec;
+    insert into gate_findings values ('M1: AGENT approved a model spec');
+  exception when others then null;
+  end;
+  --     the modeler's write scope: a keyless DRAFT lands; a keyless
+  --     rationale does not.
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec)
+    values (v_project, 't-agent-draft', 'expression', '{"expression": "x", "outputUnit": ""}'::jsonb);
+  exception when others then
+    insert into gate_findings values ('M1 over-blocks: the modeler''s draft proposal was refused: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_model_specs (project_id, name, kind, spec, rationale)
+    values (v_project, 't-agent-rationale', 'expression', '{}'::jsonb, 'an agent-authored rationale long enough');
+    insert into gate_findings values ('M1: AGENT supplied a rationale on insert');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  begin
+    update public.os_lab_model_specs set status = 'approved' where id = v_spec;
+    insert into gate_findings values ('M1: approved with no rationale at all');
+  exception when others then
+    if sqlerrm not like '%' || v_spec || '%' or sqlerrm not ilike '%rationale%' then
+      insert into gate_findings values ('M1: refusal did not name the spec and the rationale: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M2. a rationale pasted from the generating run's output is refused.
+  insert into public.os_lab_runs (agent_id, provider_id, input, status, output, model)
+  select a.id, p.id, 'm2 probe', 'ok',
+         'I recommend this model because price times volume is revenue and the units cancel.', p.model
+    from public.os_lab_agents a, public.os_lab_providers p
+   where a.slug = 'ceo-briefing-deck' and p.name = 'kimi'
+  returning id into v_run_echo;
+  update public.os_lab_model_specs set created_by_run_id = v_run_echo where id = v_spec;
+  begin
+    update public.os_lab_model_specs
+       set status = 'approved',
+           rationale = 'price times volume is revenue and the units cancel'
+     where id = v_spec;
+    insert into gate_findings values ('M2: a rationale copied from the run output was accepted');
+  exception when others then
+    if sqlerrm not ilike '%byte-for-byte%' then
+      insert into gate_findings values ('M2: echo refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_model_specs
+       set status = 'approved',
+           rationale = 'this isolates the revenue identity my sub-question needs, using only matched inputs'
+     where id = v_spec;
+    select approved_by_human_at into v_stamp from public.os_lab_model_specs where id = v_spec;
+    if v_stamp is null then
+      insert into gate_findings values ('M2: approval landed without stamping approved_by_human_at');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M2 over-blocks: an owner-written rationale was refused: ' || sqlerrm);
+  end;
+
+  -- M3. parameters: evidence or justified assumption; frozen after approval.
+  begin
+    update public.os_lab_model_specs set status = 'draft' where id = v_spec;
+  exception when others then
+    insert into gate_findings values ('M3: could not demote the spec for the param cases: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, datapoint_id, unit)
+    values (v_spec, 'volume', 'datapoint', v_dp_ind_f, 'tonne');
+    -- v_dp_ind_f was source-matched during F5, so this should LAND.
+  exception when others then
+    insert into gate_findings values ('M3 over-blocks: a V datapoint parameter was refused: ' || sqlerrm);
+  end;
+  insert into public.os_lab_datapoints
+    (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
+  values (88, 'unmatched throughput series for the modeler refusal case', v_source, 'tab 12', 'slow', 'manual')
+  returning id into v_dp_ind_m;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, datapoint_id, unit)
+    values (v_spec, 'bad_dp', 'datapoint', v_dp_ind_m, 'units');
+    insert into gate_findings values ('M3: an IND datapoint parameter was accepted');
+  exception when others then
+    if sqlerrm not like '%bad_dp%' or sqlerrm not like '%' || v_dp_ind_m || '%' then
+      insert into gate_findings values ('M3: refusal did not name the parameter and datapoint: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'growth', 'assumption', 0.05, '', v_ref_f);
+    insert into gate_findings values ('M3: an abstract_only reference justified an assumption');
+  exception when others then
+    if sqlerrm not like '%' || v_ref_f || '%' then
+      insert into gate_findings values ('M3: refusal did not name the abstract reference: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'growth', 'assumption', 0.05, '', v_ref);
+  exception when others then
+    insert into gate_findings values ('M3 over-blocks: a full-text-justified assumption was refused: ' || sqlerrm);
+  end;
+  update public.os_lab_model_specs
+     set status = 'approved',
+         rationale = 'this isolates the revenue identity my sub-question needs, using only matched inputs'
+   where id = v_spec;
+  begin
+    insert into public.os_lab_model_spec_params (spec_id, name, kind, value, unit, justification_reference_id)
+    values (v_spec, 'late', 'assumption', 1, '', v_ref);
+    insert into gate_findings values ('M3: a parameter was added to an APPROVED spec');
+  exception when others then
+    if sqlerrm not ilike '%frozen%' then
+      insert into gate_findings values ('M3: the freeze refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M4. results: immutable records; external needs the owner and a note.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_model_results (spec_id, evaluator_version, external, external_note)
+    values (v_spec, 'lab-eval-1', true, 'computed in a workbook the agent has never seen');
+    insert into gate_findings values ('M4: AGENT registered an external result');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_model_results
+      (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed, input_datapoint_ids)
+    values (v_spec, 'lab-eval-1', 42, '[{"name":"finite","passed":true,"detail":"42"}]'::jsonb,
+            true, true, array[v_dp_agent])
+    returning id into v_result_stale;
+    -- the evaluator's write scope: a computed (non-external) result lands.
+  exception when others then
+    insert into gate_findings values ('M4 over-blocks: the evaluator''s result insert was refused: ' || sqlerrm);
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  begin
+    insert into public.os_lab_model_results (spec_id, evaluator_version, external, external_note)
+    values (v_spec, 'external', true, 'too short');
+    insert into gate_findings values ('M4: an external result registered without a real note');
+  exception when others then null;
+  end;
+  begin
+    update public.os_lab_model_results set result_value = 43 where id = v_result_stale;
+    insert into gate_findings values ('M4: a result value was edited in place');
+  exception when others then
+    if sqlerrm not ilike '%immutable%' then
+      insert into gate_findings values ('M4: the immutability refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+
+  -- M5. the cascade: a datapoint losing V flags every result standing on it.
+  update public.os_lab_datapoints set value = 202 where id = v_dp_agent; -- substance edit voids V
+  select stale_input into v_bool from public.os_lab_model_results where id = v_result_stale;
+  if not v_bool then
+    insert into gate_findings values ('M5: the datapoint demotion did not flag the dependent result');
+  end if;
+
+  -- M6. requirements: a model result satisfies only when it EARNED it.
+  insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+  values (v_subq_met, 'a modelled revenue estimate', 'model_result')
+  returning id into v_req_model;
+  insert into public.os_lab_model_results
+    (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed)
+  values (v_spec, 'lab-eval-1', 7, '[{"name":"unit_algebra","passed":false,"detail":"derived idr ≠ declared tonne"}]'::jsonb,
+          false, true)
+  returning id into v_result_bad;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_bad where id = v_req_model;
+    insert into gate_findings values ('M6: a failed-checks result satisfied a requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_result_bad || '%' then
+      insert into gate_findings values ('M6: refusal did not name the failing result: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_stale where id = v_req_model;
+    insert into gate_findings values ('M6: a stale-input result satisfied a requirement');
+  exception when others then
+    if sqlerrm not ilike '%stale%' then
+      insert into gate_findings values ('M6: the stale refusal carried the wrong message: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_model_results
+    (spec_id, evaluator_version, result_value, checks, checks_passed, sensitivity_passed)
+  values (v_spec, 'lab-eval-1', 300000, '[{"name":"finite","passed":true,"detail":"ok"}]'::jsonb,
+          true, true)
+  returning id into v_result_good;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_model_result_id = v_result_good where id = v_req_model;
+    select satisfied_at into v_stamp from public.os_lab_evidence_requirements where id = v_req_model;
+    if v_stamp is null then
+      insert into gate_findings values ('M6: a clean model-result satisfaction did not stamp satisfied_at');
+    end if;
+  exception when others then
+    insert into gate_findings values ('M6 over-blocks: a clean model result was refused as satisfaction: ' || sqlerrm);
+  end;
 
   -- ==== G-STALE ============================================================
   insert into public.os_lab_datapoints
