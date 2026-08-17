@@ -64,7 +64,19 @@ on conflict do nothing;
 --
 -- Written as postgres, which owns the table and bypasses RLS; the append-only
 -- INSERT policy requires os_key_valid() and is not in the way here.
-insert into public.os_process_text_history (table_name, row_id, field, old_value, new_value)
-select 'os_process_steps', s.id::text, 'label', '18b', '18b'
+--
+-- The actor stamp (20260809000069) IS in the way: it refuses any insert with
+-- no identifiable actor, and a postgres session has neither an app key nor a
+-- JWT. The trigger is disabled around this one insert and the columns it
+-- would have stamped are supplied by hand — the same move collab_rls.sql
+-- makes when it plants rows past a layer-one trigger on purpose. The suites
+-- test READS of this row; how it got here is not what they assert.
+alter table public.os_process_text_history
+  disable trigger os_process_text_history_stamp_actor;
+insert into public.os_process_text_history
+  (table_name, row_id, field, old_value, new_value, actor_kind, actor)
+select 'os_process_steps', s.id::text, 'label', '18b', '18b', 'owner', null
 from public.os_process_steps s
 where s.entity_code = 'SAMB' and s.label = '18b';
+alter table public.os_process_text_history
+  enable trigger os_process_text_history_stamp_actor;

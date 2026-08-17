@@ -137,6 +137,18 @@ create table if not exists auth.users (
   created_at         timestamptz default now()
 );
 
+-- Stand-in for GoTrue's token ledger: 20260809000072 reads user_id,
+-- token_type and created_at from it (created_at is timestamp WITHOUT time
+-- zone there, holding UTC — mirrored, because the migration's `at time zone
+-- 'utc'` only makes sense against that type). token_type is text here where
+-- GoTrue uses an enum; the migration only ever compares it to a literal.
+create table if not exists auth.one_time_tokens (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid,
+  token_type text,
+  created_at timestamp default (now() at time zone 'utc')
+);
+
 -- Supabase grants the API roles table privileges and lets RLS do the gating.
 -- Mirroring that matters: without it every table would deny on privilege
 -- rather than on policy, and a suite would pass for the wrong reason.
