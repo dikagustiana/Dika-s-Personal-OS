@@ -18,19 +18,21 @@ import { useAppStore } from '../../../store/appStore';
 import { cn } from '../../../lib/utils';
 import { CouldNotCheck, Checking } from '../../work/finishLineUi';
 import { rowsOr } from '../labUi';
+import { EvidenceAgents } from './EvidenceAgents';
 import { EvidenceClaims } from './EvidenceClaims';
 import { EvidenceDatapoints } from './EvidenceDatapoints';
 import { EvidenceOutputs } from './EvidenceOutputs';
 import { EvidenceSources } from './EvidenceSources';
 import { FIELD_LABEL, useEvidenceData } from './evidenceUi';
 
-type EvidenceTab = 'datapoints' | 'claims' | 'outputs' | 'sources';
+type EvidenceTab = 'datapoints' | 'claims' | 'outputs' | 'sources' | 'agents';
 
 const TABS: Array<{ id: EvidenceTab; label: string }> = [
   { id: 'datapoints', label: 'Datapoints' },
   { id: 'claims', label: 'Claims' },
   { id: 'outputs', label: 'Outputs' },
   { id: 'sources', label: 'Sources' },
+  { id: 'agents', label: 'Agents' },
 ];
 
 export function LabEvidence() {
@@ -175,6 +177,7 @@ export function LabEvidence() {
           {tab === 'claims' && <EvidenceClaims data={data} projectId={activeProject.id} />}
           {tab === 'outputs' && <EvidenceOutputs data={data} projectId={activeProject.id} />}
           {tab === 'sources' && <EvidenceSources data={data} projectId={activeProject.id} />}
+          {tab === 'agents' && <EvidenceAgents data={data} projectId={activeProject.id} />}
         </>
       )}
     </div>
