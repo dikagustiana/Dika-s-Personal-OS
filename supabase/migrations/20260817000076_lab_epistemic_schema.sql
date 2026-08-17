@@ -2,9 +2,10 @@
 -- LAB EPISTEMIC LAYER: what stands behind a number.
 -- =============================================================================
 --
--- NOT APPLIED. Apply via the Supabase apply_migration tool (ledger name
--- `lab_epistemic_schema`) and update this header. Never `supabase db push` /
--- `migration up` / `db reset` — see 20260817000073.
+-- APPLIED 2026-08-17 via the Supabase apply_migration tool (ledger name
+-- `lab_epistemic_schema`). Verified live after applying: 12 tables, 48
+-- policies, keyless writes to projects/claims refused by the guards in 77.
+-- Never `supabase db push` / `migration up` / `db reset` — see 20260817000073.
 --
 -- Down-migration: down/20260817000076_lab_epistemic_schema_down.sql.
 --

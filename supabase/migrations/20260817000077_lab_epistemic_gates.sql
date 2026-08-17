@@ -2,8 +2,10 @@
 -- LAB EPISTEMIC LAYER: the gates. Deterministic, in the database, blocking.
 -- =============================================================================
 --
--- NOT APPLIED. Apply via the Supabase apply_migration tool (ledger name
--- `lab_epistemic_gates`) after 20260817000076, and update this header.
+-- APPLIED 2026-08-17 via the Supabase apply_migration tool (ledger name
+-- `lab_epistemic_gates`). Verified live after applying: 14 epistemic
+-- triggers in place, pg_cron job `lab-stale-sweep` scheduled daily at
+-- 20:00 UTC, keyless claim/project inserts refused with the gate messages.
 -- Never `supabase db push` / `migration up` / `db reset` — see 20260817000073.
 --
 -- Down-migration: down/20260817000077_lab_epistemic_gates_down.sql.
