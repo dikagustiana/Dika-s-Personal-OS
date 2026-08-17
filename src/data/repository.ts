@@ -1,3 +1,4 @@
+import type { LabRepository } from './labRepository';
 import type { ResearchRepository } from './researchRepository';
 import type { CellWriteOrigin } from './finishLineGuards';
 import type { ReadResult } from './readResult';
@@ -104,6 +105,13 @@ export interface Repository {
    * append-only and write-origin invariants.
    */
   readonly research: ResearchRepository;
+
+  /**
+   * The Lab subsystem's own seam — the agent harness. Same shape as
+   * research and separate for the same reason; labRepository.ts also holds
+   * the client-side data-boundary guard and the runs-are-read-only rule.
+   */
+  readonly lab: LabRepository;
 
   // IELTS practice results (GROWTH). Sorted by date ascending.
   listIeltsResults(): Promise<IeltsResult[]>;

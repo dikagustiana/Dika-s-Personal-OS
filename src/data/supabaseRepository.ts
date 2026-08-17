@@ -1,5 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { IELTS_TOPICS } from '../logic/ielts/topics';
+import { createSupabaseLabRepository } from './labRepository';
+import type { LabRepository } from './labRepository';
 import { createSupabaseResearchRepository } from './researchRepository';
 import type { ResearchRepository } from './researchRepository';
 import {
@@ -732,8 +734,12 @@ class SupabaseRepository implements Repository {
   /** Research hangs off its own seam — see researchRepository.ts. */
   readonly research: ResearchRepository;
 
+  /** Lab likewise — see labRepository.ts for its read-only-runs rule. */
+  readonly lab: LabRepository;
+
   constructor(private readonly client: SupabaseClient) {
     this.research = createSupabaseResearchRepository(client);
+    this.lab = createSupabaseLabRepository(client);
   }
 
   async listEntries(filter?: {

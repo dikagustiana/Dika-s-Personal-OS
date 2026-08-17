@@ -1,3 +1,4 @@
+import { MockLabRepository } from './labRepository';
 import { MockResearchRepository } from './researchRepository';
 import { IELTS_TOPICS } from '../logic/ielts/topics';
 import { PUBLISHED_BAND_CONVERSION } from '../logic/ielts/bandTable';
@@ -150,6 +151,9 @@ export interface MockTaskHistoryEntry {
 export class MockRepository implements Repository {
   /** Research lives behind its own seam; a bare clone still gets a working one. */
   readonly research = new MockResearchRepository();
+
+  /** Lab likewise: the mock registry reproduces the four ground-truth phantoms. */
+  readonly lab = new MockLabRepository();
 
   private viewer: MockViewer = { kind: 'owner' };
 
