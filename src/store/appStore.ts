@@ -16,6 +16,16 @@ import { DEFAULT_PROCESS_ENTITY, finishLineRouteFromLocation } from '../views/wo
 // initiative pages). Timebox and Analytics have no standalone WORK nav item —
 // Timebox lives inside Today, Analytics is folded into Dashboard.
 export type Workspace = 'work' | 'growth';
+/**
+ * What the shell shows. LAB IS DELIBERATELY NOT A Workspace: Workspace is
+ * also the data Domain that Today/Week/Projects scope their reads to, and
+ * Lab has no entries, timeboxes or weekly plans — making it a Domain would
+ * hand every data view a third value it has no rows for. So the shell gets
+ * its own axis: `area` mirrors `workspace` for the two data worlds and adds
+ * 'lab'; while the lab is open, `workspace` keeps its last value and no
+ * data view is mounted to read it.
+ */
+export type ShellArea = Workspace | 'lab';
 export type WorkView =
   | 'dashboard'
   | 'today'
@@ -39,6 +49,11 @@ export type GrowthView =
   // The forest view. It already existed and already handled parent/child
   // projects, but only WORK had a route to it.
   | 'projects';
+// LAB is the agent harness: a registry with integrity checking, an executor
+// screen, the run log, and a linear chain builder. Owner-only — contributors
+// never see the workspace switch, and the lab tables carry no member
+// policies, so this is cosmetic scoping over a database that already refuses.
+export type LabView = 'registry' | 'run' | 'runs' | 'chains';
 
 /**
  * A one-shot handoff for cross-view navigation: "open Projects, scrolled to
@@ -88,6 +103,26 @@ export interface ProsesFocus {
 }
 
 /**
+ * One-shot handoff into the Lab run screen: "open Run with THIS agent
+ * selected". Set by a registry card's Run action (and by the chain builder's
+ * step links), consumed and cleared by LabRun on arrival — the same pattern
+ * as ProjectFocus, for the same reason: the app knows exactly which agent
+ * was meant and must not throw that away on navigation.
+ */
+export interface LabRunFocus {
+  agentSlug: string;
+}
+
+/**
+ * One-shot handoff into the run log: "open the log scrolled to THIS run,
+ * expanded". Set by the run screen's view-in-log link and by chain lineage
+ * links; consumed and cleared by LabRuns on arrival.
+ */
+export interface LabLogFocus {
+  runId: string;
+}
+
+/**
  * Who is using the app this session. `owner` is the passphrase path — the
  * default, and the only value the owner flow ever sets. `contributor` is a
  * magic-link session scoped to its entity codes; the gate sets it after
@@ -103,11 +138,16 @@ interface AppState {
   repository: Repository;
   viewer: Viewer;
   workspace: Workspace;
+  /** The shell's axis: workspace plus 'lab'. See ShellArea. */
+  area: ShellArea;
   workView: WorkView;
   growthView: GrowthView;
+  labView: LabView;
   projectFocus: ProjectFocus | null;
   finishLineFocus: FinishLineFocus | null;
   prosesFocus: ProsesFocus | null;
+  labRunFocus: LabRunFocus | null;
+  labLogFocus: LabLogFocus | null;
   /**
    * WHICH ENTITY'S CHAIN the two process tabs show — ONE state, shared by
    * both tabs on purpose: if they could differ, someone could read the ARBI
@@ -124,11 +164,15 @@ interface AppState {
   setRepository: (repository: Repository) => void;
   setViewer: (viewer: Viewer) => void;
   setWorkspace: (workspace: Workspace) => void;
+  setArea: (area: ShellArea) => void;
   setWorkView: (view: WorkView) => void;
   setGrowthView: (view: GrowthView) => void;
+  setLabView: (view: LabView) => void;
   setProjectFocus: (focus: ProjectFocus | null) => void;
   setFinishLineFocus: (focus: FinishLineFocus | null) => void;
   setProsesFocus: (focus: ProsesFocus | null) => void;
+  setLabRunFocus: (focus: LabRunFocus | null) => void;
+  setLabLogFocus: (focus: LabLogFocus | null) => void;
   setProsesEntity: (entity: string) => void;
 }
 
@@ -140,20 +184,32 @@ export const useAppStore = create<AppState>((set) => ({
   // Reading it HERE rather than in an effect is what makes a bookmarked tab
   // render as itself on the first frame instead of flashing the dashboard.
   workView: finishLineRouteFromLocation() ? 'finish-line' : 'dashboard',
+  area: 'work',
   growthView: 'dashboard',
+  labView: 'registry',
   projectFocus: null,
   finishLineFocus: null,
   prosesFocus: null,
+  labRunFocus: null,
+  labLogFocus: null,
   // Like workView below: read the address at boot so a bookmarked
   // ?entity=ARBI renders as ARBI on the first frame.
   prosesEntity: finishLineRouteFromLocation()?.entity ?? DEFAULT_PROCESS_ENTITY,
   setRepository: (repository) => set({ repository }),
   setViewer: (viewer) => set({ viewer }),
-  setWorkspace: (workspace) => set({ workspace }),
+  // setWorkspace keeps every existing caller correct: naming a data
+  // workspace also leaves the lab. setArea is the switch's entry point;
+  // choosing a data world keeps `workspace` (the Domain) in lockstep, and
+  // choosing 'lab' leaves it at its last value on purpose — see ShellArea.
+  setWorkspace: (workspace) => set({ workspace, area: workspace }),
+  setArea: (area) => set(area === 'lab' ? { area } : { area, workspace: area }),
   setWorkView: (workView) => set({ workView }),
   setGrowthView: (growthView) => set({ growthView }),
+  setLabView: (labView) => set({ labView }),
   setProjectFocus: (projectFocus) => set({ projectFocus }),
   setFinishLineFocus: (finishLineFocus) => set({ finishLineFocus }),
   setProsesFocus: (prosesFocus) => set({ prosesFocus }),
+  setLabRunFocus: (labRunFocus) => set({ labRunFocus }),
+  setLabLogFocus: (labLogFocus) => set({ labLogFocus }),
   setProsesEntity: (prosesEntity) => set({ prosesEntity }),
 }));

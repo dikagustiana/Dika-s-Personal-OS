@@ -1,5 +1,6 @@
 import {
   BookOpen,
+  Bot,
   CalendarDays,
   ChevronRight,
   FileText,
@@ -12,9 +13,12 @@ import {
   Megaphone,
   Lock,
   Menu,
+  Play,
   RefreshCw,
+  ScrollText,
   Target,
   Trophy,
+  Workflow,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
@@ -24,8 +28,9 @@ import { cn } from '../lib/utils';
 import {
   useAppStore,
   type GrowthView,
+  type LabView,
+  type ShellArea,
   type WorkView,
-  type Workspace,
 } from '../store/appStore';
 import { Button } from '../components/ui/Button';
 import { LANTERN_ALT, LanternPhoto } from '../components/ui/LanternPhoto';
@@ -59,23 +64,36 @@ const growthNav: Array<{ id: GrowthView; label: string; short: string; icon: typ
   { id: 'projects', label: 'Projects', short: 'Projects', icon: Target },
 ];
 
+// LAB: the agent harness. Registry first — it is the inventory everything
+// else operates on; the chain builder is deliberately last (the most fun and
+// the least useful first, per the lab brief).
+const labNav: Array<{ id: LabView; label: string; short: string; icon: typeof Focus }> = [
+  { id: 'registry', label: 'Registry', short: 'Agents', icon: Bot },
+  { id: 'run', label: 'Run', short: 'Run', icon: Play },
+  { id: 'runs', label: 'Run log', short: 'Log', icon: ScrollText },
+  { id: 'chains', label: 'Chains', short: 'Chains', icon: Workflow },
+];
+
 function WorkspaceSwitch({
-  workspace,
+  area,
   onChange,
 }: {
-  workspace: Workspace;
-  onChange: (workspace: Workspace) => void;
+  area: ShellArea;
+  onChange: (area: ShellArea) => void;
 }) {
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-md border border-border-subtle bg-background p-1">
-      {(['work', 'growth'] as const).map((item) => (
+    <div className="grid grid-cols-3 gap-1 rounded-md border border-border-subtle bg-background p-1">
+      {(['work', 'growth', 'lab'] as const).map((item) => (
         <button
           key={item}
           onClick={() => onChange(item)}
-          aria-pressed={workspace === item}
+          aria-pressed={area === item}
           className={cn(
-            'h-9 rounded-sm px-3 text-xs font-semibold uppercase tracking-[0.08em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-            workspace === item
+            // px-1, not px-3: three cells share the rail now, and GROWTH at
+            // this tracking overflows a padded third — the labels centre, so
+            // the padding was never load-bearing.
+            'h-9 rounded-sm px-1 text-xs font-semibold uppercase tracking-[0.08em] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            area === item
               ? 'bg-accent text-foreground'
               : 'text-foreground-muted hover:text-foreground-secondary',
           )}
@@ -182,10 +200,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [closeDrawer, drawerOpen]);
-  const workspace = useAppStore((state) => state.workspace);
+  const area = useAppStore((state) => state.area);
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
-  const setWorkspace = useAppStore((state) => state.setWorkspace);
+  const setArea = useAppStore((state) => state.setArea);
   const setWorkView = useAppStore((state) => state.setWorkView);
   const setGrowthView = useAppStore((state) => state.setGrowthView);
   const viewer = useAppStore((state) => state.viewer);
@@ -194,12 +212,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   // ONLY: RLS is what makes GROWTH and the rest unreachable — this nav merely
   // stops offering doors that open onto provably empty rooms. No workspace
   // switch either; there is no second workspace for them.
+  const labView = useAppStore((state) => state.labView);
+  const setLabView = useAppStore((state) => state.setLabView);
   const nav = isContributor
     ? workNav.filter((item) => item.id === 'finish-line' || item.id === 'projects')
-    : workspace === 'work'
+    : area === 'work'
       ? workNav
-      : growthNav;
-  const activeView = workspace === 'work' ? workView : growthView;
+      : area === 'growth'
+        ? growthNav
+        : labNav;
+  const activeView = area === 'work' ? workView : area === 'growth' ? growthView : labView;
 
   const signOut = async () => {
     await signOutCollaborator();
@@ -208,11 +230,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [activeView, workspace]);
+  }, [activeView, area]);
 
-  const selectNav = (id: WorkView | GrowthView) => {
-    if (workspace === 'work') setWorkView(id as WorkView);
-    else setGrowthView(id as GrowthView);
+  const selectNav = (id: WorkView | GrowthView | LabView) => {
+    if (area === 'work') setWorkView(id as WorkView);
+    else if (area === 'growth') setGrowthView(id as GrowthView);
+    else setLabView(id as LabView);
     if (drawerOpen) closeDrawer();
   };
 
@@ -241,8 +264,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="surface-label mt-0.5">Daily command</p>
           </div>
         </div>
-        {!isContributor && <WorkspaceSwitch workspace={workspace} onChange={setWorkspace} />}
-        <nav className="mt-7 space-y-1" aria-label={`${workspace} navigation`}>
+        {!isContributor && <WorkspaceSwitch area={area} onChange={setArea} />}
+        <nav className="mt-7 space-y-1" aria-label={`${area} navigation`}>
           {nav.map((item) => {
             const Icon = item.icon;
             return (
@@ -370,9 +393,9 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             {!isContributor && (
               <WorkspaceSwitch
-                workspace={workspace}
+                area={area}
                 onChange={(next) => {
-                  setWorkspace(next);
+                  setArea(next);
                 }}
               />
             )}
@@ -408,7 +431,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <nav
         className="fixed inset-x-0 bottom-0 z-30 flex overflow-x-auto border-t border-border-subtle bg-card/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden"
-        aria-label={`${workspace} quick navigation`}
+        aria-label={`${area} quick navigation`}
       >
         {nav.map((item) => {
           const Icon = item.icon;

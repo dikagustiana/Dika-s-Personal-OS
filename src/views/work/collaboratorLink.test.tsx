@@ -403,11 +403,16 @@ describe('the token never leaks into a log', () => {
 // that dies with the tab still forces a re-mint — which is what cuts off
 // whoever is holding the current link.
 
+// Relative, not literal: the first version pinned expiresAt to
+// 2026-08-10T10:00Z, so the whole describe block silently started failing
+// the day after it was written — a stored link that has expired is dropped,
+// which is correct behaviour asserted against a fixture that rotted. A
+// fixture that must be "currently valid" derives from the clock.
 const STORED_ROW: CollabLink = {
   userId: OWNER_ROW.userId,
   link: LINK,
-  createdAt: '2026-08-09T10:00:00.000Z',
-  expiresAt: '2026-08-10T10:00:00.000Z',
+  createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+  expiresAt: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
   usedAt: null,
 };
 

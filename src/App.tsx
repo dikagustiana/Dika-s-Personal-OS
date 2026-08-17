@@ -13,11 +13,17 @@ import { GrowthDashboard } from './views/growth/GrowthDashboard';
 import { IeltsArea } from './views/growth/ielts/IeltsArea';
 import { Initiative } from './views/growth/Initiative';
 import { ResearchArea } from './views/growth/research/ResearchArea';
+import { LabRegistry } from './views/lab/LabRegistry';
+import { LabRun } from './views/lab/LabRun';
+import { LabRuns } from './views/lab/LabRuns';
+import { LabChains } from './views/lab/LabChains';
 
 export default function App() {
   const workspace = useAppStore((state) => state.workspace);
+  const area = useAppStore((state) => state.area);
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
+  const labView = useAppStore((state) => state.labView);
 
   // The Finish line owns the only address in the app; every other view is
   // state with no URL. Leaving it therefore has to put the address back,
@@ -25,16 +31,23 @@ export default function App() {
   // would land somewhere the reader did not leave. replaceState, not push:
   // sidebar navigation is not history in this app.
   useEffect(() => {
-    if (workspace === 'work' && workView === 'finish-line') return;
+    // `area`, not `workspace`: entering the lab leaves `workspace` at its
+    // last value, and a Finish line URL must not survive into the lab.
+    if (area === 'work' && workView === 'finish-line') return;
     if (isFinishLinePath(window.location.pathname)) {
       window.history.replaceState(null, '', '/');
     }
-  }, [workspace, workView]);
+  }, [area, workView]);
 
   // key={workspace} remounts the view when switching worlds so no local state
   // (drafts, selected dates) leaks from one domain into the other.
   let view: React.ReactNode;
-  if (workspace === 'work') {
+  if (area === 'lab') {
+    if (labView === 'run') view = <LabRun key="lab" />;
+    else if (labView === 'runs') view = <LabRuns key="lab" />;
+    else if (labView === 'chains') view = <LabChains key="lab" />;
+    else view = <LabRegistry key="lab" />;
+  } else if (workspace === 'work') {
     if (workView === 'today') view = <Today key="work" />;
     else if (workView === 'week') view = <Week key="work" />;
     else if (workView === 'projects') view = <Projects key="work" />;
