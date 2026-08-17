@@ -8,17 +8,19 @@
  * artifact where a claim has been publicly asserted and can no longer
  * change silently.
  */
-import { Plus } from 'lucide-react';
+import { Plus, RefreshCw, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../../components/ui/Card';
 import { EmptyRow } from '../../../components/ui/EmptyRow';
 import { Input } from '../../../components/ui/Input';
 import { useMutation } from '../../../hooks/useMutation';
+import { recheckSource, scoutSources } from '../../../data/labEvidenceAgents';
 import type { LabCommitmentType, LabDocType } from '../../../data/labEvidenceTypes';
 import { useAppStore } from '../../../store/appStore';
-import { rowsOr } from '../labUi';
-import { FIELD_LABEL, type EvidenceData } from './evidenceUi';
+import { cn } from '../../../lib/utils';
+import { LAB_CHIP, rowsOr } from '../labUi';
+import { FIELD_LABEL, TEXTAREA, type EvidenceData } from './evidenceUi';
 
 const DOC_TYPES: LabDocType[] = [
   'government_report',
@@ -60,9 +62,17 @@ export function EvidenceSources({ data, projectId }: { data: EvidenceData; proje
     documentPath: '',
   });
 
+  const [scoutPaste, setScoutPaste] = useState('');
+  const [scoutNote, setScoutNote] = useState('');
+  const [promoteDoc, setPromoteDoc] = useState<Record<string, string>>({});
+  const [recheckNote, setRecheckNote] = useState('');
+
   const sources = rowsOr(data.sources);
   const references = rowsOr(data.references);
   const commitments = rowsOr(data.commitments).filter((row) => row.projectId === projectId);
+  const candidates = rowsOr(data.candidates).filter(
+    (candidate) => candidate.projectId === projectId || candidate.projectId === null,
+  );
 
   const submitSource = async () => {
     if (!sourceDraft.docType) return;
@@ -85,6 +95,140 @@ export function EvidenceSources({ data, projectId }: { data: EvidenceData; proje
 
   return (
     <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="grid gap-5 xl:col-span-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Candidate sources</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="mb-3 text-xs leading-5 text-foreground-muted">
+              The scout structures pasted search listings into rows — title, publisher, URL, date,
+              nothing else. There are no columns for its opinion, and the tier comes from the
+              owner's allowlist in the database, never from the scout. Promotion requires the
+              ingested document with its snapshot.
+            </p>
+            <form
+              className="mb-4 grid gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setScoutNote('');
+                void scoutSources({ pastedResults: scoutPaste, projectId }).then((result) => {
+                  if (result.ok) {
+                    setScoutNote(`Scout recorded ${result.created.length} candidate(s); ${result.skipped.length} skipped.`);
+                    setScoutPaste('');
+                    data.reload();
+                  } else setScoutNote(result.reason);
+                });
+              }}
+            >
+              <label className={FIELD_LABEL}>
+                Paste search-result listings (no live search is wired — deliberately)
+                <textarea
+                  className={`${TEXTAREA} min-h-20`}
+                  value={scoutPaste}
+                  onChange={(event) => setScoutPaste(event.target.value)}
+                />
+              </label>
+              <div>
+                <Button type="submit" size="sm" variant="secondary" disabled={!scoutPaste.trim()}>
+                  <Sparkles className="size-4" />
+                  Run scout
+                </Button>
+              </div>
+            </form>
+            {scoutNote && <p className="mb-3 text-xs text-foreground-secondary">{scoutNote}</p>}
+            {candidates.length === 0 ? (
+              <EmptyRow label="Candidates" clause="belum ada kandidat sumber" />
+            ) : (
+              <ul className="grid gap-2">
+                {candidates.map((candidate) => (
+                  <li
+                    key={candidate.id}
+                    className={cn(
+                      'rounded-md border border-border-subtle bg-surface-2 px-3 py-2 text-xs',
+                      // Tier 3 renders degraded, on purpose: an unknown
+                      // publisher is a lead, not evidence.
+                      candidate.tier === 3 && 'opacity-60',
+                    )}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={cn(
+                          LAB_CHIP,
+                          candidate.tier === 1
+                            ? 'bg-primary-dim text-primary'
+                            : candidate.tier === 2
+                              ? 'border border-border text-foreground-secondary'
+                              : 'border border-escalate/40 text-escalate',
+                        )}
+                      >
+                        tier {candidate.tier}
+                      </span>
+                      <span className="font-semibold text-foreground">{candidate.title}</span>
+                      <span className="text-foreground-muted">
+                        {candidate.publisher || 'penerbit tak dikenal'}
+                        {candidate.claimedDate && ` · ${candidate.claimedDate}`} · {candidate.status}
+                      </span>
+                    </div>
+                    {candidate.tier === 3 && (
+                      <p className="mt-1 text-[11px] text-escalate">
+                        Tier 3 — penerbit di luar allowlist: tidak dapat menopang komitmen layer A.
+                      </p>
+                    )}
+                    {candidate.status === 'candidate' && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <select
+                          className="native-select text-xs"
+                          value={promoteDoc[candidate.id] ?? ''}
+                          onChange={(event) =>
+                            setPromoteDoc({ ...promoteDoc, [candidate.id]: event.target.value })
+                          }
+                          aria-label={`Promote ${candidate.title}`}
+                        >
+                          <option value="">— ingested document (with snapshot) —</option>
+                          {sources.map((source) => (
+                            <option key={source.id} value={source.id}>
+                              {source.title.slice(0, 60)}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={isPending || !promoteDoc[candidate.id]}
+                          onClick={() =>
+                            void mutate('Promote candidate', () =>
+                              repository.labEvidence.promoteCandidate(
+                                candidate.id,
+                                promoteDoc[candidate.id],
+                              ),
+                            ).then((saved) => saved && data.reload())
+                          }
+                        >
+                          Promote
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          disabled={isPending}
+                          onClick={() =>
+                            void mutate('Dismiss candidate', () =>
+                              repository.labEvidence.dismissCandidate(candidate.id),
+                            ).then((saved) => saved && data.reload())
+                          }
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Source documents</CardTitle>
@@ -159,15 +303,46 @@ export function EvidenceSources({ data, projectId }: { data: EvidenceData; proje
               </div>
             </form>
           )}
+          {recheckNote && <p className="mb-3 text-xs text-foreground-secondary">{recheckNote}</p>}
           {sources.length === 0 ? (
             <EmptyRow label="Sources" clause="belum ada dokumen sumber" />
           ) : (
             <ul className="grid gap-2">
               {sources.map((source) => (
                 <li key={source.id} className="rounded-md border border-border-subtle bg-surface-2 px-3 py-2 text-xs">
-                  <p className="font-semibold text-foreground">{source.title}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-foreground">{source.title}</p>
+                    {source.contentChangedAt && (
+                      <span className={cn(LAB_CHIP, 'border border-escalate/40 text-escalate')}>
+                        halaman berubah
+                      </span>
+                    )}
+                    {source.url && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setRecheckNote('');
+                          void recheckSource({ sourceDocumentId: source.id }).then((result) => {
+                            if (result.ok) {
+                              setRecheckNote(
+                                result.changed
+                                  ? 'Recheck: halaman BERUBAH sejak snapshot — ini mendeteksi halamannya berubah, bukan angkanya. Tidak ada status yang diturunkan; tinjau sendiri.'
+                                  : 'Recheck: halaman masih identik dengan snapshot.',
+                              );
+                              data.reload();
+                            } else setRecheckNote(result.reason);
+                          });
+                        }}
+                      >
+                        <RefreshCw className="size-3.5" />
+                        Recheck
+                      </Button>
+                    )}
+                  </div>
                   <p className="mt-0.5 text-foreground-muted">
                     {source.publisher || '—'} · {source.docType} · snapshot: {source.localSnapshotPath}
+                    {source.lastRecheckedAt && ` · rechecked ${source.lastRecheckedAt.slice(0, 10)}`}
                   </p>
                 </li>
               ))}

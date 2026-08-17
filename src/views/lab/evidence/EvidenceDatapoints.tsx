@@ -239,6 +239,15 @@ export function EvidenceDatapoints({ data }: { data: EvidenceData }) {
                       </td>
                       <td className="px-3 py-2.5 text-xs text-foreground-muted">
                         {sourceTitle(datapoint.sourceDocumentId)} · {datapoint.locator}
+                        {/* The recheck flag surfaces where the evidence lives.
+                            It detects that the PAGE changed — never that the
+                            figure did — and demotes nothing. */}
+                        {sources.find((source) => source.id === datapoint.sourceDocumentId)
+                          ?.contentChangedAt && (
+                          <span className="ml-1 text-escalate" title="Recheck mendeteksi halamannya berubah, bukan angkanya — tinjau sendiri.">
+                            ⚠ halaman berubah
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5">
                         <DatapointStatusChip status={datapoint.status} />

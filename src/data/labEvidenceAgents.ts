@@ -98,6 +98,35 @@ export function runReviewer(input: { projectId: string }) {
   return call<ReviewResult>({ action: 'review', ...input });
 }
 
+/** SCOUT: pasted listings → candidate rows (four fields; the DB assigns tier). */
+export function scoutSources(input: { pastedResults: string; projectId?: string }) {
+  return call<ExtractResult>({ action: 'scout', ...input });
+}
+
+export interface SnapshotResult {
+  runId?: string;
+  storagePath: string;
+  hash: string;
+  sizeBytes: number;
+}
+
+/** Server-side fetch + SHA-256 into storage. No table writes — ingestion stays the owner's. */
+export function snapshotUrl(input: { url: string }) {
+  return call<SnapshotResult>({ action: 'snapshot', ...input });
+}
+
+export interface RecheckResult {
+  runId?: string;
+  changed: boolean;
+  hash: string;
+  storedHash: string;
+}
+
+/** Re-fetch + re-hash + FLAG. Detects that the page changed — never that the figure did. */
+export function recheckSource(input: { sourceDocumentId: string }) {
+  return call<RecheckResult>({ action: 'recheck', ...input });
+}
+
 export interface FrameCritiqueResult {
   runId: string;
   critique: string;

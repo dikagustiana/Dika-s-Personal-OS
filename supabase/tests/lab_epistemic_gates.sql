@@ -57,6 +57,8 @@ declare
   v_output_f uuid;
   v_claim_b2 uuid;       -- layer B claim for the inference_step cases
   v_claim_c2 uuid;       -- layer C claim for the inference_step cases
+  v_candidate uuid;      -- SCOUT (081)
+  v_candidate_blog uuid;
   v_stamp timestamptz;
   v_text text;
   v_int int;
@@ -666,6 +668,111 @@ begin
     from public.os_lab_sub_question_coverage where sub_question_id = v_subq_open;
   if v_int <> 1 then
     insert into gate_findings values ('F8: sub-question coverage view shows ' || v_int || ' satisfied, expected 1');
+  end if;
+
+  -- ==== SCOUT (081) ========================================================
+
+  -- S0. the tier comes from the allowlist, never the payload — owner too.
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, publisher, url, tier)
+    values (v_project, 't-candidate-bps', 'BPS', 'https://example.invalid/bps', 3)
+    returning id into v_candidate;
+    if (select tier from public.os_lab_candidate_sources where id = v_candidate) <> 1 then
+      insert into gate_findings values ('S0: BPS candidate did not get allowlist tier 1');
+    end if;
+  exception when others then
+    insert into gate_findings values ('S0 over-blocks: an honest owner candidate was refused: ' || sqlerrm);
+  end;
+
+  -- S1. the SCOUT (keyless): candidate-only, tier recomputed from the
+  --     allowlist even when the payload lies.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, publisher, tier)
+    values (v_project, 't-candidate-blog', 'Some Blog', 1)
+    returning id into v_candidate_blog;
+    if (select tier from public.os_lab_candidate_sources where id = v_candidate_blog) <> 3 then
+      insert into gate_findings values ('S1: an unknown publisher kept the payload''s tier claim');
+    end if;
+    if (select status from public.os_lab_candidate_sources where id = v_candidate_blog) <> 'candidate' then
+      insert into gate_findings values ('S1: a keyless candidate landed at a status other than candidate');
+    end if;
+  exception when others then
+    insert into gate_findings values ('S1 over-blocks: the scout''s legitimate candidate insert was refused: ' || sqlerrm);
+  end;
+  begin
+    insert into public.os_lab_candidate_sources (project_id, title, status)
+    values (v_project, 't-agent-promoted', 'promoted');
+    insert into gate_findings values ('S1: AGENT inserted a candidate at status promoted');
+  exception when others then null;
+  end;
+  -- S2. keyless curation is refused outright.
+  begin
+    update public.os_lab_candidate_sources set status = 'dismissed' where id = v_candidate;
+    insert into gate_findings values ('S2: AGENT dismissed a candidate');
+  exception when others then null;
+  end;
+  -- S2b. the allowlist itself is owner-only.
+  begin
+    insert into public.os_lab_publisher_tiers (publisher, tier) values ('Agent Times', 1);
+    insert into gate_findings values ('S2: AGENT wrote the publisher allowlist');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+
+  -- S3. promotion requires the snapshot-backed source document, by name.
+  begin
+    update public.os_lab_candidate_sources set status = 'promoted' where id = v_candidate;
+    insert into gate_findings values ('S3: promoted a candidate with no source document');
+  exception when others then
+    if sqlerrm not like '%' || v_candidate || '%' then
+      insert into gate_findings values ('S3: refusal did not name the candidate: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_candidate_sources
+       set status = 'promoted', promoted_source_document_id = v_source
+     where id = v_candidate;
+  exception when others then
+    insert into gate_findings values ('S3 over-blocks: promotion with a snapshot-backed document was refused: ' || sqlerrm);
+  end;
+
+  -- S4. the recheck (keyless): flag columns only; substance is refused.
+  perform set_config('request.headers', '{}', true);
+  begin
+    update public.os_lab_source_documents
+       set last_rechecked_at = now(), content_changed_at = now()
+     where id = v_source;
+  exception when others then
+    insert into gate_findings values ('S4 over-blocks: the keyless recheck flag write was refused: ' || sqlerrm);
+  end;
+  begin
+    update public.os_lab_source_documents set title = 'rewritten by the recheck' where id = v_source;
+    insert into gate_findings values ('S4: a keyless write touched source-document substance');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_source_documents (title, doc_type, local_snapshot_path)
+    values ('t-agent-source', 'news', 'snapshots/x.pdf');
+    insert into gate_findings values ('S4: AGENT ingested a source document');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+  --     and the flag demoted nothing: the V datapoint on v_source stands.
+  select status into v_text from public.os_lab_datapoints where id = v_dp_manual;
+  if v_text <> 'V' then
+    insert into gate_findings values ('S4: the recheck flag demoted a datapoint (is ' || v_text || ')');
+  end if;
+
+  -- S5. judgement columns are structurally absent — a regression tripwire.
+  select count(*) into v_int
+    from information_schema.columns
+   where table_schema = 'public' and table_name = 'os_lab_candidate_sources'
+     and column_name in ('notes', 'summary', 'assessment', 'relevance', 'relevance_score', 'quality');
+  if v_int > 0 then
+    insert into gate_findings values ('S5: a judgement column appeared on os_lab_candidate_sources');
   end if;
 
   -- ==== G-STALE ============================================================

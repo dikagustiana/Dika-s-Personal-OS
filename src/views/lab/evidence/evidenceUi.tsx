@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '../../../store/appStore';
 import type { ReadResult } from '../../../data/readResult';
 import type {
+  LabCandidateSource,
   LabClaim,
   LabClaimContradiction,
   LabClaimLayer,
@@ -99,6 +100,7 @@ export interface EvidenceData {
   questions: ReadResult<LabQuestion> | null;
   subQuestions: ReadResult<LabSubQuestion> | null;
   requirements: ReadResult<LabEvidenceRequirement> | null;
+  candidates: ReadResult<LabCandidateSource> | null;
   reload: () => void;
 }
 
@@ -117,6 +119,7 @@ export function useEvidenceData(): EvidenceData {
   const [questions, setQuestions] = useState<ReadResult<LabQuestion> | null>(null);
   const [subQuestions, setSubQuestions] = useState<ReadResult<LabSubQuestion> | null>(null);
   const [requirements, setRequirements] = useState<ReadResult<LabEvidenceRequirement> | null>(null);
+  const [candidates, setCandidates] = useState<ReadResult<LabCandidateSource> | null>(null);
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -138,6 +141,7 @@ export function useEvidenceData(): EvidenceData {
     void seam.listQuestions().then(land(setQuestions));
     void seam.listSubQuestions().then(land(setSubQuestions));
     void seam.listEvidenceRequirements().then(land(setRequirements));
+    void seam.listCandidateSources().then(land(setCandidates));
     return () => {
       cancelled = true;
     };
@@ -159,6 +163,7 @@ export function useEvidenceData(): EvidenceData {
     questions,
     subQuestions,
     requirements,
+    candidates,
     reload,
   };
 }

@@ -24,6 +24,7 @@ import {
 } from './labEvidenceGuards';
 import { okRows, readAbsence, type ReadResult } from './readResult';
 import type {
+  LabCandidateSource,
   LabClaim,
   LabClaimContradiction,
   LabClaimWrite,
@@ -182,6 +183,20 @@ export interface LabEvidenceRepository {
   linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
   unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
 
+  // Curation (SCOUT, 081). The tier is trigger-computed from the owner's
+  // allowlist on every write; nothing here can set it.
+  listCandidateSources(): Promise<ReadResult<LabCandidateSource>>;
+  createCandidateSource(input: {
+    projectId: string | null;
+    title: string;
+    publisher: string;
+    url: string;
+    claimedDate: string | null;
+  }): Promise<LabCandidateSource>;
+  /** Owner-only, and the source document (with its snapshot) must exist. */
+  promoteCandidate(id: string, sourceDocumentId: string): Promise<LabCandidateSource>;
+  dismissCandidate(id: string): Promise<LabCandidateSource>;
+
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
 }
@@ -208,6 +223,36 @@ interface SourceRow {
   local_snapshot_path: string;
   snapshot_hash: string;
   retrieved_at: string;
+  last_rechecked_at: string | null;
+  content_changed_at: string | null;
+}
+
+interface CandidateRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  publisher: string;
+  url: string;
+  claimed_date: string | null;
+  tier: 1 | 2 | 3;
+  status: LabCandidateSource['status'];
+  promoted_source_document_id: string | null;
+  created_by_run_id: string | null;
+}
+
+function mapCandidate(row: CandidateRow): LabCandidateSource {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    publisher: row.publisher,
+    url: row.url,
+    claimedDate: row.claimed_date,
+    tier: row.tier,
+    status: row.status,
+    promotedSourceDocumentId: row.promoted_source_document_id,
+    createdByRunId: row.created_by_run_id,
+  };
 }
 
 interface DatapointRow {
@@ -399,6 +444,8 @@ function mapSource(row: SourceRow): LabSourceDocument {
     localSnapshotPath: row.local_snapshot_path,
     snapshotHash: row.snapshot_hash,
     retrievedAt: row.retrieved_at,
+    lastRecheckedAt: row.last_rechecked_at,
+    contentChangedAt: row.content_changed_at,
   };
 }
 
@@ -1023,6 +1070,50 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       if (error) fail('unlinkOutputSubQuestion', error.message);
     },
 
+    async listCandidateSources() {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabCandidateSources', error);
+      return okRows(((data ?? []) as CandidateRow[]).map(mapCandidate));
+    },
+    async createCandidateSource(input) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .insert({
+          project_id: input.projectId,
+          title: input.title,
+          publisher: input.publisher,
+          url: input.url,
+          claimed_date: input.claimedDate,
+        })
+        .select()
+        .single();
+      if (error) fail('createCandidateSource', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+    async promoteCandidate(id, sourceDocumentId) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .update({ status: 'promoted', promoted_source_document_id: sourceDocumentId })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('promoteCandidate', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+    async dismissCandidate(id) {
+      const { data, error } = await client
+        .from('os_lab_candidate_sources')
+        .update({ status: 'dismissed' })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('dismissCandidate', error.message);
+      return mapCandidate(data as CandidateRow);
+    },
+
     async staleSweep() {
       const { data, error } = await client.rpc('os_lab_stale_sweep');
       if (error) fail('staleSweep', error.message);
@@ -1062,8 +1153,17 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       localSnapshotPath: 'snapshots/yearbook-2026.pdf',
       snapshotHash: 'mock',
       retrievedAt: EV_NOW(),
+      lastRecheckedAt: null,
+      contentChangedAt: null,
     },
   ];
+  /** The mock's allowlist mirror — same 11 tier-1 institutions as 081. */
+  private publisherTiers = new Map<string, 1 | 2>([
+    ['bps', 1], ['bank indonesia', 1], ['ojk', 1], ['kemenperin', 1],
+    ['kemenkeu', 1], ['kemenhub', 1], ['bkpm', 1], ['world bank', 1],
+    ['adb', 1], ['iea', 1], ['imf', 1],
+  ]);
+  private candidates: LabCandidateSource[] = [];
   private datapoints: LabDatapoint[] = [
     {
       id: 'ev-dp-73',
@@ -1189,6 +1289,8 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       localSnapshotPath: input.localSnapshotPath,
       snapshotHash: input.snapshotHash,
       retrievedAt: EV_NOW(),
+      lastRecheckedAt: null,
+      contentChangedAt: null,
     };
     this.sources.push(source);
     return { ...source };
@@ -1664,6 +1766,52 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       );
     }
     output.subQuestionIds = output.subQuestionIds.filter((id) => id !== subQuestionId);
+  }
+
+  async listCandidateSources(): Promise<ReadResult<LabCandidateSource>> {
+    return okRows(this.candidates.map((row) => ({ ...row })));
+  }
+  async createCandidateSource(input: {
+    projectId: string | null;
+    title: string;
+    publisher: string;
+    url: string;
+    claimedDate: string | null;
+  }): Promise<LabCandidateSource> {
+    const candidate: LabCandidateSource = {
+      id: this.nextId('ev-candidate'),
+      projectId: input.projectId,
+      title: input.title,
+      publisher: input.publisher,
+      url: input.url,
+      claimedDate: input.claimedDate,
+      // The allowlist decides, mirroring the trigger — never the caller.
+      tier: this.publisherTiers.get(input.publisher.toLowerCase()) ?? 3,
+      status: 'candidate',
+      promotedSourceDocumentId: null,
+      createdByRunId: null,
+    };
+    this.candidates.push(candidate);
+    return { ...candidate };
+  }
+  async promoteCandidate(id: string, sourceDocumentId: string): Promise<LabCandidateSource> {
+    const candidate = this.candidates.find((row) => row.id === id);
+    if (!candidate) throw new Error(`promoteCandidate: no candidate ${id}`);
+    const source = this.sources.find((row) => row.id === sourceDocumentId);
+    if (!source || !source.localSnapshotPath) {
+      throw new LabGateError(
+        `G-SCOUT: candidate ${id} cannot be promoted without its source document — ingest the document (with its mandatory snapshot) first, then point the candidate at it.`,
+      );
+    }
+    candidate.status = 'promoted';
+    candidate.promotedSourceDocumentId = sourceDocumentId;
+    return { ...candidate };
+  }
+  async dismissCandidate(id: string): Promise<LabCandidateSource> {
+    const candidate = this.candidates.find((row) => row.id === id);
+    if (!candidate) throw new Error(`dismissCandidate: no candidate ${id}`);
+    candidate.status = 'dismissed';
+    return { ...candidate };
   }
 
   async staleSweep(): Promise<number> {

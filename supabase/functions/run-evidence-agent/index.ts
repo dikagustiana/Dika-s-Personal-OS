@@ -13,7 +13,11 @@
 // WRITE SCOPE OF THIS FUNCTION: os_lab_runs (audit), os_lab_tasks
 // (coordinator), os_lab_datapoints (extract), os_lab_references
 // (literature), os_lab_datapoint_conflicts + os_lab_claim_contradictions
-// (review), os_lab_outputs + os_lab_output_claims (draft). Nothing else.
+// (review), os_lab_outputs + os_lab_output_claims (draft),
+// os_lab_candidate_sources (scout — candidate rows only, tier assigned by
+// the trigger), the recheck flag columns on os_lab_source_documents
+// (recheck — the one keyless UPDATE shape 081 permits), and snapshot blobs
+// in the lab-artifacts bucket (snapshot). Nothing else.
 // The FRAMER actions (frame-critique, frame-alternatives) write NOTHING
 // beyond the run row: the framer's write scope is EMPTY, and the G-FRAME
 // guards (20260817000080) refuse it at the database if this ever drifts.
@@ -744,6 +748,113 @@ async function handleFrameAlternatives(body: { rawStatement: string }): Promise<
   return json({ runId, alternatives });
 }
 
+/**
+ * SCOUT (phase 3): pasted search listings → candidate rows. Four fields;
+ * anything else the model emitted dies in this mapping, because
+ * os_lab_candidate_sources has no columns for judgement — by design, so an
+ * agent's "highly relevant!" can never masquerade as a record. The trigger
+ * assigns tier from the owner's allowlist and forces status=candidate.
+ */
+async function handleScout(body: { pastedResults: string; projectId?: string }): Promise<Response> {
+  const { runId, parsed } = await runAgent('evidence-scout', body.pastedResults);
+  const created: string[] = [];
+  const skipped: string[] = [];
+  for (const raw of Array.isArray(parsed.candidates) ? parsed.candidates : []) {
+    const entry = raw as Record<string, unknown>;
+    const title = str(entry.title).trim();
+    if (!title) {
+      skipped.push('(untitled) — not an identifiable source');
+      continue;
+    }
+    const claimedDate = str(entry.claimedDate);
+    try {
+      const candidate = await restInsert<{ id: string }>('os_lab_candidate_sources', {
+        project_id: body.projectId ?? null,
+        title,
+        publisher: str(entry.publisher),
+        url: str(entry.url),
+        claimed_date: /^\d{4}-\d{2}-\d{2}$/.test(claimedDate) ? claimedDate : null,
+        created_by_run_id: runId,
+      });
+      created.push(candidate.id);
+    } catch (error) {
+      skipped.push(`"${title}" — ${error instanceof Error ? error.message : 'refused'}`);
+    }
+  }
+  return json({ runId, created, skipped });
+}
+
+const MAX_SNAPSHOT_BYTES = 20_000_000;
+const SNAPSHOT_BUCKET = 'lab-artifacts';
+
+async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function fetchForSnapshot(url: string): Promise<{ bytes: ArrayBuffer; mime: string }> {
+  if (!/^https?:\/\//i.test(url)) throw new Error('Only http(s) URLs can be snapshotted.');
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok) throw new Error(`Fetch failed (${response.status}).`);
+  const bytes = await response.arrayBuffer();
+  if (bytes.byteLength > MAX_SNAPSHOT_BYTES) {
+    throw new Error(`Document too large (${bytes.byteLength} bytes, max ${MAX_SNAPSHOT_BYTES}).`);
+  }
+  return { bytes, mime: response.headers.get('content-type') ?? 'application/octet-stream' };
+}
+
+/**
+ * SNAPSHOT (phase 3): fetch a URL server-side, hash it, store the bytes.
+ * NO table writes — the CLIENT creates the source document and promotes the
+ * candidate under the owner key, so ingestion stays an owner act end to end.
+ */
+async function handleSnapshot(body: { url: string }): Promise<Response> {
+  const { bytes, mime } = await fetchForSnapshot(body.url);
+  const hash = await sha256Hex(bytes);
+  const storagePath = `snapshots/${Date.now()}-${hash.slice(0, 12)}`;
+  const upload = await fetch(`${SUPABASE_URL}/storage/v1/object/${SNAPSHOT_BUCKET}/${storagePath}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, 'Content-Type': mime },
+    body: bytes,
+  });
+  if (!upload.ok) return json({ error: `Storage upload failed (${upload.status})` }, 502);
+  return json({ storagePath, hash, sizeBytes: bytes.byteLength });
+}
+
+/**
+ * RECHECK (phase 3): re-fetch, re-hash, FLAG — never demote. The flag means
+ * "the page changed", NOT "the figure changed"; deciding what follows is
+ * the owner's, with the datapoints' V untouched by construction (the 081
+ * guard's keyless shape admits only the two flag columns).
+ */
+async function handleRecheck(body: { sourceDocumentId: string }): Promise<Response> {
+  const source = (
+    await restSelect<{ id: string; url: string; snapshot_hash: string }>(
+      'os_lab_source_documents',
+      `select=id,url,snapshot_hash&id=eq.${body.sourceDocumentId}&limit=1`,
+    )
+  )[0];
+  if (!source) return json({ error: 'No such source document.' }, 404);
+  if (!source.url) {
+    return json({ error: 'This source has no URL — offline documents are rechecked by hand against the snapshot.' }, 400);
+  }
+  if (!source.snapshot_hash) {
+    return json({ error: 'This source has no stored snapshot hash — re-ingest it via the snapshot action first.' }, 409);
+  }
+  const { bytes } = await fetchForSnapshot(source.url);
+  const hash = await sha256Hex(bytes);
+  const changed = hash !== source.snapshot_hash;
+  await restUpdate('os_lab_source_documents', source.id, {
+    last_rechecked_at: new Date().toISOString(),
+    // The flag reflects the LATEST recheck: set on change, cleared when the
+    // page matches the snapshot again.
+    content_changed_at: changed ? new Date().toISOString() : null,
+  });
+  return json({ changed, hash, storedHash: source.snapshot_hash });
+}
+
 // ---------------------------------------------------------------------------
 // entry
 // ---------------------------------------------------------------------------
@@ -815,6 +926,21 @@ Deno.serve(async (request) => {
       const projectId = str(body.projectId);
       if (!projectId) return json({ error: 'No projectId supplied' }, 400);
       return await handleReview({ projectId });
+    }
+    if (action === 'scout') {
+      const pastedResults = str(body.pastedResults);
+      if (!pastedResults) return json({ error: 'No pastedResults supplied' }, 400);
+      return await handleScout({ pastedResults, projectId: str(body.projectId) || undefined });
+    }
+    if (action === 'snapshot') {
+      const url = str(body.url);
+      if (!url) return json({ error: 'No url supplied' }, 400);
+      return await handleSnapshot({ url });
+    }
+    if (action === 'recheck') {
+      const sourceDocumentId = str(body.sourceDocumentId);
+      if (!sourceDocumentId) return json({ error: 'No sourceDocumentId supplied' }, 400);
+      return await handleRecheck({ sourceDocumentId });
     }
     if (action === 'frame-critique') {
       const rawStatement = str(body.rawStatement);

@@ -38,6 +38,30 @@ export interface LabSourceDocument {
   localSnapshotPath: string;
   snapshotHash: string;
   retrievedAt: string;
+  /** Recheck bookkeeping (081). The flag means the PAGE changed — never the figure. */
+  lastRecheckedAt: string | null;
+  contentChangedAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Curation (SCOUT, 081). Candidates carry title/publisher/url/date — and
+// structurally CANNOT carry notes, summaries or relevance: no columns exist.
+// ---------------------------------------------------------------------------
+
+export type LabCandidateStatus = 'candidate' | 'promoted' | 'dismissed';
+
+export interface LabCandidateSource {
+  id: string;
+  projectId: string | null;
+  title: string;
+  publisher: string;
+  url: string;
+  claimedDate: string | null;
+  /** Trigger-computed from the owner's allowlist. 3 = unknown publisher. */
+  tier: 1 | 2 | 3;
+  status: LabCandidateStatus;
+  promotedSourceDocumentId: string | null;
+  createdByRunId: string | null;
 }
 
 /** IND = extracted, unverified. V = verified. NA = sought, not available. */
