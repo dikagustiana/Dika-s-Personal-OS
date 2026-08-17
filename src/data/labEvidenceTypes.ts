@@ -182,6 +182,19 @@ export type LabOutputType =
   | 'briefing'
   | 'annotated_bibliography';
 
+/** A coordinator delegation — the COORDINATOR's entire write scope. */
+export interface LabTask {
+  id: string;
+  projectId: string | null;
+  title: string;
+  agentSlug: string;
+  input: string;
+  status: 'queued' | 'running' | 'done' | 'error';
+  detail: string;
+  runId: string | null;
+  createdAt: string;
+}
+
 export interface LabOutput {
   id: string;
   projectId: string;

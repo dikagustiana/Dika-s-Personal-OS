@@ -40,6 +40,7 @@ import type {
   LabProject,
   LabReference,
   LabSourceDocument,
+  LabTask,
 } from './labEvidenceTypes';
 
 export interface LabSourceDocumentWrite {
@@ -135,6 +136,10 @@ export interface LabEvidenceRepository {
   finalizeOutput(id: string): Promise<LabOutput>;
   revertOutputToDraft(id: string): Promise<LabOutput>;
   clearOutputStale(id: string): Promise<LabOutput>;
+
+  /** The coordinator's delegations, newest first. */
+  listTasks(): Promise<ReadResult<LabTask>>;
+  updateTaskStatus(id: string, status: LabTask['status'], detail?: string): Promise<LabTask>;
 
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
@@ -233,6 +238,32 @@ interface ContradictionRow {
   severity: LabContradictionSeverity;
   status: LabClaimContradiction['status'];
   resolution_note: string;
+}
+
+interface TaskRow {
+  id: string;
+  project_id: string | null;
+  title: string;
+  agent_slug: string;
+  input: string;
+  status: LabTask['status'];
+  detail: string;
+  run_id: string | null;
+  created_at: string;
+}
+
+function mapTask(row: TaskRow): LabTask {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    agentSlug: row.agent_slug,
+    input: row.input,
+    status: row.status,
+    detail: row.detail,
+    runId: row.run_id,
+    createdAt: row.created_at,
+  };
 }
 
 interface OutputRow {
@@ -726,6 +757,26 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       return mapOutput(data as OutputRow);
     },
 
+    async listTasks() {
+      const { data, error } = await client
+        .from('os_lab_tasks')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) return readAbsence('listLabTasks', error);
+      return okRows(((data ?? []) as TaskRow[]).map(mapTask));
+    },
+    async updateTaskStatus(id, status, detail) {
+      const { data, error } = await client
+        .from('os_lab_tasks')
+        .update({ status, ...(detail === undefined ? {} : { detail }) })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('updateTaskStatus', error.message);
+      return mapTask(data as TaskRow);
+    },
+
     async staleSweep() {
       const { data, error } = await client.rpc('os_lab_stale_sweep');
       if (error) fail('staleSweep', error.message);
@@ -1196,6 +1247,19 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     if (!output) throw new Error(`clearOutputStale: no output ${id}`);
     output.stale = false;
     return { ...output, claimIds: [...output.claimIds] };
+  }
+
+  private tasks: LabTask[] = [];
+
+  async listTasks(): Promise<ReadResult<LabTask>> {
+    return okRows(this.tasks.map((row) => ({ ...row })));
+  }
+  async updateTaskStatus(id: string, status: LabTask['status'], detail?: string): Promise<LabTask> {
+    const task = this.tasks.find((row) => row.id === id);
+    if (!task) throw new Error(`updateTaskStatus: no task ${id}`);
+    task.status = status;
+    if (detail !== undefined) task.detail = detail;
+    return { ...task };
   }
 
   async staleSweep(): Promise<number> {

@@ -18,6 +18,7 @@ import type {
   LabProject,
   LabReference,
   LabSourceDocument,
+  LabTask,
 } from '../../../data/labEvidenceTypes';
 import { cn } from '../../../lib/utils';
 import { LAB_CHIP } from '../labUi';
@@ -79,6 +80,7 @@ export interface EvidenceData {
   claims: ReadResult<LabClaim> | null;
   contradictions: ReadResult<LabClaimContradiction> | null;
   outputs: ReadResult<LabOutput> | null;
+  tasks: ReadResult<LabTask> | null;
   reload: () => void;
 }
 
@@ -93,6 +95,7 @@ export function useEvidenceData(): EvidenceData {
   const [claims, setClaims] = useState<ReadResult<LabClaim> | null>(null);
   const [contradictions, setContradictions] = useState<ReadResult<LabClaimContradiction> | null>(null);
   const [outputs, setOutputs] = useState<ReadResult<LabOutput> | null>(null);
+  const [tasks, setTasks] = useState<ReadResult<LabTask> | null>(null);
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -110,6 +113,7 @@ export function useEvidenceData(): EvidenceData {
     void seam.listClaims().then(land(setClaims));
     void seam.listContradictions().then(land(setContradictions));
     void seam.listOutputs().then(land(setOutputs));
+    void seam.listTasks().then(land(setTasks));
     return () => {
       cancelled = true;
     };
@@ -127,6 +131,7 @@ export function useEvidenceData(): EvidenceData {
     claims,
     contradictions,
     outputs,
+    tasks,
     reload,
   };
 }
