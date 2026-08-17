@@ -46,6 +46,17 @@ declare
   v_output uuid;
   v_output_vol uuid;
   v_ref_agent uuid;
+  v_question uuid;       -- FRAMER (080)
+  v_subq_met uuid;       -- sub-question whose requirement gets satisfied
+  v_subq_open uuid;      -- sub-question left unsatisfied (G-FALSIFY)
+  v_req_met uuid;
+  v_req_open uuid;
+  v_req_ref uuid;
+  v_ref_f uuid;          -- abstract-only reference for the F cases
+  v_dp_ind_f uuid;       -- IND datapoint for the F cases
+  v_output_f uuid;
+  v_claim_b2 uuid;       -- layer B claim for the inference_step cases
+  v_claim_c2 uuid;       -- layer C claim for the inference_step cases
   v_stamp timestamptz;
   v_text text;
   v_int int;
@@ -166,8 +177,9 @@ begin
   values (7.3, 'cold-storage utilisation rate, national aggregate', v_source, 'p.12', 'volatile', 'manual')
   returning id into v_dp_conflict_a;
 
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-claim: utilisation is materially below capacity', 'B')
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-claim: utilisation is materially below capacity', 'B',
+          'the matched utilisation figure sits well below the capacity figure on the same basis')
   returning id into v_claim;
   insert into public.os_lab_claim_datapoints values (v_claim, v_dp_conflict_a);
 
@@ -380,10 +392,14 @@ begin
     end if;
   end;
   --     tension stays advisory: an open tension does not block.
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-tension-a', 'C') returning id into v_dp_conflict_a; -- reuse var as claim id
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-tension-b', 'C') returning id into v_dp_conflict_b;
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-tension-a', 'C',
+          'inferred from the divergence between the two matched series')
+  returning id into v_dp_conflict_a; -- reuse var as claim id
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-tension-b', 'C',
+          'inferred from the same divergence read the other way')
+  returning id into v_dp_conflict_b;
   insert into public.os_lab_claim_contradictions (claim_a_id, claim_b_id, severity)
   values (v_dp_conflict_a, v_dp_conflict_b, 'tension');
   begin
@@ -425,6 +441,233 @@ begin
     insert into gate_findings values ('H5: the runs row did not record the resolved model string');
   end if;
 
+  -- ==== FRAMER (080) =======================================================
+
+  -- F0. the honest intake lands: question, sub-questions, requirements.
+  begin
+    insert into public.os_lab_questions (project_id, raw_statement, framed_question, framing_source)
+    values (v_project, 'is cold-chain the bottleneck?',
+            'which cold-chain segment binds national capacity growth first', 'owner_written')
+    returning id into v_question;
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 'is utilisation below nameplate capacity?',
+            'a source-matched utilisation figure at or above nameplate capacity')
+    returning id into v_subq_met;
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 'does the licensing regime bind imports?',
+            'an import realisation series unchanged across the regulation date')
+    returning id into v_subq_open;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_met, 'a source-matched national utilisation rate', 'datapoint')
+    returning id into v_req_met;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_open, 'an import realisation series spanning the regulation date', 'datapoint')
+    returning id into v_req_open;
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_met, 'a full-text study of utilisation methodology', 'reference')
+    returning id into v_req_ref;
+  exception when others then
+    insert into gate_findings values ('F0 over-blocks: an honest owner intake was refused: ' || sqlerrm);
+  end;
+
+  -- F1. a sub-question without a real falsifier is a row that cannot exist.
+  begin
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 't-lazy', 'none');
+    insert into gate_findings values ('F1: a sub-question with a 4-char falsifier was accepted');
+  exception when others then null;
+  end;
+
+  -- F2. the framer''s write scope is EMPTY: keyless writes refused on all four.
+  perform set_config('request.headers', '{}', true);
+  begin
+    insert into public.os_lab_questions (project_id, raw_statement, framed_question, framing_source)
+    values (v_project, 'agent ask', 'an agent-framed question, which must not exist', 'owner_written');
+    insert into gate_findings values ('F2: AGENT inserted a question');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_sub_questions (question_id, statement, falsifier)
+    values (v_question, 't-agent-subq', 'an agent-invented falsifier long enough to pass');
+    insert into gate_findings values ('F2: AGENT inserted a sub-question');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_evidence_requirements (sub_question_id, description, kind)
+    values (v_subq_open, 't-agent-req', 'datapoint');
+    insert into gate_findings values ('F2: AGENT inserted an evidence requirement');
+  exception when others then null;
+  end;
+  begin
+    insert into public.os_lab_output_sub_questions values (v_output, v_subq_open);
+    insert into gate_findings values ('F2: AGENT linked an output to a sub-question');
+  exception when others then null;
+  end;
+  perform set_config('request.headers',
+    json_build_object('x-app-key', 'epistemic-gate-test-key')::text, true);
+
+  -- F3. raw_statement is frozen at intake, even for the owner.
+  begin
+    update public.os_lab_questions
+       set raw_statement = 'quietly different ask' where id = v_question;
+    insert into gate_findings values ('F3: raw_statement was rewritten after intake');
+  exception when others then
+    if sqlerrm not like '%' || v_question || '%' then
+      insert into gate_findings values ('F3: freeze refusal did not name the question: ' || sqlerrm);
+    end if;
+  end;
+  --     reframing (framed_question) stays open — over-blocking check.
+  begin
+    update public.os_lab_questions
+       set framed_question = 'which cold-chain segment binds capacity growth first, and where',
+           framing_source = 'owner_selected'
+     where id = v_question;
+  exception when others then
+    insert into gate_findings values ('F3 over-blocks: an owner reframe was refused: ' || sqlerrm);
+  end;
+
+  -- F4. only source-matched evidence satisfies a requirement.
+  insert into public.os_lab_datapoints
+    (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
+  values (55, 'import realisation series, customs clearance basis, monthly', v_source, 'tab 9', 'slow', 'manual')
+  returning id into v_dp_ind_f;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_datapoint_id = v_dp_ind_f where id = v_req_met;
+    insert into gate_findings values ('F4: an IND datapoint satisfied an evidence requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_req_met || '%' or sqlerrm not like '%' || v_dp_ind_f || '%' then
+      insert into gate_findings values ('F4: IND refusal did not name requirement and datapoint: ' || sqlerrm);
+    end if;
+  end;
+  --     a V datapoint does, and the guard stamps satisfied_at.
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_datapoint_id = v_dp_manual where id = v_req_met;
+    select satisfied_at into v_stamp from public.os_lab_evidence_requirements where id = v_req_met;
+    if v_stamp is null then
+      insert into gate_findings values ('F4: satisfaction landed but satisfied_at was not stamped');
+    end if;
+  exception when others then
+    insert into gate_findings values ('F4 over-blocks: a V datapoint was refused as satisfaction: ' || sqlerrm);
+  end;
+  --     kind-consistency is a row fact: a reference on a datapoint-kind row.
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_reference_id = v_ref where id = v_req_open;
+    insert into gate_findings values ('F4: a reference satisfied a datapoint-kind requirement');
+  exception when others then null;
+  end;
+  --     an abstract-only reference cannot satisfy a reference-kind row.
+  insert into public.os_lab_references (title) values ('t-abstract-f') returning id into v_ref_f;
+  begin
+    update public.os_lab_evidence_requirements
+       set satisfied_by_reference_id = v_ref_f where id = v_req_ref;
+    insert into gate_findings values ('F4: an abstract_only reference satisfied a requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_ref_f || '%' then
+      insert into gate_findings values ('F4: abstract refusal did not name the reference: ' || sqlerrm);
+    end if;
+  end;
+
+  -- F5. G-FALSIFY: an output addressing a sub-question with no satisfied
+  --     requirement cannot finalize, and the refusal names the sub-question.
+  insert into public.os_lab_outputs (project_id, output_type)
+  values (v_project, 'briefing') returning id into v_output_f;
+  insert into public.os_lab_output_claims values (v_output_f, v_claim);
+  insert into public.os_lab_output_sub_questions values (v_output_f, v_subq_met);
+  insert into public.os_lab_output_sub_questions values (v_output_f, v_subq_open);
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output_f;
+    insert into gate_findings values ('F5: finalized addressing a sub-question with no satisfied requirement');
+  exception when others then
+    if sqlerrm not like '%' || v_subq_open || '%' then
+      insert into gate_findings values ('F5: G-FALSIFY refusal did not name the sub-question: ' || sqlerrm);
+    end if;
+  end;
+  --     satisfy the open requirement (source-match the IND row first) and
+  --     the same finalize lands — the gate reads coverage, not vibes.
+  update public.os_lab_datapoints
+     set status = 'V', verification_note = 'checked against the customs clearance table'
+   where id = v_dp_ind_f;
+  update public.os_lab_evidence_requirements
+     set satisfied_by_datapoint_id = v_dp_ind_f where id = v_req_open;
+  begin
+    update public.os_lab_outputs set status = 'final' where id = v_output_f;
+    select status into v_text from public.os_lab_outputs where id = v_output_f;
+    if v_text <> 'final' then
+      insert into gate_findings values ('F5: a fully-covered finalize did not land (status ' || v_text || ')');
+    end if;
+  exception when others then
+    insert into gate_findings values ('F5 over-blocks: a fully-covered finalize was refused: ' || sqlerrm);
+  end;
+  --     a final output''s sub-question links are pinned.
+  begin
+    delete from public.os_lab_output_sub_questions
+     where output_id = v_output_f and sub_question_id = v_subq_open;
+    insert into gate_findings values ('F5: a sub-question was unlinked from a final output');
+  exception when others then null;
+  end;
+
+  -- F6. layer B approval requires evidence AND the inference step.
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-b2: the series is flat across the date', 'B')
+  returning id into v_claim_b2;
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_b2;
+    insert into gate_findings values ('F6: a layer B claim approved with no evidence linked');
+  exception when others then
+    if sqlerrm not like '%' || v_claim_b2 || '%' then
+      insert into gate_findings values ('F6: no-evidence refusal did not name the claim: ' || sqlerrm);
+    end if;
+  end;
+  insert into public.os_lab_claim_datapoints values (v_claim_b2, v_dp_ind_f);
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_b2;
+    insert into gate_findings values ('F6: a layer B claim approved without an inference_step');
+  exception when others then
+    if sqlerrm not ilike '%inference_step%' then
+      insert into gate_findings values ('F6: refusal did not name inference_step: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_claims
+       set status = 'approved',
+           inference_step = 'the matched series shows no level shift across the regulation date'
+     where id = v_claim_b2;
+  exception when others then
+    insert into gate_findings values ('F6 over-blocks: evidence + inference_step approval refused: ' || sqlerrm);
+  end;
+
+  -- F7. layer C approval requires the inference step — the step IS the
+  --     contribution and it gets recorded.
+  insert into public.os_lab_claims (project_id, statement, layer)
+  values (v_project, 't-c2: the regime is not the binding constraint', 'C')
+  returning id into v_claim_c2;
+  begin
+    update public.os_lab_claims set status = 'approved' where id = v_claim_c2;
+    insert into gate_findings values ('F7: a layer C claim approved without an inference_step');
+  exception when others then
+    if sqlerrm not ilike '%inference_step%' then
+      insert into gate_findings values ('F7: refusal did not name inference_step: ' || sqlerrm);
+    end if;
+  end;
+  begin
+    update public.os_lab_claims
+       set status = 'approved',
+           inference_step = 'if imports were bound by licensing, the realisation series would shift; it does not'
+     where id = v_claim_c2;
+  exception when others then
+    insert into gate_findings values ('F7 over-blocks: a layer C approval with the step was refused: ' || sqlerrm);
+  end;
+
+  -- F8. the coverage views agree with what just happened.
+  select satisfied_count into v_int
+    from public.os_lab_sub_question_coverage where sub_question_id = v_subq_open;
+  if v_int <> 1 then
+    insert into gate_findings values ('F8: sub-question coverage view shows ' || v_int || ' satisfied, expected 1');
+  end if;
+
   -- ==== G-STALE ============================================================
   insert into public.os_lab_datapoints
     (value, definition_scope, source_document_id, locator, volatility_class, extraction_method)
@@ -433,8 +676,10 @@ begin
   update public.os_lab_datapoints
      set status = 'V', verification_note = 'checked against the register'
    where id = v_dp_volatile;
-  insert into public.os_lab_claims (project_id, statement, layer)
-  values (v_project, 't-volatile: capacity stands at 42', 'B') returning id into v_claim_vol;
+  insert into public.os_lab_claims (project_id, statement, layer, inference_step)
+  values (v_project, 't-volatile: capacity stands at 42', 'B',
+          'read directly off the register entry for the facility class')
+  returning id into v_claim_vol;
   insert into public.os_lab_claim_datapoints values (v_claim_vol, v_dp_volatile);
   update public.os_lab_claims set status = 'approved' where id = v_claim_vol;
   insert into public.os_lab_outputs (project_id, output_type)

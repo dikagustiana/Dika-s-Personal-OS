@@ -17,6 +17,7 @@ import type {
   LabDatapoint,
   LabDatapointConflict,
   LabDatapointWrite,
+  LabEvidenceRequirement,
   LabReference,
 } from './labEvidenceTypes';
 
@@ -117,14 +118,42 @@ export function claimApprovalBlockers(input: {
       );
     }
   }
+  // Phase 2: the step from evidence to statement is part of the claim. B
+  // names its evidence and how the evidence yields the statement; for C the
+  // step IS the contribution, so it gets recorded, not implied.
+  if (input.claim.layer === 'B') {
+    if (input.claim.datapointIds.length === 0 && input.claim.referenceIds.length === 0) {
+      blockers.push(
+        `G-CLAIM: claim ${input.claim.id} is layer B (a verified finding) and cannot be approved with no evidence linked — link the datapoints or references it rests on, or record it as layer C.`,
+      );
+    }
+    if (input.claim.inferenceStep.trim().length < 20) {
+      blockers.push(
+        `G-CLAIM: claim ${input.claim.id} is layer B and cannot be approved without an inference step (min 20 chars) saying how the linked evidence yields the statement.`,
+      );
+    }
+  }
+  if (input.claim.layer === 'C' && input.claim.inferenceStep.trim().length < 20) {
+    blockers.push(
+      `G-CLAIM: claim ${input.claim.id} is layer C (an inference) and cannot be approved without an inference step (min 20 chars) — the step is the contribution.`,
+    );
+  }
   return blockers;
 }
 
-/** G-OUTPUT: every reason this output cannot finalize. Empty = may. */
+/**
+ * G-OUTPUT: every reason this output cannot finalize. Empty = may.
+ * The optional G-FALSIFY inputs (phase 2): when the output declares which
+ * sub-questions it addresses, each must carry at least one SATISFIED
+ * evidence requirement — otherwise the falsifier never got its chance to
+ * bite. Callers without the question layer omit both and lose nothing.
+ */
 export function outputFinalizeBlockers(input: {
   stale: boolean;
   citedClaims: readonly LabClaim[];
   contradictions: readonly LabClaimContradiction[];
+  addressedSubQuestionIds?: readonly string[];
+  requirements?: readonly LabEvidenceRequirement[];
 }): string[] {
   const blockers: string[] = [];
   if (input.stale) {
@@ -146,6 +175,18 @@ export function outputFinalizeBlockers(input: {
     ) {
       blockers.push(
         `G-LAYER: this output cites both sides of open contradiction ${contradiction.id} — resolve it first.`,
+      );
+    }
+  }
+  for (const subQuestionId of input.addressedSubQuestionIds ?? []) {
+    const satisfied = (input.requirements ?? []).some(
+      (requirement) =>
+        requirement.subQuestionId === subQuestionId &&
+        (requirement.satisfiedByDatapointId !== null || requirement.satisfiedByReferenceId !== null),
+    );
+    if (!satisfied) {
+      blockers.push(
+        `G-FALSIFY: sub-question ${subQuestionId} has no satisfied evidence requirement — the falsifier was never given its chance to bite. Satisfy a requirement or unlink the sub-question.`,
       );
     }
   }

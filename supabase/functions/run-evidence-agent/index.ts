@@ -14,6 +14,9 @@
 // (coordinator), os_lab_datapoints (extract), os_lab_references
 // (literature), os_lab_datapoint_conflicts + os_lab_claim_contradictions
 // (review), os_lab_outputs + os_lab_output_claims (draft). Nothing else.
+// The FRAMER actions (frame-critique, frame-alternatives) write NOTHING
+// beyond the run row: the framer's write scope is EMPTY, and the G-FRAME
+// guards (20260817000080) refuse it at the database if this ever drifts.
 // Keep this paragraph greppable and true.
 //
 // Every action is owner-initiated (checkAppKey before anything billable);
@@ -684,6 +687,63 @@ async function handleDraft(body: {
   return json({ runId, outputId: output.id, citedClaimIds: linked });
 }
 
+/**
+ * FRAME (phase 2): critique and alternatives, JSON out, NO table writes.
+ * The framing decides what evidence gets sought before any downstream gate
+ * can act — so the framer exists — but recording a framing is the owner's
+ * act, always: os_lab_questions has no keyless write path at all.
+ */
+async function handleFrameCritique(body: {
+  rawStatement: string;
+  framedQuestion: string;
+}): Promise<Response> {
+  const { runId, parsed } = await runAgent(
+    'evidence-framer',
+    `MODE critique\n\nRAW ASK:\n${body.rawStatement}\n\nCURRENT FRAMED QUESTION:\n${body.framedQuestion || '(none yet)'}`,
+  );
+  const critique = str(parsed.critique).trim();
+  if (!critique) {
+    return json({ error: 'The framer returned no critique. The full text is in the run log.', runId }, 502);
+  }
+  return json({ runId, critique });
+}
+
+async function handleFrameAlternatives(body: { rawStatement: string }): Promise<Response> {
+  const { runId, parsed } = await runAgent(
+    'evidence-framer',
+    `MODE alternatives\n\nRAW ASK:\n${body.rawStatement}`,
+  );
+  const alternatives = (Array.isArray(parsed.alternatives) ? parsed.alternatives : [])
+    .map((raw) => {
+      const entry = raw as Record<string, unknown>;
+      return {
+        framedQuestion: str(entry.framedQuestion).trim(),
+        why: str(entry.why).trim(),
+        subQuestions: (Array.isArray(entry.subQuestions) ? entry.subQuestions : [])
+          .map((sq) => ({
+            statement: str((sq as { statement?: unknown }).statement).trim(),
+            falsifier: str((sq as { falsifier?: unknown }).falsifier).trim(),
+          }))
+          .filter((sq) => sq.statement && sq.falsifier.length >= 20),
+      };
+    })
+    .filter((alternative) => alternative.framedQuestion.length >= 20)
+    .slice(0, 3);
+  // 2–3, never one: a single option is an anchor, not a choice. Enforced in
+  // code, not requested in the prompt.
+  if (alternatives.length < 2) {
+    return json(
+      {
+        error:
+          'The framer returned fewer than two viable framings — a single option is an anchor, not a choice. The full text is in the run log.',
+        runId,
+      },
+      502,
+    );
+  }
+  return json({ runId, alternatives });
+}
+
 // ---------------------------------------------------------------------------
 // entry
 // ---------------------------------------------------------------------------
@@ -755,6 +815,16 @@ Deno.serve(async (request) => {
       const projectId = str(body.projectId);
       if (!projectId) return json({ error: 'No projectId supplied' }, 400);
       return await handleReview({ projectId });
+    }
+    if (action === 'frame-critique') {
+      const rawStatement = str(body.rawStatement);
+      if (!rawStatement) return json({ error: 'No rawStatement supplied' }, 400);
+      return await handleFrameCritique({ rawStatement, framedQuestion: str(body.framedQuestion) });
+    }
+    if (action === 'frame-alternatives') {
+      const rawStatement = str(body.rawStatement);
+      if (!rawStatement) return json({ error: 'No rawStatement supplied' }, 400);
+      return await handleFrameAlternatives({ rawStatement });
     }
     if (action === 'draft') {
       const projectId = str(body.projectId);

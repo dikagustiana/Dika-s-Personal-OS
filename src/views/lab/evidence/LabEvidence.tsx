@@ -21,13 +21,15 @@ import { rowsOr } from '../labUi';
 import { EvidenceAgents } from './EvidenceAgents';
 import { EvidenceClaims } from './EvidenceClaims';
 import { EvidenceDatapoints } from './EvidenceDatapoints';
+import { EvidenceIntake } from './EvidenceIntake';
 import { EvidenceOutputs } from './EvidenceOutputs';
 import { EvidenceSources } from './EvidenceSources';
 import { FIELD_LABEL, useEvidenceData } from './evidenceUi';
 
-type EvidenceTab = 'datapoints' | 'claims' | 'outputs' | 'sources' | 'agents';
+type EvidenceTab = 'intake' | 'datapoints' | 'claims' | 'outputs' | 'sources' | 'agents';
 
 const TABS: Array<{ id: EvidenceTab; label: string }> = [
+  { id: 'intake', label: 'Intake' },
   { id: 'datapoints', label: 'Datapoints' },
   { id: 'claims', label: 'Claims' },
   { id: 'outputs', label: 'Outputs' },
@@ -181,6 +183,7 @@ export function LabEvidence() {
             ))}
           </div>
 
+          {tab === 'intake' && <EvidenceIntake data={data} projectId={activeProject.id} />}
           {tab === 'datapoints' && <EvidenceDatapoints data={data} />}
           {tab === 'claims' && <EvidenceClaims data={data} projectId={activeProject.id} />}
           {tab === 'outputs' && <EvidenceOutputs data={data} projectId={activeProject.id} />}

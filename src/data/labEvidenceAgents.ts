@@ -98,6 +98,33 @@ export function runReviewer(input: { projectId: string }) {
   return call<ReviewResult>({ action: 'review', ...input });
 }
 
+export interface FrameCritiqueResult {
+  runId: string;
+  critique: string;
+}
+
+/** The framer critiques a framing. JSON back, no writes — ever. */
+export function critiqueFraming(input: { rawStatement: string; framedQuestion?: string }) {
+  return call<FrameCritiqueResult>({ action: 'frame-critique', ...input });
+}
+
+export interface FrameAlternativesResult {
+  runId: string;
+  alternatives: Array<{
+    framedQuestion: string;
+    why: string;
+    subQuestions: Array<{ statement: string; falsifier: string }>;
+  }>;
+}
+
+/**
+ * 2–3 alternative framings, never one (an anchor is not a choice). The
+ * owner picks; recording the pick is the owner's write, not the framer's.
+ */
+export function proposeFramings(input: { rawStatement: string }) {
+  return call<FrameAlternativesResult>({ action: 'frame-alternatives', ...input });
+}
+
 export interface DraftResult {
   runId: string;
   outputId?: string;

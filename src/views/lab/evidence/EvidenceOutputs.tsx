@@ -40,6 +40,7 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
   const [newType, setNewType] = useState<'' | LabOutputType>('');
   const [content, setContent] = useState('');
   const [linkPick, setLinkPick] = useState('');
+  const [subQuestionPick, setSubQuestionPick] = useState('');
   /** Violations from the LAST save attempt — the blocking panel's content. */
   const [blockedNumbers, setBlockedNumbers] = useState<ReturnType<typeof checkOutputNumbers>>([]);
 
@@ -47,6 +48,8 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
   const claims = rowsOr(data.claims);
   const datapoints = rowsOr(data.datapoints);
   const contradictions = rowsOr(data.contradictions);
+  const subQuestions = rowsOr(data.subQuestions);
+  const requirements = rowsOr(data.requirements);
   const selected = outputs.find((output) => output.id === selectedId);
 
   const citedClaims = useMemo(
@@ -62,7 +65,14 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
     [datapoints, citedClaims],
   );
   const finalizeBlockers = selected
-    ? outputFinalizeBlockers({ stale: selected.stale, citedClaims, contradictions })
+    ? outputFinalizeBlockers({
+        stale: selected.stale,
+        citedClaims,
+        contradictions,
+        // G-FALSIFY: each addressed sub-question needs a satisfied requirement.
+        addressedSubQuestionIds: selected.subQuestionIds,
+        requirements,
+      })
     : [];
 
   const open = (id: string) => {
@@ -257,6 +267,53 @@ export function EvidenceOutputs({ data, projectId }: { data: EvidenceData; proje
                   }
                 >
                   Cite
+                </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="surface-label">Addresses</span>
+                {selected.subQuestionIds.length === 0 && (
+                  <span className="text-foreground-muted">
+                    belum menautkan sub-pertanyaan — G-FALSIFY hanya menggigit yang ditautkan
+                  </span>
+                )}
+                {selected.subQuestionIds.map((id) => {
+                  const subQuestion = subQuestions.find((row) => row.id === id);
+                  return subQuestion ? (
+                    <span key={id} className="rounded-sm border border-border-subtle bg-surface-2 px-1.5 py-0.5">
+                      {subQuestion.statement.slice(0, 48)}
+                    </span>
+                  ) : null;
+                })}
+                <select
+                  className="native-select text-xs"
+                  value={subQuestionPick}
+                  onChange={(event) => setSubQuestionPick(event.target.value)}
+                  aria-label="Address a sub-question"
+                >
+                  <option value="">— address sub-question —</option>
+                  {subQuestions
+                    .filter((subQuestion) => !selected.subQuestionIds.includes(subQuestion.id))
+                    .map((subQuestion) => (
+                      <option key={subQuestion.id} value={subQuestion.id}>
+                        {subQuestion.statement.slice(0, 50)}
+                      </option>
+                    ))}
+                </select>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={isPending || !subQuestionPick}
+                  onClick={() =>
+                    void mutate('Address sub-question', () =>
+                      repository.labEvidence.linkOutputSubQuestion(selected.id, subQuestionPick),
+                    ).then(() => {
+                      setSubQuestionPick('');
+                      data.reload();
+                    })
+                  }
+                >
+                  Link
                 </Button>
               </div>
 

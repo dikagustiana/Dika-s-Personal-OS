@@ -14,10 +14,13 @@ import type {
   LabDatapoint,
   LabDatapointConflict,
   LabDatapointStatus,
+  LabEvidenceRequirement,
   LabOutput,
   LabProject,
+  LabQuestion,
   LabReference,
   LabSourceDocument,
+  LabSubQuestion,
   LabTask,
 } from '../../../data/labEvidenceTypes';
 import { cn } from '../../../lib/utils';
@@ -93,6 +96,9 @@ export interface EvidenceData {
   contradictions: ReadResult<LabClaimContradiction> | null;
   outputs: ReadResult<LabOutput> | null;
   tasks: ReadResult<LabTask> | null;
+  questions: ReadResult<LabQuestion> | null;
+  subQuestions: ReadResult<LabSubQuestion> | null;
+  requirements: ReadResult<LabEvidenceRequirement> | null;
   reload: () => void;
 }
 
@@ -108,6 +114,9 @@ export function useEvidenceData(): EvidenceData {
   const [contradictions, setContradictions] = useState<ReadResult<LabClaimContradiction> | null>(null);
   const [outputs, setOutputs] = useState<ReadResult<LabOutput> | null>(null);
   const [tasks, setTasks] = useState<ReadResult<LabTask> | null>(null);
+  const [questions, setQuestions] = useState<ReadResult<LabQuestion> | null>(null);
+  const [subQuestions, setSubQuestions] = useState<ReadResult<LabSubQuestion> | null>(null);
+  const [requirements, setRequirements] = useState<ReadResult<LabEvidenceRequirement> | null>(null);
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
@@ -126,6 +135,9 @@ export function useEvidenceData(): EvidenceData {
     void seam.listContradictions().then(land(setContradictions));
     void seam.listOutputs().then(land(setOutputs));
     void seam.listTasks().then(land(setTasks));
+    void seam.listQuestions().then(land(setQuestions));
+    void seam.listSubQuestions().then(land(setSubQuestions));
+    void seam.listEvidenceRequirements().then(land(setRequirements));
     return () => {
       cancelled = true;
     };
@@ -144,6 +156,9 @@ export function useEvidenceData(): EvidenceData {
     contradictions,
     outputs,
     tasks,
+    questions,
+    subQuestions,
+    requirements,
     reload,
   };
 }

@@ -35,11 +35,16 @@ import type {
   LabDatapointConflict,
   LabDatapointWrite,
   LabDocType,
+  LabEvidenceRequirement,
+  LabFramingSource,
   LabOutput,
   LabOutputType,
   LabProject,
+  LabQuestion,
   LabReference,
+  LabRequirementKind,
   LabSourceDocument,
+  LabSubQuestion,
   LabTask,
 } from './labEvidenceTypes';
 
@@ -141,6 +146,42 @@ export interface LabEvidenceRepository {
   listTasks(): Promise<ReadResult<LabTask>>;
   updateTaskStatus(id: string, status: LabTask['status'], detail?: string): Promise<LabTask>;
 
+  // The question layer (FRAMER intake, 080). All writes are owner acts —
+  // the framer proposes JSON; nothing here is callable by an agent.
+  listQuestions(): Promise<ReadResult<LabQuestion>>;
+  createQuestion(input: {
+    projectId: string;
+    rawStatement: string;
+    framedQuestion: string;
+    framingSource: LabFramingSource;
+  }): Promise<LabQuestion>;
+  /** raw_statement is frozen at intake; reframing edits only the framing. */
+  reframeQuestion(
+    id: string,
+    framedQuestion: string,
+    framingSource: LabFramingSource,
+  ): Promise<LabQuestion>;
+  listSubQuestions(): Promise<ReadResult<LabSubQuestion>>;
+  createSubQuestion(input: {
+    questionId: string;
+    statement: string;
+    falsifier: string;
+    position?: number;
+  }): Promise<LabSubQuestion>;
+  listEvidenceRequirements(): Promise<ReadResult<LabEvidenceRequirement>>;
+  createEvidenceRequirement(input: {
+    subQuestionId: string;
+    description: string;
+    kind: LabRequirementKind;
+  }): Promise<LabEvidenceRequirement>;
+  /** Only V datapoints / full-text references land — G-FALSIFY refuses the rest. */
+  satisfyRequirement(
+    id: string,
+    by: { datapointId?: string; referenceId?: string },
+  ): Promise<LabEvidenceRequirement>;
+  linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
+  unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void>;
+
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
 }
@@ -227,8 +268,67 @@ interface ClaimRow {
   status: LabClaim['status'];
   approved_by_human_at: string | null;
   created_by_run_id: string | null;
+  inference_step: string;
   os_lab_claim_datapoints?: Array<{ datapoint_id: string }>;
   os_lab_claim_references?: Array<{ reference_id: string }>;
+}
+
+interface QuestionRow {
+  id: string;
+  project_id: string;
+  raw_statement: string;
+  framed_question: string;
+  framing_source: LabFramingSource;
+}
+
+interface SubQuestionRow {
+  id: string;
+  question_id: string;
+  statement: string;
+  falsifier: string;
+  position: number;
+}
+
+interface RequirementRow {
+  id: string;
+  sub_question_id: string;
+  description: string;
+  kind: LabRequirementKind;
+  satisfied_by_datapoint_id: string | null;
+  satisfied_by_reference_id: string | null;
+  satisfied_at: string | null;
+}
+
+function mapQuestion(row: QuestionRow): LabQuestion {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    rawStatement: row.raw_statement,
+    framedQuestion: row.framed_question,
+    framingSource: row.framing_source,
+  };
+}
+
+function mapSubQuestion(row: SubQuestionRow): LabSubQuestion {
+  return {
+    id: row.id,
+    questionId: row.question_id,
+    statement: row.statement,
+    falsifier: row.falsifier,
+    position: row.position,
+  };
+}
+
+function mapRequirement(row: RequirementRow): LabEvidenceRequirement {
+  return {
+    id: row.id,
+    subQuestionId: row.sub_question_id,
+    description: row.description,
+    kind: row.kind,
+    satisfiedByDatapointId: row.satisfied_by_datapoint_id,
+    satisfiedByReferenceId: row.satisfied_by_reference_id,
+    satisfiedAt: row.satisfied_at,
+  };
 }
 
 interface ContradictionRow {
@@ -275,6 +375,7 @@ interface OutputRow {
   stale: boolean;
   generated_by_run_id: string | null;
   os_lab_output_claims?: Array<{ claim_id: string }>;
+  os_lab_output_sub_questions?: Array<{ sub_question_id: string }>;
 }
 
 function mapProject(row: ProjectRow): LabProject {
@@ -368,6 +469,7 @@ function mapClaim(row: ClaimRow): LabClaim {
     status: row.status,
     approvedByHumanAt: row.approved_by_human_at,
     createdByRunId: row.created_by_run_id,
+    inferenceStep: row.inference_step,
     datapointIds: (row.os_lab_claim_datapoints ?? []).map((link) => link.datapoint_id),
     referenceIds: (row.os_lab_claim_references ?? []).map((link) => link.reference_id),
   };
@@ -394,6 +496,7 @@ function mapOutput(row: OutputRow): LabOutput {
     stale: row.stale,
     generatedByRunId: row.generated_by_run_id,
     claimIds: (row.os_lab_output_claims ?? []).map((link) => link.claim_id),
+    subQuestionIds: (row.os_lab_output_sub_questions ?? []).map((link) => link.sub_question_id),
   };
 }
 
@@ -593,6 +696,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
           layer: input.layer,
           commitment_source_id: input.commitmentSourceId,
           evidence_direction: input.evidenceDirection,
+          inference_step: input.inferenceStep ?? '',
           created_by_run_id: input.createdByRunId ?? null,
         })
         .select()
@@ -684,7 +788,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
     async listOutputs() {
       const { data, error } = await client
         .from('os_lab_outputs')
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .order('created_at', { ascending: false });
       if (error) return readAbsence('listLabOutputs', error);
       return okRows(((data ?? []) as OutputRow[]).map(mapOutput));
@@ -693,7 +797,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       const { data, error } = await client
         .from('os_lab_outputs')
         .insert({ project_id: input.projectId, output_type: input.outputType })
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('createOutput', error.message);
       return mapOutput(data as OutputRow);
@@ -707,7 +811,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ content })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('saveOutputContent', error.message);
       return mapOutput(data as OutputRow);
@@ -734,7 +838,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       // heartbeat; prose parsing is this layer's half.
       const { data: outputRow, error: readError } = await client
         .from('os_lab_outputs')
-        .select('content, os_lab_output_claims(claim_id)')
+        .select('content, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .eq('id', id)
         .single();
       if (readError) fail('finalizeOutput', readError.message);
@@ -770,7 +874,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ status: 'final' })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('finalizeOutput', error.message);
       return mapOutput(data as OutputRow);
@@ -780,7 +884,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ status: 'draft' })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('revertOutputToDraft', error.message);
       return mapOutput(data as OutputRow);
@@ -790,7 +894,7 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .from('os_lab_outputs')
         .update({ stale: false })
         .eq('id', id)
-        .select('*, os_lab_output_claims(claim_id)')
+        .select('*, os_lab_output_claims(claim_id), os_lab_output_sub_questions(sub_question_id)')
         .single();
       if (error) fail('clearOutputStale', error.message);
       return mapOutput(data as OutputRow);
@@ -814,6 +918,109 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .single();
       if (error) fail('updateTaskStatus', error.message);
       return mapTask(data as TaskRow);
+    },
+
+    async listQuestions() {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (error) return readAbsence('listLabQuestions', error);
+      return okRows(((data ?? []) as QuestionRow[]).map(mapQuestion));
+    },
+    async createQuestion(input) {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .insert({
+          project_id: input.projectId,
+          raw_statement: input.rawStatement,
+          framed_question: input.framedQuestion,
+          framing_source: input.framingSource,
+        })
+        .select()
+        .single();
+      if (error) fail('createQuestion', error.message);
+      return mapQuestion(data as QuestionRow);
+    },
+    async reframeQuestion(id, framedQuestion, framingSource) {
+      const { data, error } = await client
+        .from('os_lab_questions')
+        .update({ framed_question: framedQuestion, framing_source: framingSource })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('reframeQuestion', error.message);
+      return mapQuestion(data as QuestionRow);
+    },
+    async listSubQuestions() {
+      const { data, error } = await client
+        .from('os_lab_sub_questions')
+        .select('*')
+        .order('position');
+      if (error) return readAbsence('listLabSubQuestions', error);
+      return okRows(((data ?? []) as SubQuestionRow[]).map(mapSubQuestion));
+    },
+    async createSubQuestion(input) {
+      const { data, error } = await client
+        .from('os_lab_sub_questions')
+        .insert({
+          question_id: input.questionId,
+          statement: input.statement,
+          falsifier: input.falsifier,
+          position: input.position ?? 0,
+        })
+        .select()
+        .single();
+      if (error) fail('createSubQuestion', error.message);
+      return mapSubQuestion(data as SubQuestionRow);
+    },
+    async listEvidenceRequirements() {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .select('*')
+        .order('created_at');
+      if (error) return readAbsence('listLabEvidenceRequirements', error);
+      return okRows(((data ?? []) as RequirementRow[]).map(mapRequirement));
+    },
+    async createEvidenceRequirement(input) {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .insert({
+          sub_question_id: input.subQuestionId,
+          description: input.description,
+          kind: input.kind,
+        })
+        .select()
+        .single();
+      if (error) fail('createEvidenceRequirement', error.message);
+      return mapRequirement(data as RequirementRow);
+    },
+    async satisfyRequirement(id, by) {
+      const { data, error } = await client
+        .from('os_lab_evidence_requirements')
+        .update({
+          satisfied_by_datapoint_id: by.datapointId ?? null,
+          satisfied_by_reference_id: by.referenceId ?? null,
+        })
+        .eq('id', id)
+        .select()
+        .single();
+      if (error) fail('satisfyRequirement', error.message);
+      return mapRequirement(data as RequirementRow);
+    },
+    async linkOutputSubQuestion(outputId, subQuestionId) {
+      const { error } = await client
+        .from('os_lab_output_sub_questions')
+        .insert({ output_id: outputId, sub_question_id: subQuestionId });
+      if (error) fail('linkOutputSubQuestion', error.message);
+    },
+    async unlinkOutputSubQuestion(outputId, subQuestionId) {
+      const { error } = await client
+        .from('os_lab_output_sub_questions')
+        .delete()
+        .eq('output_id', outputId)
+        .eq('sub_question_id', subQuestionId);
+      if (error) fail('unlinkOutputSubQuestion', error.message);
     },
 
     async staleSweep() {
@@ -907,6 +1114,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'approved',
       approvedByHumanAt: EV_NOW(),
       createdByRunId: null,
+      inferenceStep: 'the matched utilisation figure sits well below the capacity figure on the same basis',
       datapointIds: ['ev-dp-73'],
       referenceIds: [],
     },
@@ -920,6 +1128,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'draft',
       approvedByHumanAt: null,
       createdByRunId: null,
+      inferenceStep: '',
       datapointIds: ['ev-dp-ind'],
       referenceIds: [],
     },
@@ -935,8 +1144,12 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       stale: false,
       generatedByRunId: null,
       claimIds: ['ev-claim-approved'],
+      subQuestionIds: [],
     },
   ];
+  private questions: LabQuestion[] = [];
+  private subQuestions: LabSubQuestion[] = [];
+  private requirements: LabEvidenceRequirement[] = [];
   private counter = 0;
 
   private nextId(prefix: string): string {
@@ -1106,6 +1319,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       status: 'draft',
       approvedByHumanAt: null,
       createdByRunId: input.createdByRunId ?? null,
+      inferenceStep: input.inferenceStep ?? '',
       datapointIds: [],
       referenceIds: [],
     };
@@ -1216,6 +1430,7 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       stale: false,
       generatedByRunId: null,
       claimIds: [],
+      subQuestionIds: [],
     };
     this.outputs.push(output);
     return { ...output };
@@ -1283,6 +1498,8 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       stale: output.stale,
       citedClaims,
       contradictions: this.contradictions,
+      addressedSubQuestionIds: output.subQuestionIds,
+      requirements: this.requirements,
     });
     if (blockers.length > 0) throw new LabGateError(blockers[0]);
     output.status = 'final';
@@ -1312,6 +1529,141 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
     task.status = status;
     if (detail !== undefined) task.detail = detail;
     return { ...task };
+  }
+
+  async listQuestions(): Promise<ReadResult<LabQuestion>> {
+    return okRows(this.questions.map((row) => ({ ...row })));
+  }
+  async createQuestion(input: {
+    projectId: string;
+    rawStatement: string;
+    framedQuestion: string;
+    framingSource: LabFramingSource;
+  }): Promise<LabQuestion> {
+    if (input.framedQuestion.trim().length < 20) {
+      throw new LabGateError('G-FRAME: a framed question under 20 characters is a label, not a question.');
+    }
+    const question: LabQuestion = { id: this.nextId('ev-question'), ...input };
+    this.questions.push(question);
+    return { ...question };
+  }
+  async reframeQuestion(
+    id: string,
+    framedQuestion: string,
+    framingSource: LabFramingSource,
+  ): Promise<LabQuestion> {
+    const question = this.questions.find((row) => row.id === id);
+    if (!question) throw new Error(`reframeQuestion: no question ${id}`);
+    if (framedQuestion.trim().length < 20) {
+      throw new LabGateError('G-FRAME: a framed question under 20 characters is a label, not a question.');
+    }
+    // rawStatement is untouchable here by construction — no parameter exists.
+    question.framedQuestion = framedQuestion;
+    question.framingSource = framingSource;
+    return { ...question };
+  }
+  async listSubQuestions(): Promise<ReadResult<LabSubQuestion>> {
+    return okRows(this.subQuestions.map((row) => ({ ...row })));
+  }
+  async createSubQuestion(input: {
+    questionId: string;
+    statement: string;
+    falsifier: string;
+    position?: number;
+  }): Promise<LabSubQuestion> {
+    if (input.falsifier.trim().length < 20) {
+      throw new LabGateError(
+        'G-FRAME: a falsifier under 20 characters names no evidence — say what would show the expected answer is wrong.',
+      );
+    }
+    const subQuestion: LabSubQuestion = {
+      id: this.nextId('ev-subq'),
+      questionId: input.questionId,
+      statement: input.statement,
+      falsifier: input.falsifier,
+      position: input.position ?? 0,
+    };
+    this.subQuestions.push(subQuestion);
+    return { ...subQuestion };
+  }
+  async listEvidenceRequirements(): Promise<ReadResult<LabEvidenceRequirement>> {
+    return okRows(this.requirements.map((row) => ({ ...row })));
+  }
+  async createEvidenceRequirement(input: {
+    subQuestionId: string;
+    description: string;
+    kind: LabRequirementKind;
+  }): Promise<LabEvidenceRequirement> {
+    const requirement: LabEvidenceRequirement = {
+      id: this.nextId('ev-req'),
+      subQuestionId: input.subQuestionId,
+      description: input.description,
+      kind: input.kind,
+      satisfiedByDatapointId: null,
+      satisfiedByReferenceId: null,
+      satisfiedAt: null,
+    };
+    this.requirements.push(requirement);
+    return { ...requirement };
+  }
+  async satisfyRequirement(
+    id: string,
+    by: { datapointId?: string; referenceId?: string },
+  ): Promise<LabEvidenceRequirement> {
+    const requirement = this.requirements.find((row) => row.id === id);
+    if (!requirement) throw new Error(`satisfyRequirement: no requirement ${id}`);
+    if (by.datapointId) {
+      if (requirement.kind !== 'datapoint') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is reference-kind — a datapoint cannot satisfy it.`);
+      }
+      const datapoint = this.datapoints.find((row) => row.id === by.datapointId);
+      if (!datapoint || datapoint.status !== 'V') {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by datapoint ${by.datapointId} — it is not source-matched. Only V evidence satisfies a requirement.`,
+        );
+      }
+      requirement.satisfiedByDatapointId = by.datapointId;
+      requirement.satisfiedByReferenceId = null;
+    } else if (by.referenceId) {
+      if (requirement.kind !== 'reference') {
+        throw new LabGateError(`G-FALSIFY: requirement ${id} is datapoint-kind — a reference cannot satisfy it.`);
+      }
+      const reference = this.references.find((row) => row.id === by.referenceId);
+      if (!reference || reference.verificationLevel !== 'full_text_read') {
+        throw new LabGateError(
+          `G-FALSIFY: requirement ${id} cannot be satisfied by reference ${by.referenceId} — an abstract locates a paper, it cannot satisfy an evidence requirement.`,
+        );
+      }
+      requirement.satisfiedByReferenceId = by.referenceId;
+      requirement.satisfiedByDatapointId = null;
+    } else {
+      requirement.satisfiedByDatapointId = null;
+      requirement.satisfiedByReferenceId = null;
+      requirement.satisfiedAt = null;
+      return { ...requirement };
+    }
+    requirement.satisfiedAt = EV_NOW();
+    return { ...requirement };
+  }
+  async linkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void> {
+    const output = this.outputs.find((row) => row.id === outputId);
+    if (!output) throw new Error(`linkOutputSubQuestion: no output ${outputId}`);
+    if (output.status === 'final') {
+      throw new LabGateError(
+        `G-OUTPUT: output ${outputId} is final — revert it to draft before changing which sub-questions it addresses.`,
+      );
+    }
+    if (!output.subQuestionIds.includes(subQuestionId)) output.subQuestionIds.push(subQuestionId);
+  }
+  async unlinkOutputSubQuestion(outputId: string, subQuestionId: string): Promise<void> {
+    const output = this.outputs.find((row) => row.id === outputId);
+    if (!output) return;
+    if (output.status === 'final') {
+      throw new LabGateError(
+        `G-OUTPUT: output ${outputId} is final — revert it to draft before changing which sub-questions it addresses.`,
+      );
+    }
+    output.subQuestionIds = output.subQuestionIds.filter((id) => id !== subQuestionId);
   }
 
   async staleSweep(): Promise<number> {
