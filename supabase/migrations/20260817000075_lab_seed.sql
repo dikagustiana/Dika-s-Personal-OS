@@ -2,9 +2,11 @@
 -- LAB: seeds. Three provider rows, four real agents, one two-step chain.
 -- =============================================================================
 --
--- NOT APPLIED. Apply via the Supabase apply_migration tool (ledger name
--- `lab_seed`) after 20260817000074, and update this header. Never
--- `supabase db push` / `migration up` / `db reset` — see 20260817000073.
+-- APPLIED 2026-08-17 via the Supabase apply_migration tool (ledger name
+-- `lab_seed`). Verified live after applying: 3 providers, 4 agents, 1
+-- chain — and the seed inserts themselves passed the boundary guard, which
+-- is the guard's positive control. Never `supabase db push` /
+-- `migration up` / `db reset` — see 20260817000073.
 --
 -- Down-migration: down/20260817000075_lab_seed_down.sql.
 --

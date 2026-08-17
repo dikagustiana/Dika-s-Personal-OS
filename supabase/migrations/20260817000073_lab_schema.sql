@@ -2,8 +2,10 @@
 -- LAB: the third workspace. Schema for the agent harness.
 -- =============================================================================
 --
--- NOT APPLIED. Written on the lab branch; apply via the Supabase
--- apply_migration tool (ledger name `lab_schema`) and update this header.
+-- APPLIED 2026-08-17 via the Supabase apply_migration tool (ledger name
+-- `lab_schema`). Verified live after applying: 5 tables, 14 policies
+-- (4+4+4 owner-editable, 1+1 select-only), 2 updated_at triggers, the
+-- lab-artifacts bucket row, and the read-only-key widening in force.
 -- NEVER apply with `supabase db push`, `migration up`, `db reset`, or
 -- `db remote commit` — repo filenames and the live ledger use different
 -- numbering, so any of those replays the entire history from

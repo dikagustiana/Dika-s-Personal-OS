@@ -2,9 +2,11 @@
 -- LAB: the data boundary. Internal SAMB data reaches Anthropic models only.
 -- =============================================================================
 --
--- NOT APPLIED. Apply via the Supabase apply_migration tool (ledger name
--- `lab_data_boundary`) after 20260817000073, and update this header. Never
--- `supabase db push` / `migration up` / `db reset` — see 20260817000073.
+-- APPLIED 2026-08-17 via the Supabase apply_migration tool (ledger name
+-- `lab_data_boundary`). Verified live after applying: an insert of a runs
+-- row (internal agent, DeepSeek provider) was refused with the boundary
+-- message and os_lab_runs stayed at zero rows. Never `supabase db push` /
+-- `migration up` / `db reset` — see 20260817000073.
 --
 -- Down-migration: down/20260817000074_lab_data_boundary_down.sql.
 --
