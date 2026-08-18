@@ -330,6 +330,87 @@ button {
   );
 }
 
+/*
+ * Lab Flow motion vocabulary. Three moving things, all meaning "in flight":
+ * the indeterminate hairline (work is running; how much is unknowable — so
+ * the bar slides, it never fills), the marching path segment, the station
+ * pulse. The global prefers-reduced-motion block below stills all of them:
+ * static hairline, no pulse, no marching dash — exactly the brief's rule.
+ */
+.flow-hairline {
+  background-image: linear-gradient(90deg, transparent, hsl(var(--escalate) / 0.7), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: flow-hairline-slide 1.4s linear infinite;
+}
+@keyframes flow-hairline-slide {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+.flow-march {
+  animation: flow-march-dash 0.9s linear infinite;
+}
+@keyframes flow-march-dash {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+.flow-pulse {
+  animation: flow-pulse-opacity 1.6s ease-in-out infinite;
+}
+@keyframes flow-pulse-opacity {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Track cell shimmer while that stage's agent runs. */
+.flow-shimmer {
+  background-image: linear-gradient(90deg, #33465c, #6d84a0, #33465c);
+  background-size: 200% 100%;
+  animation: flow-shimmer-slide 1.6s linear infinite;
+}
+@keyframes flow-shimmer-slide {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* A blocked track cell: barred, not hidden — same texture family as
+ * gate-hazard but in the flow's desaturated ink, because a barred stage is
+ * the system working, not a fault. */
+.flow-hatch-cell {
+  background-color: #aeb7c1;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(35, 46, 60, 0.55) 0,
+    rgba(35, 46, 60, 0.55) 2px,
+    transparent 2px,
+    transparent 5px
+  );
+}
+
+/* Keyboard focus on an SVG station: the top-face stroke handles selection;
+ * this outline handles focus-visible, which SVG supports in the browsers
+ * this app targets. */
+.flow-station:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -337,5 +418,10 @@ button {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+  /* The hairline must still SAY "running" when stilled: a plain solid bar. */
+  .flow-hairline {
+    background-image: none;
+    background-color: hsl(var(--escalate) / 0.55);
   }
 }

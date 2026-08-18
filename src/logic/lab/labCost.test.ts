@@ -48,6 +48,7 @@ function run(partial: Partial<LabRun> & Pick<LabRun, 'id' | 'providerId' | 'crea
     tokensOut: null,
     costUsd: null,
     durationMs: null,
+    refusals: [],
     ...partial,
   };
 }

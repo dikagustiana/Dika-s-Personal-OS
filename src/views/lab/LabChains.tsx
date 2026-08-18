@@ -125,6 +125,7 @@ export function LabChains() {
         input: interpolateTemplate(step.inputTemplate, { initialInput, previousOutput }),
         chainId: selected.id,
         stepIndex: index,
+        stepCount: selected.steps.length,
         parentRunId,
         onRunStart: (info) => {
           states[index] = { status: 'running', runId: info.runId };

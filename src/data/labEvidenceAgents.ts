@@ -9,9 +9,30 @@
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
 import { refusalDetail } from './researchModel';
 import { readStoredKey } from '../components/PassphraseGate';
+import { useLabLiveStore } from '../store/labLiveStore';
 import type { NumberViolation } from '../logic/lab/labNumbers';
 
 const FUNCTION = 'run-evidence-agent';
+
+/**
+ * Which agent each action dispatches — the live store publishes under this
+ * slug so the Flow floorplan animates the right station. Actions absent
+ * here (snapshot, recheck, run-model) run no model and publish nothing:
+ * a token for the evaluator would be the UI claiming an agent where there
+ * is only first-party code.
+ */
+const ACTION_AGENT: Record<string, string> = {
+  coordinate: 'evidence-coordinator',
+  locate: 'evidence-locator',
+  extract: 'evidence-extractor',
+  literature: 'evidence-literature',
+  review: 'evidence-reviewer',
+  scout: 'evidence-scout',
+  draft: 'evidence-drafter',
+  'propose-spec': 'evidence-modeler',
+  'frame-critique': 'evidence-framer',
+  'frame-alternatives': 'evidence-framer',
+};
 
 interface AgentFailure {
   ok: false;
@@ -27,14 +48,32 @@ async function call<T extends { runId?: string }>(
   if (!isSupabaseConfigured) {
     return { ok: false, reason: 'Supabase is not configured — evidence agents need the live backend.' };
   }
+  // The evidence layer's live-store choke point (see labModel.runLabAgent
+  // for the execution layer's). Every screen that dispatches goes through
+  // here, so the Flow surfaces need no per-screen wiring.
+  const action = typeof body.action === 'string' ? body.action : '';
+  const agentSlug = ACTION_AGENT[action];
+  if (agentSlug) useLabLiveStore.getState().start({ agentSlug, action });
+  const finish = <R extends { ok: boolean }>(outcome: R, runId?: string, error?: string): R => {
+    if (agentSlug) {
+      useLabLiveStore.getState().end({
+        agentSlug,
+        action,
+        ok: outcome.ok,
+        ...(error ? { error } : {}),
+        ...(runId ? { runId } : {}),
+      });
+    }
+    return outcome;
+  };
   try {
     const data = await edgeFunctionCall<T & { error?: string; reason?: string; runId?: string }>(
       FUNCTION,
       { method: 'POST', appKey: readStoredKey() ?? undefined, body },
     );
-    if (!data) return { ok: false, reason: 'The evidence agent answered nothing.' };
+    if (!data) return finish({ ok: false, reason: 'The evidence agent answered nothing.' } as AgentFailure);
     if (data.error) {
-      return {
+      const failure: AgentFailure = {
         ok: false,
         reason: refusalDetail(data),
         runId: data.runId,
@@ -42,10 +81,27 @@ async function call<T extends { runId?: string }>(
           ? { blocked: (data as { blocked?: NumberViolation[] }).blocked }
           : {}),
       };
+      return finish(failure, data.runId, failure.reason);
     }
-    return { ...(data as T), ok: true };
+    return finish({ ...(data as T), ok: true }, data.runId);
   } catch {
-    return { ok: false, reason: 'Could not reach the evidence agent.' };
+    return finish({ ok: false, reason: 'Could not reach the evidence agent.' } as AgentFailure);
+  }
+}
+
+/** Key presence for the Layanan panel — same GET probe shape as probeLab. */
+export async function probeEvidenceAgents(): Promise<{ configured: boolean; anthropic: boolean } | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const data = await edgeFunctionCall<{ configured?: boolean; providers?: { anthropic?: boolean } }>(
+      FUNCTION,
+      { method: 'GET' },
+    );
+    if (!data) return null;
+    return { configured: Boolean(data.configured), anthropic: Boolean(data.providers?.anthropic) };
+  } catch {
+    // Unreachable renders as "could not check", never as "not configured".
+    return null;
   }
 }
 

@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarDays,
   ChevronRight,
+  Factory,
   FileText,
   Flag,
   FlaskConical,
@@ -73,6 +74,9 @@ const labNav: Array<{ id: LabView; label: string; short: string; icon: typeof Fo
   { id: 'run', label: 'Run', short: 'Run', icon: Play },
   { id: 'runs', label: 'Run log', short: 'Log', icon: ScrollText },
   { id: 'chains', label: 'Chains', short: 'Chains', icon: Workflow },
+  // The state view: where the pipeline stands, who has to move it, and what
+  // the gates are refusing. Between Chains and Evidence per the flow brief.
+  { id: 'flow', label: 'Flow', short: 'Flow', icon: Factory },
   // The epistemic layer: what stands behind a number. Last in the rail but
   // upstream of everything an output claims.
   { id: 'evidence', label: 'Evidence', short: 'Evidence', icon: BookMarked },

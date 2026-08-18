@@ -169,6 +169,35 @@ describe('evaluateModelSpec — every check writes a row, never goes absent', ()
     expect(scenarios.bull).toBe(450_000);
   });
 
+  it('a spec that IGNORES its inputs fails sensitivity — a hardcoded answer is not a model (lab-eval-2)', () => {
+    // The expression names its parameter and then multiplies it away: the
+    // output never moves however the input moves. The brief's rule is
+    // exact — "if the output does not move, the model is not a function of
+    // its inputs" — and this is the check that catches a spec smuggling a
+    // constant behind a resolvable result id.
+    const outcome = evaluateModelSpec(
+      { kind: 'expression', expression: 'volume * 0 + 42', outputUnit: '' },
+      [{ name: 'volume', value: 200, unit: '' }],
+      1,
+    );
+    expect(outcome.sensitivityPassed).toBe(false);
+    const check = outcome.checks.find((entry) => entry.name === 'perturbation_1pct');
+    expect(check?.passed).toBe(false);
+    expect(check?.detail).toContain('not a function of its inputs');
+  });
+
+  it('an expression naming NO parameter fails sensitivity outright', () => {
+    const outcome = evaluateModelSpec(
+      { kind: 'expression', expression: '42', outputUnit: '' },
+      [{ name: 'volume', value: 200, unit: '' }],
+      1,
+    );
+    expect(outcome.sensitivityPassed).toBe(false);
+    expect(
+      outcome.checks.find((entry) => entry.name === 'perturbation_1pct')?.detail,
+    ).toContain('names no parameter');
+  });
+
   it('the 1% perturbation smoke test catches a singularity crossing', () => {
     // x sits just below the pole of 1/(x-1); a 1% move crosses it and the
     // result flips sign violently. sensitivity_passed must be false, with

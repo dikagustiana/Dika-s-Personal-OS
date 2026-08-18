@@ -10,7 +10,8 @@
 // drafts citing approved claims. A bug here cannot verify, approve, resolve
 // or finalize anything.
 //
-// WRITE SCOPE OF THIS FUNCTION: os_lab_runs (audit), os_lab_tasks
+// WRITE SCOPE OF THIS FUNCTION: os_lab_runs (audit, including the refusals
+// array each handler persists at run completion — 083), os_lab_tasks
 // (coordinator), os_lab_datapoints (extract), os_lab_references
 // (literature), os_lab_datapoint_conflicts + os_lab_claim_contradictions
 // (review), os_lab_outputs + os_lab_output_claims (draft),
@@ -321,6 +322,22 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 const num = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
 
+/**
+ * Persists a handler's refusal lines on the run row (083). The response
+ * body still carries them for the screen that is watching; THIS write is
+ * what lets the console show them after a reload — a refusal that only
+ * ever lived in an HTTP response is history the system never had.
+ * Best-effort by design: bookkeeping must never sink a completed run, so
+ * a failed PATCH (e.g. the column not yet migrated) is swallowed. The one
+ * refusal class that never lands here is the WIP cap — it fires before a
+ * run row exists, and its standing condition (IND count vs cap) is
+ * derivable live, which is where the Flow surface shows it.
+ */
+async function recordRefusals(runId: string, refusals: readonly string[]): Promise<void> {
+  if (refusals.length === 0) return;
+  await restUpdate('os_lab_runs', runId, { refusals }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // actions
 // ---------------------------------------------------------------------------
@@ -355,6 +372,7 @@ async function handleCoordinate(body: { request: string; projectId?: string }): 
     });
     created.push({ id: task.id, title, agentSlug });
   }
+  await recordRefusals(runId, skipped);
   return json({ runId, plan: str(parsed.plan), tasks: created, skipped });
 }
 
@@ -465,6 +483,7 @@ async function handleExtract(body: {
       skipped.push(`value=${value} — ${error instanceof Error ? error.message : 'refused'}`);
     }
   }
+  await recordRefusals(runId, skipped);
   return json({ runId, created, skipped });
 }
 
@@ -495,6 +514,7 @@ async function handleLiterature(body: { pastedResults: string }): Promise<Respon
       skipped.push(`"${title}" — ${error instanceof Error ? error.message : 'refused'}`);
     }
   }
+  await recordRefusals(runId, skipped);
   return json({ runId, created, skipped });
 }
 
@@ -586,6 +606,7 @@ async function handleReview(body: { projectId: string }): Promise<Response> {
       skipped.push(`contradiction ${a}↔${b} — could not be recorded`);
     }
   }
+  await recordRefusals(runId, skipped);
   return json({
     runId,
     report: scopeNote + str(parsed.report),
@@ -665,6 +686,15 @@ async function handleDraft(body: {
     allowQuotes: false,
   });
   if (violations.length > 0) {
+    // The block persists on the run row too (083): each offending token as
+    // one quiet line, so the console still names them after a reload.
+    await recordRefusals(
+      runId,
+      violations.map(
+        (violation) =>
+          `"${violation.token}" (…${violation.context}…) — G-NUMBER: no datapoint stands behind it; the draft was not saved`,
+      ),
+    );
     return json(
       {
         runId,
@@ -789,6 +819,7 @@ async function handleProposeSpec(body: { projectId: string; brief: string }): Pr
       skipped.push(`'${name}' — ${error instanceof Error ? error.message : 'refused'}`);
     }
   }
+  await recordRefusals(runId, skipped);
   return json({ runId, specId: specRow.id, params: created, skipped });
 }
 
@@ -967,6 +998,7 @@ async function handleScout(body: { pastedResults: string; projectId?: string }):
       skipped.push(`"${title}" — ${error instanceof Error ? error.message : 'refused'}`);
     }
   }
+  await recordRefusals(runId, skipped);
   return json({ runId, created, skipped });
 }
 

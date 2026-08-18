@@ -98,6 +98,15 @@ export interface LabRun {
   /** USD, computed at run time from the provider row's rates. */
   costUsd: number | null;
   durationMs: number | null;
+  /**
+   * What this run's handler refused, line by line (083) — echo-check
+   * rejections, tag/quote blocks, malformed-field skips. Written by the
+   * executor at run completion; read-only here like the rest of the row.
+   * Empty means nothing was refused. A refusal is the system working
+   * correctly, and the Flow console renders these as quiet lines, not
+   * errors.
+   */
+  refusals: string[];
   createdAt: string;
 }
 

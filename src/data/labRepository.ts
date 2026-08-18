@@ -115,6 +115,8 @@ interface RunRow {
   tokens_out: number | null;
   cost_usd: number | string | null;
   duration_ms: number | null;
+  /** jsonb; sanitized in mapRun — a row edited by hand must degrade, not crash. */
+  refusals?: unknown;
   created_at: string;
 }
 
@@ -200,6 +202,11 @@ function mapRun(row: RunRow): LabRun {
     tokensOut: row.tokens_out,
     costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
     durationMs: row.duration_ms,
+    // The column landed in 083; rows read before it (or a hand-edited jsonb)
+    // degrade to "no refusals recorded", never to a crash.
+    refusals: Array.isArray(row.refusals)
+      ? row.refusals.filter((line): line is string => typeof line === 'string')
+      : [],
     createdAt: row.created_at,
   };
 }
@@ -430,6 +437,36 @@ const MOCK_AGENTS: LabAgent[] = [
   }),
 ];
 
+/**
+ * A slice of the evidence-agent registry (078+), enough for the Flow screen
+ * to demonstrate its mechanism on a bare clone: tokens on the floorplan,
+ * a roster with last-run info, and persisted refusals in the console. All
+ * internal → Anthropic, exactly as the live seed rails them.
+ */
+const MOCK_EVIDENCE_AGENTS: LabAgent[] = [
+  mockAgent({
+    id: 'lab-agent-ev-extractor',
+    slug: 'evidence-extractor',
+    name: 'Evidence Extractor',
+    dataClass: 'internal',
+    description: 'Stage 2: transcribe numbers from a selected region into IND datapoints. The echo check refuses figures the region does not contain.',
+  }),
+  mockAgent({
+    id: 'lab-agent-ev-reviewer',
+    slug: 'evidence-reviewer',
+    name: 'Evidence Reviewer',
+    dataClass: 'internal',
+    description: 'Surfaces conflicts and contradictions as open records. Resolves nothing — resolution is the owner’s.',
+  }),
+  mockAgent({
+    id: 'lab-agent-ev-drafter',
+    slug: 'evidence-drafter',
+    name: 'Evidence Drafter',
+    dataClass: 'internal',
+    description: 'Drafts from approved claims only; G-NUMBER gates the write with tags and quotes disabled.',
+  }),
+];
+
 const MOCK_CHAINS: LabChain[] = [
   {
     id: 'lab-chain-proses',
@@ -457,6 +494,7 @@ function mockRuns(): LabRun[] {
     chainId: null,
     stepIndex: null,
     error: null,
+    refusals: [] as string[],
   };
   const today = new Date();
   const at = (hoursAgo: number) =>
@@ -512,12 +550,51 @@ function mockRuns(): LabRun[] {
     durationMs: 3100,
     createdAt: at(4),
   };
-  return [third, second, first];
+  // Evidence-layer runs whose refusals PERSIST on the row (083) — what the
+  // Flow console renders after a reload. The refusal lines mirror the live
+  // executor's wording byte-for-byte so a bare clone reads like production.
+  const extractorRun: LabRun = {
+    ...base,
+    id: 'lab-run-ev-extract',
+    agentId: 'lab-agent-ev-extractor',
+    providerId: 'lab-provider-anthropic',
+    model: 'claude-sonnet-4-5',
+    input: 'QUANTITY SOUGHT:\nutilisation rate\n\nSELECTED TEXT (extract from this and nothing else):\nUtilisasi nasional 7,3% pada 2025…',
+    output: '{"datapoints":[…]}',
+    status: 'ok',
+    tokensIn: 2100,
+    tokensOut: 640,
+    costUsd: 0.01593,
+    durationMs: 11800,
+    refusals: [
+      'value=9100 — echo check: this number does not appear in the selected text under any locale reading (en/id/space grouping, %, sign). A figure the text does not contain cannot be extracted from it.',
+    ],
+    createdAt: at(3),
+  };
+  const drafterRun: LabRun = {
+    ...base,
+    id: 'lab-run-ev-draft',
+    agentId: 'lab-agent-ev-drafter',
+    providerId: 'lab-provider-anthropic',
+    model: 'claude-sonnet-4-5',
+    input: '{"instruction":"draft the utilisation briefing"…}',
+    output: '{"content":"…full text in the run log…"}',
+    status: 'ok',
+    tokensIn: 3400,
+    tokensOut: 1210,
+    costUsd: 0.02835,
+    durationMs: 16400,
+    refusals: [
+      '"12" (…grew 12 percent [C] year on year…) — G-NUMBER: no datapoint stands behind it; the draft was not saved',
+    ],
+    createdAt: at(2),
+  };
+  return [drafterRun, extractorRun, third, second, first];
 }
 
 export class MockLabRepository implements LabRepository {
   private providers = MOCK_PROVIDERS.map((provider) => ({ ...provider }));
-  private agents = MOCK_AGENTS.map((agent) => ({ ...agent }));
+  private agents = [...MOCK_AGENTS, ...MOCK_EVIDENCE_AGENTS].map((agent) => ({ ...agent }));
   private chains = MOCK_CHAINS.map((chain) => ({ ...chain, steps: [...chain.steps] }));
   private runs = mockRuns();
 

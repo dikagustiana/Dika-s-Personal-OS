@@ -218,6 +218,19 @@ export interface LabEvidenceRepository {
 
   /** Applies the standing expiry policy now; returns how many V reverted. */
   staleSweep(): Promise<number>;
+
+  /**
+   * The newest sweep heartbeat (079), or none — the Flow rail's honesty
+   * anchor: "no flags today" and "the sweep did not run" are different
+   * facts, and only this row can tell them apart. Read-only; the sweep
+   * function is the only writer.
+   */
+  latestSweep(): Promise<ReadResult<LabSweepBeat>>;
+}
+
+export interface LabSweepBeat {
+  ranAt: string;
+  rowsDemoted: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -1305,6 +1318,21 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
       if (error) fail('staleSweep', error.message);
       return typeof data === 'number' ? data : 0;
     },
+
+    async latestSweep() {
+      const { data, error } = await client
+        .from('os_lab_sweep_log')
+        .select('ran_at, rows_demoted')
+        .order('ran_at', { ascending: false })
+        .limit(1);
+      if (error) return readAbsence('latestSweep', error);
+      return okRows(
+        ((data ?? []) as Array<{ ran_at: string; rows_demoted: number }>).map((row) => ({
+          ranAt: row.ran_at,
+          rowsDemoted: row.rows_demoted,
+        })),
+      );
+    },
   };
 }
 
@@ -2106,6 +2134,17 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
         }
       }
     }
+    // The heartbeat, exactly as 079's function writes it: a zero is
+    // information, and its absence is a detectable condition.
+    this.sweepLog.push({ ranAt: EV_NOW(), rowsDemoted: reverted });
     return reverted;
+  }
+
+  /** Seeded fresh so the worked example finalizes; staleSweep appends. */
+  private sweepLog: LabSweepBeat[] = [{ ranAt: EV_NOW(), rowsDemoted: 0 }];
+
+  async latestSweep(): Promise<ReadResult<LabSweepBeat>> {
+    const newest = [...this.sweepLog].sort((a, b) => b.ranAt.localeCompare(a.ranAt))[0];
+    return okRows(newest ? [{ ...newest }] : []);
   }
 }
