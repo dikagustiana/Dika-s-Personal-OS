@@ -8,3 +8,12 @@
 
 /** USD→IDR display rate. Set 2026-08-17; round figure on purpose. */
 export const USD_TO_IDR_DISPLAY_RATE = 16_500;
+
+/**
+ * The extraction WIP cap, FOR DISPLAY. Enforcement lives in
+ * run-evidence-agent (IND_WIP_CAP, per hardening 1.9) — a function-level
+ * constant, deliberately not a settings row. Keep this in lockstep with it:
+ * a drifted display cap misleads the Flow rail by a few units; the refusal
+ * itself always speaks with the executor's number.
+ */
+export const IND_WIP_CAP_DISPLAY = 25;

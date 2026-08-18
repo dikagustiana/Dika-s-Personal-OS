@@ -17,6 +17,7 @@
 import { edgeFunctionCall, isSupabaseConfigured } from './supabaseRepository';
 import { refusalDetail } from './researchModel';
 import { readStoredKey } from '../components/PassphraseGate';
+import { useLabLiveStore } from '../store/labLiveStore';
 import type { LabProviderName } from './labTypes';
 
 const FUNCTION = 'run-lab-agent';
@@ -58,6 +59,8 @@ export interface LabRunRequest {
   provider?: LabProviderName;
   chainId?: string;
   stepIndex?: number;
+  /** How many steps the chain has — for the live banner's "step N of M". */
+  stepCount?: number;
   parentRunId?: string;
   /** Fires as soon as the run row exists, before any token arrives. */
   onRunStart?: (info: { runId: string; provider: string; model: string }) => void;
@@ -107,8 +110,40 @@ export function drainSseBuffer(buffer: string): { frames: StreamFrame[]; rest: s
 /**
  * Runs one agent, streaming. Resolves when the stream ends — with the
  * accounting from the `done` frame, or with the server's stated reason.
+ *
+ * EVERY dispatch through here also publishes to the lab live store — the
+ * one choke point for the execution layer, so the Flow surfaces see chain
+ * steps advance without any screen having to remember to tell them. The
+ * store is an echo for the watching UI; the run row stays the record.
  */
 export async function runLabAgent(request: LabRunRequest): Promise<LabRunOutcome> {
+  useLabLiveStore.getState().start({
+    agentSlug: request.agentSlug,
+    action: 'run',
+    ...(request.chainId ? { chainId: request.chainId } : {}),
+    ...(request.stepIndex === undefined ? {} : { stepIndex: request.stepIndex }),
+    ...(request.stepCount === undefined ? {} : { stepCount: request.stepCount }),
+  });
+  const outcome = await runLabAgentStream({
+    ...request,
+    onRunStart: (info) => {
+      useLabLiveStore.getState().setRunId(info.runId);
+      request.onRunStart?.(info);
+    },
+  });
+  useLabLiveStore.getState().end({
+    agentSlug: request.agentSlug,
+    action: 'run',
+    ok: outcome.ran,
+    ...(outcome.ran ? {} : { error: outcome.reason }),
+    ...(outcome.runId ? { runId: outcome.runId } : {}),
+    ...(request.chainId ? { chainId: request.chainId } : {}),
+    ...(request.stepIndex === undefined ? {} : { stepIndex: request.stepIndex }),
+  });
+  return outcome;
+}
+
+async function runLabAgentStream(request: LabRunRequest): Promise<LabRunOutcome> {
   if (!isSupabaseConfigured) {
     return { ran: false, reason: 'Supabase is not configured — Lab runs need the live backend.' };
   }

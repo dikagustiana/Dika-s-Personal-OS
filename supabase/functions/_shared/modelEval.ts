@@ -20,7 +20,7 @@
 // Pure TS, no Deno APIs — vitest imports this file directly.
 
 /** Bump on ANY behavioural change; results carry the version that made them. */
-export const EVALUATOR_VERSION = 'lab-eval-1';
+export const EVALUATOR_VERSION = 'lab-eval-2';
 
 // ---------------------------------------------------------------------------
 // expression grammar: numbers, named params, + - * / ^, parens, unary minus
@@ -559,23 +559,41 @@ export function evaluateModelSpec(
     }
   }
 
-  // The 1% perturbation smoke test → sensitivity_passed. Each input moves
-  // +1% alone; the result must stay finite and move by a bounded factor.
-  // This is a smoke test for singularities, not an elasticity study.
+  // The 1% perturbation smoke test → sensitivity_passed, failing BOTH ways
+  // a model can stop being a model:
+  //  - a SINGULARITY: a 1% input move produces a non-finite result or an
+  //    unbounded swing (measured against the BASELINE, deliberately, so a
+  //    blowup or sign flip registers even when max(|a|,|b|) would hide it);
+  //  - a HARDCODED ANSWER (lab-eval-2): perturb every parameter by 1% and
+  //    the output does not move at all — including the degenerate case of
+  //    an expression that names no parameter. If the output is not a
+  //    function of its inputs, the spec smuggles a constant, and this is
+  //    the check that kills it; a resolvable result id alone is not
+  //    provenance.
   let sensitivityPassed = true;
+  let insensitiveDetail = '';
   const perturbations: Record<string, number> = {};
   const baseline = value;
   if (baseline !== null && Number.isFinite(baseline)) {
     for (const param of params) {
       if (!wanted.has(param.name)) continue;
       const moved = runOnce(node, params, new Map([[param.name, param.value * (1 + PERTURBATION) || PERTURBATION]]));
-      // Relative to the BASELINE, deliberately: a blowup or sign flip across
-      // a singularity must register even when max(|a|,|b|) would hide it.
       const change = Math.abs(moved - baseline) / Math.max(1e-12, Math.abs(baseline));
       perturbations[param.name] = change;
       if (!Number.isFinite(moved) || change > PERTURBATION * ELASTICITY_CAP) {
         sensitivityPassed = false;
       }
+    }
+    if (wanted.size === 0) {
+      sensitivityPassed = false;
+      insensitiveDetail = 'the expression names no parameter at all — a constant is a hardcoded answer, not a model';
+    } else if (
+      sensitivityPassed &&
+      Object.values(perturbations).every((change) => change <= 1e-12)
+    ) {
+      sensitivityPassed = false;
+      insensitiveDetail =
+        'no 1% input move changes the output — the result is not a function of its inputs (a hardcoded answer)';
     }
   } else {
     sensitivityPassed = false;
@@ -584,8 +602,9 @@ export function evaluateModelSpec(
     name: 'perturbation_1pct',
     passed: sensitivityPassed,
     detail: sensitivityPassed
-      ? 'no 1% input move breaks or unboundedly swings the result'
-      : `a 1% input move produced a non-finite or > ${ELASTICITY_CAP}× swing: ${JSON.stringify(perturbations)}`,
+      ? 'the inputs move the result; no 1% move breaks or unboundedly swings it'
+      : insensitiveDetail ||
+        `a 1% input move produced a non-finite or > ${ELASTICITY_CAP}× swing: ${JSON.stringify(perturbations)}`,
   });
   summary.perturbations = perturbations;
 
