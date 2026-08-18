@@ -1080,7 +1080,12 @@ async function handleRecheck(body: { sourceDocumentId: string }): Promise<Respon
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (request.method === 'GET') {
-    // Key presence only — the same probe shape as run-lab-agent.
+    // Key presence only — the same probe shape as run-lab-agent, plus one
+    // field it does not have: which source kimi's key actually resolves
+    // from. keyFor prefers LAB_KIMI_API_KEY and falls back to
+    // RESEARCH_MODEL_API_KEY; with both secrets set the owner asked for
+    // "dedicated wins" to be VERIFIED, not assumed, and a boolean cannot
+    // tell the two apart. Presence only — never values.
     return json({
       configured: Boolean(keyFor('anthropic') || keyFor('deepseek') || keyFor('kimi')),
       providers: {
@@ -1088,6 +1093,11 @@ Deno.serve(async (request) => {
         deepseek: Boolean(keyFor('deepseek')),
         kimi: Boolean(keyFor('kimi')),
       },
+      kimiKeySource: Deno.env.get('LAB_KIMI_API_KEY')
+        ? 'dedicated'
+        : Deno.env.get('RESEARCH_MODEL_API_KEY')
+          ? 'fallback'
+          : 'none',
     });
   }
   if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
