@@ -19,6 +19,20 @@ write scope EMPTY), SCOUT (candidates without judgement columns, allowlist
 tiers, rechecks that flag and never demote) and MODELER (declarative specs
 run only by the version-pinned first-party evaluator; `[sim]` grew an id).
 
+The Flow build (migration 083 + the Flow tab) added: **the Flow view**
+between Chains and Evidence — 13 stages derived by query over the epistemic
+tables (no tracking table, on purpose: it would be a second source of truth
+and it would drift), an isometric floorplan whose viewBox is computed from
+scene bounds and pinned by test, human stations drawn heavier than agent
+stations, blocked stations barred (never hidden) with the blocker AND record
+id named; **refusal persistence** (`os_lab_runs.refusals`, written by the
+executor at run completion, so the Penolakan tab shows history that survives
+a reload — the WIP-cap refusal alone stays response-only BY CONSTRUCTION: it
+fires before any run row exists, and its standing condition renders live as
+the IND-vs-cap meter); and **lab-eval-2**: the sensitivity smoke test now
+also fails a spec whose output does not move when its inputs do (a hardcoded
+answer is not a model) — closing the gap where only singularities failed it.
+
 ## Deferred deliberately — each with its reason, not as an oversight
 
 **1. Structured `definition_scope`.** Still free text with a 20-character
@@ -91,6 +105,21 @@ least.
 - **Portfolio WIP limiting.** Projects carry `wip_slot`; nothing enforces a
   portfolio cap. (The extraction WIP cap — 25 open IND — shipped; this is
   the project-count cap, a different control.)
+
+## Deferred by the Flow build, each with its reason
+
+- **Locator rows.** S3's honest count is the run ledger's: locator output is
+  consumed at extraction time, not stored. Storing locator regions properly
+  belongs to the same document store items 3 and 4 wait on.
+- **Background refresh / realtime for the Flow.** The screen re-reads when a
+  dispatch ends and on demand; it never polls. The system is owner-initiated
+  — a self-refreshing state view would imply activity the architecture does
+  not have. Revisit only if the owner starts running chains long enough to
+  leave the tab.
+- **The WIP-cap refusal event in Penolakan.** Response-only by construction
+  (no run exists to carry it — nothing was billed, nothing ran). The
+  STANDING condition is what matters and it renders live: the IND-vs-cap
+  meter in Orkestrasi and the S4 bar naming the head of the queue.
 
 ## Ruled out by the briefs (both Part Gs)
 

@@ -53,7 +53,7 @@ export type GrowthView =
 // screen, the run log, and a linear chain builder. Owner-only — contributors
 // never see the workspace switch, and the lab tables carry no member
 // policies, so this is cosmetic scoping over a database that already refuses.
-export type LabView = 'registry' | 'run' | 'runs' | 'chains' | 'evidence';
+export type LabView = 'registry' | 'run' | 'runs' | 'chains' | 'flow' | 'evidence';
 
 /**
  * A one-shot handoff for cross-view navigation: "open Projects, scrolled to
