@@ -20,44 +20,13 @@ import { okRows } from '../../../data/readResult';
 import type { LabProject } from '../../../data/labEvidenceTypes';
 import { useAppStore } from '../../../store/appStore';
 import { useLabLiveStore } from '../../../store/labLiveStore';
+import { freshInstallRepository } from '../__fixtures__/freshInstallRepository';
 import { LabFlow } from './LabFlow';
 
 async function mountFlow(repository = new MockRepository()) {
   useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
   render(<LabFlow />);
   await waitFor(() => screen.getByRole('group', { name: /13 tahap berurutan/ }));
-  return repository;
-}
-
-/**
- * A database where every Lab table returned SUCCESSFULLY with zero rows —
- * a fresh install after migrations, before the first project. Every read
- * lands ok; nothing is pending and nothing failed. Empty is the ANSWER.
- */
-function freshInstall(): MockRepository {
-  const repository = new MockRepository();
-  const seam = repository.labEvidence;
-  seam.listProjects = async () => okRows([]);
-  seam.listSourceDocuments = async () => okRows([]);
-  seam.listReferences = async () => okRows([]);
-  seam.listCommitmentSources = async () => okRows([]);
-  seam.listDatapoints = async () => okRows([]);
-  seam.listConflicts = async () => okRows([]);
-  seam.listClaims = async () => okRows([]);
-  seam.listContradictions = async () => okRows([]);
-  seam.listOutputs = async () => okRows([]);
-  seam.listTasks = async () => okRows([]);
-  seam.listQuestions = async () => okRows([]);
-  seam.listSubQuestions = async () => okRows([]);
-  seam.listEvidenceRequirements = async () => okRows([]);
-  seam.listCandidateSources = async () => okRows([]);
-  seam.listModelSpecs = async () => okRows([]);
-  seam.listModelSpecParams = async () => okRows([]);
-  seam.listModelResults = async () => okRows([]);
-  seam.latestSweep = async () => okRows([]);
-  repository.lab.listAgents = async () => okRows([]);
-  repository.lab.listProviders = async () => okRows([]);
-  repository.lab.listRuns = async () => okRows([]);
   return repository;
 }
 
@@ -186,7 +155,7 @@ describe('§6 empty is an answer — a fresh install renders, it never hangs at 
   // to render in words, never a spinner.
 
   it('zero projects, every Lab table empty: the screen says what that MEANS, and Checking is gone', async () => {
-    useAppStore.setState({ repository: freshInstall(), area: 'lab', labView: 'flow' });
+    useAppStore.setState({ repository: freshInstallRepository(), area: 'lab', labView: 'flow' });
     render(<LabFlow />);
     // The meaning of this emptiness, in words — not a spinner, not an error.
     expect(await screen.findByText(/Belum ada proyek riset/)).toBeTruthy();
@@ -195,7 +164,7 @@ describe('§6 empty is an answer — a fresh install renders, it never hangs at 
   });
 
   it('one project, every other table empty: 13 stages render and the sweep line reads "belum pernah tercatat" — not an error, not 0 jam', async () => {
-    const repository = freshInstall();
+    const repository = freshInstallRepository();
     repository.labEvidence.listProjects = async () =>
       okRows<LabProject>([
         { id: 'p-fresh', name: 'Proyek pertama', researchQuestion: '', status: 'active', wipSlot: null },
@@ -226,5 +195,17 @@ describe('§6 empty is an answer — a fresh install renders, it never hangs at 
     expect(screen.getByText(/42501 — izin ditolak/)).toBeTruthy();
     expect(screen.queryByText('Checking…')).toBeNull();
     expect(screen.queryByRole('group', { name: /13 tahap berurutan/ })).toBeNull();
+  });
+
+  it('a core read that THROWS lands as Could not check too — a rejected promise must never hang the screen silent', async () => {
+    const repository = new MockRepository();
+    repository.labEvidence.listClaims = async () => {
+      throw new Error('fetch failed: network unreachable');
+    };
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    expect(await screen.findByText('Could not check')).toBeTruthy();
+    expect(screen.getByText(/listClaims: fetch failed: network unreachable/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
   });
 });
