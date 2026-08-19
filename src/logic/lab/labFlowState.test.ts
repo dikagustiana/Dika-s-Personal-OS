@@ -11,7 +11,7 @@
 //     column, not the response body — so they survive a reload.
 import { describe, expect, it } from 'vitest';
 import type { LabRun } from '../../data/labTypes';
-import { deriveFlowState, STAGES, type FlowInput } from './labFlowState';
+import { deriveFlowState, emptyWorkshopStages, STAGES, type FlowInput } from './labFlowState';
 import { IND_WIP_CAP_DISPLAY } from './labConfig';
 
 const NOW = new Date('2026-08-18T12:00:00Z');
@@ -339,5 +339,81 @@ describe('§4 the console derives from persisted rows', () => {
     expect(state.services.cron.state).toBe('never');
     const failed = deriveFlowState(baseInput({ sweep: null, sweepReadFailed: true }));
     expect(failed.services.cron.state).toBe('unknown');
+  });
+});
+
+describe('§5 a workflow is a route over the thirteen; omitted stations render absent, never missing', () => {
+  it('a route omitting S5 greys it IN POSITION with the gate-derived consequence — still thirteen stages', () => {
+    const state = deriveFlowState(
+      baseInput({
+        datapoints: [datapoint('dp-ind', 'IND')],
+        workflowStageCodes: ['S2', 'S6'],
+      }),
+    );
+    expect(state.stages).toHaveLength(13);
+    const verify = state.stages[5];
+    expect(verify.status).toBe('omitted');
+    expect(verify.blockers).toHaveLength(0);
+    expect(verify.detail[0]).toContain('dilewati');
+    expect(verify.detail[0]).toContain('klaim tidak akan bisa disetujui selama datapoint masih IND');
+    expect(verify.detail[0]).toContain('G-CLAIM');
+  });
+
+  it('the front line never stands on an omitted station', () => {
+    // Canonical would front at S5 here (IND rows waiting). The sapuan
+    // route omits S5, so the line lands on the earliest ROUTE stage.
+    const state = deriveFlowState(
+      baseInput({
+        datapoints: [datapoint('dp-v', 'V'), datapoint('dp-ind', 'IND')],
+        workflowStageCodes: ['S2', 'S6'],
+      }),
+    );
+    expect(state.orchestration.frontLine?.code).toBe('S2');
+    expect(state.stages[5].frontLine).toBe(false);
+  });
+
+  it('a null/absent route derives the canonical thirteen — no omissions, byte-identical behavior', () => {
+    const withNull = deriveFlowState(baseInput({ workflowStageCodes: null }));
+    const without = deriveFlowState(baseInput());
+    expect(withNull.stages.every((stage) => stage.status !== 'omitted')).toBe(true);
+    expect(withNull.stages.map((stage) => stage.status)).toEqual(
+      without.stages.map((stage) => stage.status),
+    );
+  });
+
+  it('history survives a route change: tokens keep standing where agents actually ran', () => {
+    const agents = [
+      { id: 'a-ex', slug: 'evidence-extractor', name: 'Extractor', description: '', systemPrompt: '', dataClass: 'internal' as const, defaultProviderId: 'prov-1', version: 1, isActive: true, createdAt: '', updatedAt: '' },
+    ];
+    const state = deriveFlowState(
+      baseInput({
+        agents,
+        runs: [run({ id: 'r1', agentId: 'a-ex' })],
+        workflowStageCodes: ['S2', 'S6'], // S4 omitted
+      }),
+    );
+    expect(state.stages[4].status).toBe('omitted');
+    expect(state.stages[4].presentAgents).toContain('evidence-extractor');
+  });
+});
+
+describe('§6 the not-started workshop: structure is a fact, every count a measured zero', () => {
+  it('thirteen idle stations, no blockers, no agents, exactly one callout at S0', () => {
+    const stages = emptyWorkshopStages(NOW);
+    expect(stages).toHaveLength(13);
+    expect(stages.every((stage) => stage.status === 'idle')).toBe(true);
+    expect(stages.every((stage) => stage.blockers.length === 0)).toBe(true);
+    expect(stages.every((stage) => stage.presentAgents.length === 0)).toBe(true);
+    expect(stages.every((stage) => !stage.frontLine && !stage.running)).toBe(true);
+    expect(stages.filter((stage) => stage.callout).map((stage) => stage.code)).toEqual(['S0']);
+    expect(stages[0].callout?.[0]).toContain('Mulai di sini');
+  });
+
+  it('every headline carries an explicit 0 — never a dash, never "belum pernah dijalankan"', () => {
+    for (const stage of emptyWorkshopStages(NOW)) {
+      expect(stage.headline).toMatch(/\b0\b|\b0\//);
+      expect(stage.headline).not.toContain('belum pernah');
+      expect(stage.headline).not.toContain('—');
+    }
   });
 });

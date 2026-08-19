@@ -24,6 +24,9 @@ echo ""
 run_suite "lab_epistemic_gates (G-EXTRACT/VERIFY/CLAIM/LAYER/OUTPUT/STALE, both identities)" \
   "$REPO/supabase/tests/lab_epistemic_gates.sql" || RC=1
 
+run_suite "lab_workflows (closed stage set, canonical immutability, owner-only, gates unweakened)" \
+  "$REPO/supabase/tests/lab_workflows.sql" || RC=1
+
 # --- the negative control ---------------------------------------------------
 # Drop the claims guard and the suite MUST go red: born-approved claims,
 # agent approvals and stamp-smuggling all become possible at once, and the
@@ -39,6 +42,21 @@ else
   echo "ok    suite goes red when the claims guard is dropped (it catches the regression)"
 fi
 psql_ "-c 'create trigger os_lab_claims_gate_guard before insert or update or delete on public.os_lab_claims for each row execute function public.os_lab_claims_gate_guard();'" >/dev/null 2>&1
+
+# Same posture for the workflow guard: drop it and the workflows suite MUST
+# go red — invented stages, edited canonicals and agent-drawn routes all
+# become possible at once.
+echo ""
+echo "==> negative control: dropping os_lab_workflows_gate_guard"
+psql_ "-c 'drop trigger os_lab_workflows_gate_guard on public.os_lab_workflows;'" >/dev/null 2>&1
+if run_suite "lab_workflows WITH GUARD DROPPED (must FAIL)" \
+     "$REPO/supabase/tests/lab_workflows.sql" >/dev/null 2>&1; then
+  echo "FAIL  workflows suite stayed green with its guard dropped — it does not catch the regression"
+  RC=1
+else
+  echo "ok    workflows suite goes red when its guard is dropped (it catches the regression)"
+fi
+psql_ "-c 'create trigger os_lab_workflows_gate_guard before insert or update or delete on public.os_lab_workflows for each row execute function public.os_lab_workflows_gate_guard();'" >/dev/null 2>&1
 
 echo ""
 if [ $RC -eq 0 ]; then echo "PASS — the gates hold at the database layer, negative control red as required"

@@ -16,19 +16,25 @@
  *  - a blocked stage names its blocker and the record id, computed by the
  *    same guard mirrors the mutation path runs.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { RefreshCw, X } from 'lucide-react';
 import { Button } from '../../../components/ui/Button';
 import { Card, CardContent } from '../../../components/ui/Card';
+import { useAppStore } from '../../../store/appStore';
 import { useLabLiveStore } from '../../../store/labLiveStore';
+import { useMutation } from '../../../hooks/useMutation';
 import { agentColor } from '../../../logic/lab/labAgentColors';
-import type { FlowStage } from '../../../logic/lab/labFlowState';
+import { emptyWorkshopStages, type FlowStage } from '../../../logic/lab/labFlowState';
 import { cn } from '../../../lib/utils';
 import { CouldNotCheck, Checking } from '../../work/finishLineUi';
 import { FlowConsole } from './FlowConsole';
 import { FlowFloorplan } from './FlowFloorplan';
 import { FlowRail } from './FlowRail';
 import { useLabFlowState } from './useLabFlowState';
+
+/** `omitted` is a route fact, shown in the route's language. */
+const statusShown = (status: FlowStage['status']): string =>
+  status === 'omitted' ? 'dilewati' : status;
 
 /** mm:ss, counting UP from dispatch — measured, so allowed. */
 function elapsedLabel(startedAt: number, nowMs: number): string {
@@ -104,14 +110,19 @@ function FlowTrack({
   selectedIndex: number | null;
   onSelect: (index: number) => void;
 }) {
+  // Tallies count the ROUTE's work: an omitted station is in none of them,
+  // but its segment still renders — thirteen cells, always.
+  const done = stages.filter((stage) => stage.status === 'done').length;
+  const attention = stages.filter((stage) => stage.status === 'attention').length;
+  const blocked = stages.filter((stage) => stage.status === 'blocked').length;
   return (
     <div role="group" aria-label="Posisi pipeline — 13 tahap berurutan" className="mb-4">
       <div className="flex gap-1">
         {stages.map((stage) => (
           <button
             key={stage.code}
-            title={`${stage.code} ${stage.title} — ${stage.status}`}
-            aria-label={`${stage.code} ${stage.title}: ${stage.status}${stage.frontLine ? ' (garis depan)' : ''}`}
+            title={`${stage.code} ${stage.title} — ${statusShown(stage.status)}`}
+            aria-label={`${stage.code} ${stage.title}: ${statusShown(stage.status)}${stage.frontLine ? ' (garis depan)' : ''}`}
             aria-pressed={selectedIndex === stage.index}
             onClick={() => onSelect(stage.index)}
             className={cn(
@@ -120,6 +131,7 @@ function FlowTrack({
               stage.status === 'attention' && 'bg-[#9A5200]/80',
               stage.status === 'blocked' && 'flow-hatch-cell',
               stage.status === 'idle' && 'bg-[#DCE4EB]',
+              stage.status === 'omitted' && 'border border-dashed border-[#B6BFC9] bg-transparent',
               stage.running && 'flow-shimmer',
               stage.frontLine && 'ring-2 ring-[#9A5200] ring-offset-1',
             )}
@@ -128,11 +140,20 @@ function FlowTrack({
       </div>
       <div className="mt-1 flex gap-1">
         {stages.map((stage) => (
-          <span key={stage.code} className="flex-1 text-center font-mono text-[9px] text-foreground-muted">
+          <span
+            key={stage.code}
+            className={cn(
+              'flex-1 text-center font-mono text-[9px] text-foreground-muted',
+              stage.status === 'omitted' && 'opacity-50',
+            )}
+          >
             {stage.code}
           </span>
         ))}
       </div>
+      <p className="mt-1 text-[11px] tabular-nums text-foreground-muted">
+        {done} tuntas · {attention} menunggu kamu · {blocked} terhalang
+      </p>
     </div>
   );
 }
@@ -144,7 +165,7 @@ function StageDetail({ stage, onClose }: { stage: FlowStage; onClose: () => void
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="font-mono text-xs text-foreground-muted">
-              {stage.code} · {stage.actor === 'owner' ? 'stasiun manusia' : stage.actor === 'agent' ? 'stasiun agent' : 'gerbang'} · {stage.status}
+              {stage.code} · {stage.actor === 'owner' ? 'stasiun manusia' : stage.actor === 'agent' ? 'stasiun agent' : 'gerbang'} · {statusShown(stage.status)}
             </p>
             <h3 className="text-base font-semibold text-foreground">{stage.title}</h3>
             <p className="mt-1 text-sm text-foreground-secondary">{stage.headline}</p>
@@ -194,7 +215,15 @@ function StageDetail({ stage, onClose }: { stage: FlowStage; onClose: () => void
 
 export function LabFlow() {
   const data = useLabFlowState();
+  const repository = useAppStore((state) => state.repository);
+  const { run: mutate, isPending } = useMutation();
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const toggleSelect = (index: number) =>
+    setSelectedIndex((current) => (current === index ? null : index));
+  // The not-started workshop: thirteen structural stations, every count a
+  // measured ZERO. Computed once — it depends on nothing but the clock.
+  const emptyStages = useMemo(() => emptyWorkshopStages(new Date()), []);
+  const canonicalId = data.workflows.find((workflow) => workflow.isCanonical)?.id ?? '';
 
   return (
     <div className="page-shell">
@@ -223,6 +252,33 @@ export function LabFlow() {
               ))}
             </select>
           )}
+          {data.projects.length > 0 && data.workflows.length > 0 && (
+            // The route selector (085). Choosing the canonical row stores
+            // NULL — "canonical" is the absence of an override, by schema.
+            <select
+              className="native-select"
+              value={data.activeWorkflowId}
+              disabled={isPending}
+              aria-label="Workflow"
+              onChange={(event) => {
+                const chosen = event.target.value;
+                void mutate('Ganti workflow', () =>
+                  repository.labEvidence.setProjectWorkflow(
+                    data.projectId,
+                    chosen === canonicalId ? null : chosen,
+                  ),
+                ).then((saved) => {
+                  if (saved) data.reload();
+                });
+              }}
+            >
+              {data.workflows.map((workflow) => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.name} · {workflow.stageCodes.length}/13
+                </option>
+              ))}
+            </select>
+          )}
           <Button variant="secondary" size="sm" onClick={data.reload}>
             <RefreshCw className="size-3.5" />
             Muat ulang
@@ -247,15 +303,30 @@ export function LabFlow() {
       ) : data.loading ? (
         <Checking label="Flow" />
       ) : data.noProjects ? (
-        <Card>
-          <CardContent className="pt-5">
-            <p className="text-sm text-foreground-muted">
-              Belum ada proyek riset — tiga belas tahap ini belum punya apa-apa untuk dihitung.
-              Buat proyek di tab Evidence, lalu masukkan komitmennya sebagai klaim layer A;
-              begitu ada, posisinya muncul di sini.
-            </p>
-          </CardContent>
-        </Card>
+        // The thirteen stations are a STRUCTURAL fact — they exist whether
+        // or not a project does. What is zero is each station's counts, so
+        // the workshop draws in full: all segments un-walked, no tokens
+        // (nothing has run), every count an explicit 0, and ONE callout at
+        // S0 saying where to start. Nothing is blocked — it has not begun.
+        <>
+          <p className="mb-4 text-sm text-foreground-muted">
+            Belum ada proyek riset — buat satu di tab Evidence; denah di bawah adalah bentuk
+            kerjanya, setiap hitungan 0.
+          </p>
+          <FlowTrack stages={emptyStages} selectedIndex={selectedIndex} onSelect={toggleSelect} />
+          <Card>
+            <CardContent className="pt-4">
+              <FlowFloorplan
+                stages={emptyStages}
+                selectedIndex={selectedIndex}
+                onSelect={toggleSelect}
+              />
+            </CardContent>
+          </Card>
+          {selectedIndex !== null && (
+            <StageDetail stage={emptyStages[selectedIndex]} onClose={() => setSelectedIndex(null)} />
+          )}
+        </>
       ) : !data.state ? (
         <Card>
           <CardContent className="pt-5">

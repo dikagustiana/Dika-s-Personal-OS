@@ -16,6 +16,21 @@ export interface LabProject {
   researchQuestion: string;
   status: LabProjectStatus;
   wipSlot: number | null;
+  /** Route through the thirteen stages; null/absent = the canonical run. */
+  workflowId?: string | null;
+}
+
+/**
+ * A workflow is a NAME plus an ordered subset of the closed thirteen-stage
+ * set (S0…S12). Nothing more — no branching, no per-workflow gates. The
+ * database validates the codes against the stage enum, enforces canonical
+ * order, and refuses every edit to the canonical row (085).
+ */
+export interface LabWorkflow {
+  id: string;
+  name: string;
+  stageCodes: string[];
+  isCanonical: boolean;
 }
 
 export type LabDocType =

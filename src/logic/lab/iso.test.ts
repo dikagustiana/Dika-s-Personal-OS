@@ -116,6 +116,29 @@ describe('§1 every drawn element falls inside the computed viewBox', () => {
     expectInsideViewBox(scene);
   });
 
+  it('holds for the SHORTEST route — one active station, twelve omitted, all thirteen still drawn', () => {
+    // Pendasaran referensi: S6 alone. Omission never changes the geometry —
+    // a one-stage route draws the same thirteen-station floor, greyed where
+    // the route does not go, so bounds are route-invariant by construction.
+    const scene = buildFlowScene(
+      stageInputs((index) => ({ status: index === 6 ? ('idle' as const) : ('omitted' as const) })),
+    );
+    expect(scene.plinths).toHaveLength(13);
+    expectInsideViewBox(scene);
+  });
+
+  it('holds for the LONGEST route — canonical, nothing omitted (and the fills differ from omitted)', () => {
+    const canonical = buildFlowScene(stageInputs());
+    expectInsideViewBox(canonical);
+    const shortest = buildFlowScene(stageInputs(() => ({ status: 'omitted' as const })));
+    const activeS5 = canonical.plinths.find((entry) => entry.code === 'S5')!;
+    const omittedS5 = shortest.plinths.find((entry) => entry.code === 'S5')!;
+    // Greyed means DRAWN DIFFERENTLY, not drawn less: same faces, other fill.
+    expect(omittedS5.faces.top).toEqual(activeS5.faces.top);
+    expect(omittedS5.fills.top).not.toBe(activeS5.fills.top);
+    expect(omittedS5.hatched).toBe(false);
+  });
+
   it('holds with tokens crowding the agent stations and a run in flight', () => {
     const scene = buildFlowScene(
       stageInputs((index) => ({

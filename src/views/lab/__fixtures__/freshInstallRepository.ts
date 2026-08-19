@@ -32,6 +32,7 @@ export function freshInstallRepository(): MockRepository {
   seam.listModelSpecParams = async () => okRows([]);
   seam.listModelResults = async () => okRows([]);
   seam.latestSweep = async () => okRows([]);
+  seam.listWorkflows = async () => okRows([]);
   repository.lab.listAgents = async () => okRows([]);
   repository.lab.listProviders = async () => okRows([]);
   repository.lab.listRuns = async () => okRows([]);
