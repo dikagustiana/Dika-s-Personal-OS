@@ -41,14 +41,17 @@ export function FlowFloorplan({
       status: stage.status,
       running: stage.running,
       frontLine: stage.frontLine,
-      // Callouts only where the brief says: front line, running, blocked.
+      // Callouts only where the brief says: front line, running, blocked —
+      // unless the state pinned its own lines (the not-started workshop's
+      // single S0 "start here").
       calloutLines:
-        stage.running || stage.frontLine || stage.status === 'blocked'
+        stage.callout ??
+        (stage.running || stage.frontLine || stage.status === 'blocked'
           ? [
               `${stage.code} ${stage.title}${stage.running ? ' — berjalan' : stage.status === 'blocked' ? ' — terhalang' : ' — garis depan'}`,
               stage.blockers[0]?.reason ?? stage.headline,
             ]
-          : [],
+          : []),
       tokens: stage.presentAgents.map((slug) => ({ slug, color: agentColor(slug) })),
     }));
     return buildFlowScene(inputs);
@@ -99,7 +102,7 @@ export function FlowFloorplan({
             key={entry.code}
             role="button"
             tabIndex={0}
-            aria-label={`${entry.code} ${stage.title} — ${stage.status}`}
+            aria-label={`${entry.code} ${stage.title} — ${stage.status === 'omitted' ? 'dilewati' : stage.status}`}
             aria-pressed={selectedIndex === stage.index}
             className="flow-station cursor-pointer focus-visible:outline-none"
             onClick={() => onSelect(stage.index)}

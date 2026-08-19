@@ -27,7 +27,7 @@ import {
   deriveFlowState,
   type LabFlowState,
 } from '../../../logic/lab/labFlowState';
-import type { LabProject } from '../../../data/labEvidenceTypes';
+import type { LabProject, LabWorkflow } from '../../../data/labEvidenceTypes';
 
 export interface FlowData {
   /** null while core reads are in flight. */
@@ -48,6 +48,11 @@ export interface FlowData {
   projects: LabProject[];
   projectId: string;
   setProjectId: (id: string) => void;
+  /** Every route (085), canonical first. Empty until the read lands. */
+  workflows: LabWorkflow[];
+  /** The ACTIVE route's row id — the canonical row's id when the project
+   *  rides canonical (project.workflow_id null). '' while unresolved. */
+  activeWorkflowId: string;
   reload: () => void;
 }
 
@@ -60,6 +65,7 @@ export function useLabFlowState(): FlowData {
   const [agents, setAgents] = useState<ReadResult<LabAgent> | null>(null);
   const [providers, setProviders] = useState<ReadResult<LabProvider> | null>(null);
   const [runs, setRuns] = useState<ReadResult<LabRun> | null>(null);
+  const [workflows, setWorkflows] = useState<ReadResult<LabWorkflow> | null>(null);
   const [sweep, setSweep] = useState<ReadResult<LabSweepBeat> | null>(null);
   const [probe, setProbe] = useState<{ configured: boolean; anthropic: boolean } | null>(null);
   const [labGeneration, setLabGeneration] = useState(0);
@@ -81,6 +87,7 @@ export function useLabFlowState(): FlowData {
     void repository.lab.listAgents().then(land(setAgents), threw('listAgents', setAgents));
     void repository.lab.listProviders().then(land(setProviders), threw('listProviders', setProviders));
     void repository.lab.listRuns().then(land(setRuns), threw('listRuns', setRuns));
+    void repository.labEvidence.listWorkflows().then(land(setWorkflows), threw('listWorkflows', setWorkflows));
     void repository.labEvidence.latestSweep().then(land(setSweep), threw('latestSweep', setSweep));
     void probeEvidenceAgents().then(land(setProbe), () => {
       // The probe catches internally and null already means "could not
@@ -113,6 +120,15 @@ export function useLabFlowState(): FlowData {
     projects.find((project) => project.status === 'active') ??
     projects[0];
 
+  // The active route. workflow_id null (or pointing at a vanished row —
+  // the FK's `on delete set null` makes that transient) means canonical.
+  const workflowRows = rowsOr(workflows);
+  const canonicalWorkflow = workflowRows.find((row) => row.isCanonical) ?? null;
+  const activeWorkflow =
+    (activeProject?.workflowId
+      ? workflowRows.find((row) => row.id === activeProject.workflowId)
+      : null) ?? canonicalWorkflow;
+
   const core: Array<ReadResult<unknown> | null> = [
     evidence.projects,
     evidence.questions,
@@ -132,6 +148,7 @@ export function useLabFlowState(): FlowData {
     evidence.modelResults,
     runs,
     providers,
+    workflows,
   ];
   const loading = core.some((result) => result === null) || agents === null || sweep === null;
   const failure =
@@ -168,10 +185,14 @@ export function useLabFlowState(): FlowData {
       probe,
       live,
       now: new Date(),
+      // Canonical routes derive with NO omission pass — identical to the
+      // pre-085 behavior by construction.
+      workflowStageCodes:
+        activeWorkflow && !activeWorkflow.isCanonical ? activeWorkflow.stageCodes : null,
     });
     // The live object identity changes on every store write, which is the
     // point: a running token must appear the moment dispatch starts.
-  }, [loading, failure, activeProject, projects, evidence, runs, agents, providers, sweep, probe, live]);
+  }, [loading, failure, activeProject, activeWorkflow, projects, evidence, runs, agents, providers, sweep, probe, live]);
 
   return {
     state,
@@ -181,6 +202,8 @@ export function useLabFlowState(): FlowData {
     projects,
     projectId: activeProject?.id ?? '',
     setProjectId,
+    workflows: workflowRows,
+    activeWorkflowId: activeWorkflow?.id ?? '',
     reload,
   };
 }

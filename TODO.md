@@ -33,6 +33,22 @@ the IND-vs-cap meter); and **lab-eval-2**: the sensitivity smoke test now
 also fails a spec whose output does not move when its inputs do (a hardcoded
 answer is not a model) — closing the gap where only singularities failed it.
 
+The workflow build (migration 085) added: **workflows as ordered subsets of
+the thirteen stages** — `os_lab_workflows` (name + stage_codes, validated in
+a trigger against the closed stage enum, canonical order enforced, the
+canonical S0…S12 row immutable, owner-write guard; agents never draw
+routes), `os_lab_projects.workflow_id` (null = canonical, `on delete set
+null`), five seeded routes, and a Flow header selector. Omitted mandatory
+stations render GREYED AND IN POSITION with a one-line consequence derived
+from the gate that will actually refuse (labFlowOmissions.ts quotes the
+gate mirrors' own output) — a three-stage route must never look like a
+three-stage pipeline. The gates are NOT workflow-scoped: proven by the SQL
+suite's W11 (a route omitting S5 still cannot approve an IND-backed claim).
+And **the no-project empty state now draws the workshop**: all thirteen
+stations at their real sizes and colours, every segment dotted, no tokens,
+every count an explicit 0, one S0 callout saying where to start — the
+stations are a structural fact; only the counts are zero.
+
 ## Deferred deliberately — each with its reason, not as an oversight
 
 **1. Structured `definition_scope`.** Still free text with a 20-character
@@ -120,6 +136,21 @@ least.
   (no run exists to carry it — nothing was billed, nothing ran). The
   STANDING condition is what matters and it renders live: the IND-vs-cap
   meter in Orkestrasi and the S4 bar naming the head of the queue.
+
+## Deferred by the workflow build (085), each with its reason
+
+- **A workflow-creation UI.** The five seeds cover the known purposes, and
+  the brief's Part E fixes the shape of any future composer: checkboxes
+  against the canonical order, sequence derived — never drag-and-drop,
+  because a workflow is a selection, not an arrangement. Until built, a new
+  route is one INSERT (the guard validates codes, order and duplicates
+  either way, so the dashboard path is exactly as safe as a form).
+- **Workflow→chain references.** The brief allows a route with consecutive
+  agent stages to OPTIONALLY reference a chain that runs them — but fixes
+  the schema at "a name plus an ordered subset. Nothing more." Read
+  together: no column. Chains stay independently runnable; the coupling can
+  arrive later as its own deliberate change if running-a-route-segment ever
+  becomes a real need.
 
 ## Ruled out by the briefs (both Part Gs)
 

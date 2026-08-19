@@ -209,3 +209,91 @@ describe('§6 empty is an answer — a fresh install renders, it never hangs at 
     expect(screen.queryByText('Checking…')).toBeNull();
   });
 });
+
+describe('§7 the empty state draws the workshop — structure is a fact, counts are zero', () => {
+  it('no project: thirteen stations, all segments dotted, zero tokens, one S0 callout, zero tallies', async () => {
+    useAppStore.setState({ repository: freshInstallRepository(), area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+
+    // The full track and floorplan render — the stations exist whether or
+    // not a project does.
+    const track = await screen.findByRole('group', { name: /13 tahap berurutan/ });
+    expect(track.querySelectorAll('button')).toHaveLength(13);
+    const floor = screen.getByRole('group', { name: /Denah lantai pipeline/ });
+
+    // All twelve path segments dotted (not yet reached); none walked.
+    expect(floor.querySelectorAll('polyline[stroke-dasharray="2 5"]')).toHaveLength(12);
+    expect(floor.querySelectorAll('polyline[stroke="#93A3B3"]')).toHaveLength(0);
+
+    // No agent tokens anywhere: nothing has run, so nothing stands.
+    expect(floor.querySelectorAll('title')).toHaveLength(0);
+
+    // One callout, at S0, saying where to start — and no blocked or
+    // front-line callouts (their first lines read "… — terhalang" /
+    // "… — garis depan"; the tally's "0 terhalang" is a different string).
+    expect(screen.getByText('Mulai di sini — S0 Intake')).toBeTruthy();
+    expect(screen.getByText('Buat proyek di tab Evidence dulu.')).toBeTruthy();
+    expect(screen.queryByText(/— terhalang/)).toBeNull();
+    expect(screen.queryByText(/— garis depan/)).toBeNull();
+
+    // Tallies read zero — measured, not blank.
+    expect(screen.getByText('0 tuntas · 0 menunggu kamu · 0 terhalang')).toBeTruthy();
+
+    // One line of prose pointing at Evidence — and the station counts read
+    // an explicit 0 when opened.
+    expect(screen.getByText(/Belum ada proyek riset — buat satu di tab Evidence/)).toBeTruthy();
+    fireEvent.click(track.querySelectorAll('button')[0]);
+    expect(await screen.findByText('0 pertanyaan · 0 sub-pertanyaan')).toBeTruthy();
+  });
+});
+
+describe('§8 a workflow draws only its stages as live — omitted stations grey IN POSITION', () => {
+  it('a route omitting S5 greys it with the gate-derived consequence, and the track still shows thirteen', async () => {
+    const repository = new MockRepository();
+    await repository.labEvidence.setProjectWorkflow('ev-project', 'wf-sapuan-literatur');
+    await mountFlow(repository);
+
+    const track = screen.getByRole('group', { name: /13 tahap berurutan/ });
+    const cells = track.querySelectorAll('button');
+    expect(cells).toHaveLength(13);
+    expect(cells[5].getAttribute('title')).toBe('S5 Verifikasi — dilewati');
+
+    fireEvent.click(cells[5]);
+    expect(await screen.findByText(/stasiun manusia · dilewati/)).toBeTruthy();
+    expect(
+      screen.getByText(/klaim tidak akan bisa disetujui selama datapoint masih IND/),
+    ).toBeTruthy();
+    expect(screen.getAllByText(/G-CLAIM/).length).toBeGreaterThan(0);
+  });
+
+  it('the one-stage route still draws all thirteen stations on the floor', async () => {
+    const repository = new MockRepository();
+    await repository.labEvidence.setProjectWorkflow('ev-project', 'wf-pendasaran');
+    await mountFlow(repository);
+    const floor = screen.getByRole('group', { name: /Denah lantai pipeline/ });
+    expect(floor.querySelectorAll('g[role="button"]')).toHaveLength(13);
+    expect(floor.querySelector('g[aria-label="S6 Ground — idle"], g[aria-label="S6 Ground — attention"], g[aria-label="S6 Ground — done"]')).toBeTruthy();
+    expect(floor.querySelector('g[aria-label="S0 Intake — dilewati"]')).toBeTruthy();
+  });
+
+  it('the header selector switches the route and the floor follows', async () => {
+    const repository = new MockRepository();
+    await repository.labEvidence.setProjectWorkflow('ev-project', 'wf-sapuan-literatur');
+    await mountFlow(repository);
+
+    const select = screen.getByRole('combobox', { name: 'Workflow' }) as HTMLSelectElement;
+    expect(select.value).toBe('wf-sapuan-literatur');
+    expect(select.querySelectorAll('option')).toHaveLength(5);
+
+    fireEvent.change(select, { target: { value: 'wf-canonical' } });
+    // Canonical is stored as NULL — the row id resolves back to canonical.
+    await waitFor(() => {
+      const cells = screen
+        .getByRole('group', { name: /13 tahap berurutan/ })
+        .querySelectorAll('button');
+      expect(cells[5].getAttribute('title')).not.toContain('dilewati');
+    });
+    const project = (await repository.labEvidence.listProjects()) as { ok: true; rows: Array<{ workflowId?: string | null }> };
+    expect(project.rows[0].workflowId).toBeNull();
+  });
+});

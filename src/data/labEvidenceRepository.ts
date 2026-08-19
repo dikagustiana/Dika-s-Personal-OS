@@ -50,6 +50,7 @@ import type {
   LabSourceDocument,
   LabSubQuestion,
   LabTask,
+  LabWorkflow,
 } from './labEvidenceTypes';
 
 export interface LabSourceDocumentWrite {
@@ -82,6 +83,10 @@ export interface LabCommitmentSourceWrite {
 export interface LabEvidenceRepository {
   listProjects(): Promise<ReadResult<LabProject>>;
   createProject(input: { name: string; researchQuestion: string }): Promise<LabProject>;
+  /** The five seeded routes plus anything the owner added; canonical first. */
+  listWorkflows(): Promise<ReadResult<LabWorkflow>>;
+  /** null = back to the canonical route. Owner act; the guard enforces it. */
+  setProjectWorkflow(projectId: string, workflowId: string | null): Promise<LabProject>;
 
   listSourceDocuments(): Promise<ReadResult<LabSourceDocument>>;
   createSourceDocument(input: LabSourceDocumentWrite): Promise<LabSourceDocument>;
@@ -243,6 +248,14 @@ interface ProjectRow {
   research_question: string;
   status: LabProject['status'];
   wip_slot: number | null;
+  workflow_id?: string | null;
+}
+
+interface WorkflowRow {
+  id: string;
+  name: string;
+  stage_codes: string[];
+  is_canonical: boolean;
 }
 
 interface SourceRow {
@@ -556,6 +569,16 @@ function mapProject(row: ProjectRow): LabProject {
     researchQuestion: row.research_question,
     status: row.status,
     wipSlot: row.wip_slot,
+    workflowId: row.workflow_id ?? null,
+  };
+}
+
+function mapWorkflow(row: WorkflowRow): LabWorkflow {
+  return {
+    id: row.id,
+    name: row.name,
+    stageCodes: row.stage_codes,
+    isCanonical: row.is_canonical,
   };
 }
 
@@ -695,6 +718,25 @@ export function createSupabaseLabEvidenceRepository(client: SupabaseClient): Lab
         .select()
         .single();
       if (error) fail('createProject', error.message);
+      return mapProject(data as ProjectRow);
+    },
+    async listWorkflows() {
+      const { data, error } = await client
+        .from('os_lab_workflows')
+        .select('*')
+        .order('is_canonical', { ascending: false })
+        .order('name');
+      if (error) return readAbsence('listLabWorkflows', error);
+      return okRows(((data ?? []) as WorkflowRow[]).map(mapWorkflow));
+    },
+    async setProjectWorkflow(projectId, workflowId) {
+      const { data, error } = await client
+        .from('os_lab_projects')
+        .update({ workflow_id: workflowId })
+        .eq('id', projectId)
+        .select()
+        .single();
+      if (error) fail('setProjectWorkflow', error.message);
       return mapProject(data as ProjectRow);
     },
 
@@ -1354,7 +1396,21 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       researchQuestion: 'Worked example — replace with a real project.',
       status: 'active',
       wipSlot: 1,
+      workflowId: null,
     },
+  ];
+  /** The same five routes migration 085 seeds, stable ids for tests. */
+  private workflows: LabWorkflow[] = [
+    {
+      id: 'wf-canonical',
+      name: 'Riset penuh',
+      stageCodes: ['S0', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12'],
+      isCanonical: true,
+    },
+    { id: 'wf-cek-angka', name: 'Cek angka cepat', stageCodes: ['S3', 'S4', 'S5'], isCanonical: false },
+    { id: 'wf-sapuan-literatur', name: 'Sapuan literatur', stageCodes: ['S2', 'S6'], isCanonical: false },
+    { id: 'wf-model-ulang', name: 'Model ulang', stageCodes: ['S7', 'S8'], isCanonical: false },
+    { id: 'wf-pendasaran', name: 'Pendasaran referensi', stageCodes: ['S6'], isCanonical: false },
   ];
   private sources: LabSourceDocument[] = [
     {
@@ -1484,8 +1540,21 @@ export class MockLabEvidenceRepository implements LabEvidenceRepository {
       researchQuestion: input.researchQuestion,
       status: 'active',
       wipSlot: null,
+      workflowId: null,
     };
     this.projects.push(project);
+    return { ...project };
+  }
+  async listWorkflows(): Promise<ReadResult<LabWorkflow>> {
+    return okRows(this.workflows.map((row) => ({ ...row, stageCodes: [...row.stageCodes] })));
+  }
+  async setProjectWorkflow(projectId: string, workflowId: string | null): Promise<LabProject> {
+    const project = this.projects.find((row) => row.id === projectId);
+    if (!project) throw new LabGateError(`setProjectWorkflow: project ${projectId} tidak ditemukan.`);
+    if (workflowId !== null && !this.workflows.some((row) => row.id === workflowId)) {
+      throw new LabGateError(`setProjectWorkflow: workflow ${workflowId} tidak ditemukan.`);
+    }
+    project.workflowId = workflowId;
     return { ...project };
   }
 

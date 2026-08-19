@@ -36,7 +36,12 @@ import {
 } from './iso';
 
 export type FlowActor = 'agent' | 'owner' | 'gate';
-export type FlowStageStatus = 'done' | 'attention' | 'blocked' | 'idle';
+/**
+ * `omitted` = in the canonical path but not in the active workflow: drawn
+ * greyed AND IN POSITION, never dropped from the scene — a three-stage
+ * workflow must not look like a pipeline that is three stages long.
+ */
+export type FlowStageStatus = 'done' | 'attention' | 'blocked' | 'idle' | 'omitted';
 
 export interface SceneStageInput {
   code: string;
@@ -57,6 +62,8 @@ export const ACTOR_COLOR: Record<FlowActor, string> = {
   gate: '#232E3C',
 };
 const BLOCKED_BASE = '#8B95A0';
+/** Lighter than BLOCKED: absent from the route, not barred on it. */
+const OMITTED_BASE = '#B6BFC9';
 
 export const PATH_COLOR = { walked: '#93A3B3', live: '#3B5A7E', ahead: '#C4CED8' } as const;
 export const FLOOR_FILL = '#E7EDF2';
@@ -180,7 +187,12 @@ export function buildFlowScene(stages: readonly SceneStageInput[]): FlowScene {
       const { cx, cy, side, h } = geoms[index];
       const gx = cx - side / 2;
       const gy = cy - side / 2;
-      const base = stage.status === 'blocked' ? BLOCKED_BASE : ACTOR_COLOR[stage.actor];
+      const base =
+        stage.status === 'blocked'
+          ? BLOCKED_BASE
+          : stage.status === 'omitted'
+            ? OMITTED_BASE
+            : ACTOR_COLOR[stage.actor];
       const tokens = stage.tokens.map((token, tokenIndex) => ({
         slug: token.slug,
         color: token.color,

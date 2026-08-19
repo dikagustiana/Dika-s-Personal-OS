@@ -54,6 +54,7 @@ import type { LabSweepBeat } from '../../data/labEvidenceRepository';
 import type { LabLiveRun } from '../../store/labLiveStore';
 import { agentFallbackName, EVIDENCE_AGENTS } from './labAgentColors';
 import { IND_WIP_CAP_DISPLAY } from './labConfig';
+import { omittedConsequence } from './labFlowOmissions';
 import type { FlowActor, FlowStageStatus } from './flowScene';
 
 // ---------------------------------------------------------------------------
@@ -116,6 +117,12 @@ export interface FlowStage extends StageDef {
   presentAgents: string[];
   running: boolean;
   frontLine: boolean;
+  /**
+   * When set, the floorplan draws exactly these callout lines for this
+   * station instead of deriving them (front line / running / blocked).
+   * Used by the not-started workshop for its single S0 "start here".
+   */
+  callout?: string[];
 }
 
 export interface FlowAgentRow {
@@ -230,6 +237,15 @@ export interface FlowInput {
   probe: { configured: boolean; anthropic: boolean } | null;
   live: LabLiveRun | null;
   now: Date;
+  /**
+   * The active workflow's route: an ordered subset of the thirteen stage
+   * codes (085). Omitted/null/empty = the canonical run, no omissions.
+   * Stages outside the route derive as `omitted` — greyed and labelled IN
+   * POSITION with the consequence of skipping them, never dropped: the
+   * gates are not workflow-scoped, and a complete-looking three-station
+   * workshop would mislead right up to the wall.
+   */
+  workflowStageCodes?: readonly string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -332,14 +348,34 @@ export function deriveFlowState(input: FlowInput): LabFlowState {
     return { ...def, index, ...built, running, presentAgents, frontLine: false };
   });
 
+  // The active workflow's omissions (085). A station outside the route is
+  // OMITTED — greyed and labelled in position, never dropped — and carries
+  // the one-line consequence of skipping it, derived from the gate that
+  // will actually refuse. History stays: tokens keep standing where agents
+  // actually ran, because the route changes the plan, not the record.
+  const routeCodes =
+    input.workflowStageCodes && input.workflowStageCodes.length > 0
+      ? new Set(input.workflowStageCodes)
+      : null;
+  if (routeCodes) {
+    for (const stage of stages) {
+      if (routeCodes.has(stage.code)) continue;
+      stage.status = 'omitted';
+      stage.blockers = [];
+      stage.headline = 'dilewati — bukan bagian workflow ini';
+      stage.detail = [omittedConsequence(stage.code)];
+    }
+  }
+
   // Front line: the earliest non-done stage — except an IDLE stage that
   // work has demonstrably moved past (a later stage is done or has
   // attention) is skipped, so an empty optional stage (no models yet)
-  // cannot pin the line forever. Blocked stages are never skipped.
+  // cannot pin the line forever. Blocked stages are never skipped; OMITTED
+  // stages are not part of the route, so the line never stands on one.
   let frontLineIndex: number | null = null;
   for (let index = 0; index < stages.length; index += 1) {
     const stage = stages[index];
-    if (stage.status === 'done') continue;
+    if (stage.status === 'done' || stage.status === 'omitted') continue;
     const passedBy =
       stage.status === 'idle' &&
       stages.some(
@@ -546,6 +582,81 @@ interface StageDerivation {
   headline: string;
   detail: string[];
   blockers: FlowBlocker[];
+}
+
+// ---------------------------------------------------------------------------
+// the workshop before any project exists
+// ---------------------------------------------------------------------------
+
+/**
+ * The thirteen stations with every count at ZERO — the render for a
+ * database that answered "nothing here". The stations are a STRUCTURAL
+ * fact, independent of data: they exist whether or not a project does.
+ * What is zero is each station's counts; what is not unknown is that the
+ * station exists, who acts there, and what it writes.
+ *
+ * Derived through the same buildStage derivations as the live floor (so
+ * the zero headlines are the real counted phrasings at zero), then held to
+ * the not-started rules:
+ *  - every status idle — nothing walked, nothing blocked. S11's "0
+ *    approved claims" bar is a fact about work IN PROGRESS; before any
+ *    project exists nothing has begun, so nothing is barred yet;
+ *  - no front line — the one pointer is the S0 callout saying where to
+ *    start;
+ *  - no agents standing anywhere (nothing has run — absence renders as
+ *    absence, not as an idle crowd);
+ *  - the three run-ledger/optional headlines rewritten to explicit ZEROS
+ *    ("belum pernah dijalankan" is honest for a ledger, but here zero is a
+ *    measured value and it reads as one).
+ */
+export function emptyWorkshopStages(now: Date): FlowStage[] {
+  const state = deriveFlowState({
+    projectId: '',
+    projects: [],
+    questions: [],
+    subQuestions: [],
+    requirements: [],
+    candidates: [],
+    sources: [],
+    references: [],
+    datapoints: [],
+    conflicts: [],
+    claims: [],
+    contradictions: [],
+    outputs: [],
+    tasks: [],
+    modelSpecs: [],
+    modelParams: [],
+    modelResults: [],
+    runs: [],
+    agents: [],
+    providers: [],
+    sweep: null,
+    sweepReadFailed: false,
+    agentsReadFailed: false,
+    supabaseConfigured: true,
+    readFailureDetail: null,
+    probe: null,
+    live: null,
+    now,
+  });
+  const zeroHeadline: Record<string, string> = {
+    S3: '0 run locator',
+    S7: '0 spec · 0 hasil model',
+    S9: '0 kontradiksi terbuka · 0 konflik belum diputus',
+  };
+  return state.stages.map((stage) => ({
+    ...stage,
+    status: 'idle' as FlowStageStatus,
+    blockers: [],
+    frontLine: false,
+    running: false,
+    presentAgents: [],
+    headline: zeroHeadline[stage.code] ?? stage.headline,
+    ...(stage.code === 'S0'
+      ? { callout: ['Mulai di sini — S0 Intake', 'Buat proyek di tab Evidence dulu.'] }
+      : {}),
+  }));
 }
 
 function buildStage(_def: StageDef, index: number, facts: StageFacts): StageDerivation {
