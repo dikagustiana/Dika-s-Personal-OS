@@ -143,15 +143,37 @@ least.
 ## Operational, waiting on the owner
 
 - **Set the provider API keys** as Edge Function secrets:
-  `LAB_ANTHROPIC_API_KEY` (required for the internal agents — coordinator,
-  locator, extractor, reviewer, drafter, framer, modeler),
-  `LAB_DEEPSEEK_API_KEY` (optional). Kimi already works — it falls back to
-  the existing `RESEARCH_MODEL_API_KEY` — which covers evidence-literature,
-  evidence-scout and ceo-briefing-deck today.
-- **Verify the seeded provider rates.** `os_lab_providers` was seeded with
-  list prices as of 2026-08-17; they are data, edited in the table editor.
-  Note the pin guard: a model string may not say `latest` and must carry a
-  version or date marker (deepseek-chat is grandfathered until edited).
+  `LAB_DEEPSEEK_API_KEY` (required for the deepseek row — no fallback
+  exists), `LAB_KIMI_API_KEY` (optional — kimi resolves today through the
+  `RESEARCH_MODEL_API_KEY` fallback, the same Moonshot account).
+  `LAB_ANTHROPIC_API_KEY` stays UNSET by the owner's decision (2026-08-18,
+  "don't use claude"): the nine internal agents are dormant until it is
+  set. The data boundary is unchanged by that decision and cannot be
+  relaxed — internal agents refuse every non-Anthropic provider at the
+  database, so "no Anthropic key" means "internal agents do not run", never
+  "internal agents run elsewhere".
+
+## Provider pricing limitations, recorded so the numbers are understood
+
+- **DeepSeek bills peak/off-peak; the schema stores ONE rate — the PEAK
+  rate, deliberately.** Since 2026-08-16 16:00 UTC, `deepseek-v4-pro` costs
+  $1.32 in / $3.96 out per Mtok during peak (01:00–04:00 and 06:00–10:00
+  UTC) and half that off-peak. `cost_in_per_mtok` cannot carry a schedule,
+  so runs outside peak windows are OVER-stated by up to 2× in the cost
+  column — an honest over-statement beats a quiet under-statement, because
+  the column feeds budget reading. Anyone tempted to "fix" the number down
+  should split the schema first.
+- **Kimi cache-hit input ($0.30 for k3) is not modelled** — the single
+  input rate is the cache-miss $3.00, same over-state-not-under-state rule.
+- **Model strings: a documented ID, never a mutable alias.** The rule 1.14
+  shipped mechanically (no `latest`, must carry a digit) and it would have
+  refused `deepseek-chat` — but only on edit; the alias sat grandfathered
+  until the vendor retired it on 2026-07-24 and calls silently stopped
+  resolving. The widened discipline: pin only IDs the vendor documents as
+  models (`deepseek-v4-pro`, `kimi-k3` — both documented IDs that serve
+  dated builds internally, which is the vendor's contract to keep). No
+  trigger can know a vendor's catalogue; the run log's resolved-model
+  column is the retrospective detector when behaviour shifts anyway.
 - **The IDR display rate** lives in `src/logic/lab/labConfig.ts`
   (Rp 16.500/$, display-only; USD is the stored truth). Update as it drifts.
 - **Walk one real project through Evidence** — intake first (raw ask, framed

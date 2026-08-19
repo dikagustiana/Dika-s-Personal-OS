@@ -365,9 +365,11 @@ const MOCK_PROVIDERS: LabProvider[] = [
     name: 'deepseek',
     adapter: 'openai',
     baseUrl: 'https://api.deepseek.com',
-    model: 'deepseek-chat',
-    costInPerMtok: 0.27,
-    costOutPerMtok: 1.1,
+    // Pinned by 084 after the vendor retired the deepseek-chat alias.
+    // PEAK rate on purpose — see TODO.md's pricing-limitations note.
+    model: 'deepseek-v4-pro',
+    costInPerMtok: 1.32,
+    costOutPerMtok: 3.96,
     isActive: true,
   },
   {
@@ -375,9 +377,12 @@ const MOCK_PROVIDERS: LabProvider[] = [
     name: 'kimi',
     adapter: 'openai',
     baseUrl: 'https://api.moonshot.ai/v1',
-    model: 'kimi-k2-0905-preview',
-    costInPerMtok: 0.6,
-    costOutPerMtok: 2.5,
+    // Pinned by 084; cache-miss input rate (the single-rate schema holds
+    // the honest-high number). Old run rows keep the old string — a run
+    // records what ran.
+    model: 'kimi-k3',
+    costInPerMtok: 3,
+    costOutPerMtok: 15,
     isActive: true,
   },
 ];

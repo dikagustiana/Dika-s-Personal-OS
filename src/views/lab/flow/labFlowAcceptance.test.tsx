@@ -16,8 +16,11 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MockRepository, mockRepository } from '../../../data/mockRepository';
+import { okRows } from '../../../data/readResult';
+import type { LabProject } from '../../../data/labEvidenceTypes';
 import { useAppStore } from '../../../store/appStore';
 import { useLabLiveStore } from '../../../store/labLiveStore';
+import { freshInstallRepository } from '../__fixtures__/freshInstallRepository';
 import { LabFlow } from './LabFlow';
 
 async function mountFlow(repository = new MockRepository()) {
@@ -140,5 +143,69 @@ describe('§5 a chain advances station to station, and a failure never leaves th
     });
     expect(await screen.findByText(/evidence-extractor gagal di langkah 2/)).toBeTruthy();
     expect(screen.getByText('Model call failed (429).')).toBeTruthy();
+  });
+});
+
+describe('§6 empty is an answer — a fresh install renders, it never hangs at Checking', () => {
+  // The live failure this reproduces (2026-08-19, os.dikagustiana.com):
+  // os_lab_projects held ZERO rows, every read returned ok, and the Flow
+  // tab sat at `Checking…` forever. readResult.ts's doctrine names the
+  // conflation: `Checking` means A READ HAS NOT RETURNED. Here every read
+  // HAD returned — the database was simply empty, and emptiness is a fact
+  // to render in words, never a spinner.
+
+  it('zero projects, every Lab table empty: the screen says what that MEANS, and Checking is gone', async () => {
+    useAppStore.setState({ repository: freshInstallRepository(), area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    // The meaning of this emptiness, in words — not a spinner, not an error.
+    expect(await screen.findByText(/Belum ada proyek riset/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
+    expect(screen.queryByText('Could not check')).toBeNull();
+  });
+
+  it('one project, every other table empty: 13 stages render and the sweep line reads "belum pernah tercatat" — not an error, not 0 jam', async () => {
+    const repository = freshInstallRepository();
+    repository.labEvidence.listProjects = async () =>
+      okRows<LabProject>([
+        { id: 'p-fresh', name: 'Proyek pertama', researchQuestion: '', status: 'active', wipSlot: null },
+      ]);
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    const track = await screen.findByRole('group', { name: /13 tahap berurutan/ });
+    expect(track.querySelectorAll('button')).toHaveLength(13);
+    // An empty sweep log means the sweep has never run — say that, and
+    // never dress the absence up as an age of zero hours. (The line shows
+    // on more than one surface — rail and console read the same state.)
+    expect(screen.getAllByText(/belum pernah tercatat/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/0 jam/)).toBeNull();
+    expect(screen.queryByText('Could not check')).toBeNull();
+    expect(screen.queryByText('Checking…')).toBeNull();
+  });
+
+  it('a rejected core read renders Could not check WITH the error text — never Checking, never zeros', async () => {
+    const repository = new MockRepository();
+    repository.labEvidence.listDatapoints = async () => ({
+      ok: false,
+      reason: 'failed',
+      detail: 'listDatapoints: 42501 — izin ditolak (RLS atau grant), bukan data kosong',
+    });
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    expect(await screen.findByText('Could not check')).toBeTruthy();
+    expect(screen.getByText(/42501 — izin ditolak/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
+    expect(screen.queryByRole('group', { name: /13 tahap berurutan/ })).toBeNull();
+  });
+
+  it('a core read that THROWS lands as Could not check too — a rejected promise must never hang the screen silent', async () => {
+    const repository = new MockRepository();
+    repository.labEvidence.listClaims = async () => {
+      throw new Error('fetch failed: network unreachable');
+    };
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    expect(await screen.findByText('Could not check')).toBeTruthy();
+    expect(screen.getByText(/listClaims: fetch failed: network unreachable/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
   });
 });

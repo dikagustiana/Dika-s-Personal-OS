@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { useAppStore } from '../../../store/appStore';
-import type { ReadResult } from '../../../data/readResult';
+import { readThrew, type ReadResult } from '../../../data/readResult';
 import type {
   LabCandidateSource,
   LabClaim,
@@ -137,23 +137,32 @@ export function useEvidenceData(): EvidenceData {
     const land = <T,>(setter: (result: T) => void) => (result: T) => {
       if (!cancelled) setter(result);
     };
-    void seam.listProjects().then(land(setProjects));
-    void seam.listSourceDocuments().then(land(setSources));
-    void seam.listReferences().then(land(setReferences));
-    void seam.listCommitmentSources().then(land(setCommitments));
-    void seam.listDatapoints().then(land(setDatapoints));
-    void seam.listConflicts().then(land(setConflicts));
-    void seam.listClaims().then(land(setClaims));
-    void seam.listContradictions().then(land(setContradictions));
-    void seam.listOutputs().then(land(setOutputs));
-    void seam.listTasks().then(land(setTasks));
-    void seam.listQuestions().then(land(setQuestions));
-    void seam.listSubQuestions().then(land(setSubQuestions));
-    void seam.listEvidenceRequirements().then(land(setRequirements));
-    void seam.listCandidateSources().then(land(setCandidates));
-    void seam.listModelSpecs().then(land(setModelSpecs));
-    void seam.listModelSpecParams().then(land(setModelParams));
-    void seam.listModelResults().then(land(setModelResults));
+    // A read that THROWS still lands — as a failure. Without this second
+    // arm a rejected promise leaves its slot null forever: the screens
+    // render `Checking…` with no failure to show, which is the same
+    // empty-vs-unknown conflation readResult.ts forbids. A caller that
+    // catches must not invent a zero — and must not stay silent either.
+    const threw = <T,>(label: string, setter: (result: ReadResult<T>) => void) =>
+      (error: unknown) => {
+        if (!cancelled) setter(readThrew(label, error));
+      };
+    void seam.listProjects().then(land(setProjects), threw('listProjects', setProjects));
+    void seam.listSourceDocuments().then(land(setSources), threw('listSourceDocuments', setSources));
+    void seam.listReferences().then(land(setReferences), threw('listReferences', setReferences));
+    void seam.listCommitmentSources().then(land(setCommitments), threw('listCommitmentSources', setCommitments));
+    void seam.listDatapoints().then(land(setDatapoints), threw('listDatapoints', setDatapoints));
+    void seam.listConflicts().then(land(setConflicts), threw('listConflicts', setConflicts));
+    void seam.listClaims().then(land(setClaims), threw('listClaims', setClaims));
+    void seam.listContradictions().then(land(setContradictions), threw('listContradictions', setContradictions));
+    void seam.listOutputs().then(land(setOutputs), threw('listOutputs', setOutputs));
+    void seam.listTasks().then(land(setTasks), threw('listTasks', setTasks));
+    void seam.listQuestions().then(land(setQuestions), threw('listQuestions', setQuestions));
+    void seam.listSubQuestions().then(land(setSubQuestions), threw('listSubQuestions', setSubQuestions));
+    void seam.listEvidenceRequirements().then(land(setRequirements), threw('listEvidenceRequirements', setRequirements));
+    void seam.listCandidateSources().then(land(setCandidates), threw('listCandidateSources', setCandidates));
+    void seam.listModelSpecs().then(land(setModelSpecs), threw('listModelSpecs', setModelSpecs));
+    void seam.listModelSpecParams().then(land(setModelParams), threw('listModelSpecParams', setModelParams));
+    void seam.listModelResults().then(land(setModelResults), threw('listModelResults', setModelResults));
     return () => {
       cancelled = true;
     };

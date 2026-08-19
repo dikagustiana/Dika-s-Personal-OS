@@ -16,6 +16,7 @@ import { Input } from '../../../components/ui/Input';
 import { useMutation } from '../../../hooks/useMutation';
 import { useAppStore } from '../../../store/appStore';
 import { cn } from '../../../lib/utils';
+import { firstFailure, type ReadResult } from '../../../data/readResult';
 import { CouldNotCheck, Checking } from '../../work/finishLineUi';
 import { rowsOr } from '../labUi';
 import { EvidenceAgents } from './EvidenceAgents';
@@ -54,6 +55,28 @@ export function LabEvidence() {
     projects.find((project) => project.id === projectId) ??
     projects.find((project) => project.status === 'active') ??
     projects[0];
+
+  // The collections each tab consumes — the exact rowsOr() calls inside
+  // it. A failed read must reach the tab as COULD NOT CHECK, never as an
+  // empty list: rowsOr() inside the tabs would otherwise dress a refused
+  // read as zeros, the exact lie readResult.ts exists to prevent. The
+  // gate is per-tab so one broken collection darkens only the surfaces
+  // that actually read it.
+  const tabReads: Record<EvidenceTab, Array<ReadResult<unknown> | null>> = {
+    intake: [data.questions, data.subQuestions, data.requirements, data.datapoints, data.references],
+    datapoints: [data.datapoints, data.sources, data.conflicts],
+    claims: [data.claims, data.datapoints, data.references, data.conflicts, data.contradictions, data.commitments],
+    models: [data.modelSpecs, data.modelParams, data.modelResults, data.datapoints],
+    outputs: [data.outputs, data.claims, data.datapoints, data.contradictions, data.subQuestions, data.requirements, data.modelResults],
+    sources: [data.sources, data.references, data.commitments, data.candidates],
+    agents: [data.sources, data.tasks],
+  };
+  const reads = tabReads[tab];
+  const tabPending = reads.some((result) => result === null);
+  const tabFailure = firstFailure(
+    ...reads.filter((result): result is ReadResult<unknown> => result !== null),
+  );
+  const tabLabel = TABS.find((entry) => entry.id === tab)?.label ?? 'Evidence';
 
   return (
     <div className="page-shell">
@@ -185,13 +208,25 @@ export function LabEvidence() {
             ))}
           </div>
 
-          {tab === 'intake' && <EvidenceIntake data={data} projectId={activeProject.id} />}
-          {tab === 'datapoints' && <EvidenceDatapoints data={data} />}
-          {tab === 'claims' && <EvidenceClaims data={data} projectId={activeProject.id} />}
-          {tab === 'models' && <EvidenceModels data={data} projectId={activeProject.id} />}
-          {tab === 'outputs' && <EvidenceOutputs data={data} projectId={activeProject.id} />}
-          {tab === 'sources' && <EvidenceSources data={data} projectId={activeProject.id} />}
-          {tab === 'agents' && <EvidenceAgents data={data} projectId={activeProject.id} />}
+          {tabPending ? (
+            <Checking label={tabLabel} />
+          ) : tabFailure ? (
+            <Card>
+              <CardContent className="pt-5">
+                <CouldNotCheck label={tabLabel} failure={tabFailure} />
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              {tab === 'intake' && <EvidenceIntake data={data} projectId={activeProject.id} />}
+              {tab === 'datapoints' && <EvidenceDatapoints data={data} />}
+              {tab === 'claims' && <EvidenceClaims data={data} projectId={activeProject.id} />}
+              {tab === 'models' && <EvidenceModels data={data} projectId={activeProject.id} />}
+              {tab === 'outputs' && <EvidenceOutputs data={data} projectId={activeProject.id} />}
+              {tab === 'sources' && <EvidenceSources data={data} projectId={activeProject.id} />}
+              {tab === 'agents' && <EvidenceAgents data={data} projectId={activeProject.id} />}
+            </>
+          )}
         </>
       )}
     </div>
