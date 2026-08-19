@@ -35,6 +35,16 @@ export interface FlowData {
   /** The first failed CORE read — the screen renders could-not-check. */
   failure: ReadFailure | null;
   loading: boolean;
+  /**
+   * Every read RETURNED, nothing failed, and the project list is empty —
+   * the fresh-install fact, distinct from loading by the readResult rule:
+   * `Checking` means a read has not returned; zero projects is an ANSWER,
+   * and the screen renders what that emptiness means in words. Without
+   * this flag the two states collapse (state is null either way) and the
+   * screen shows `Checking…` forever over a database that already said
+   * "nothing here" — the live 2026-08-19 bug.
+   */
+  noProjects: boolean;
   projects: LabProject[];
   projectId: string;
   setProjectId: (id: string) => void;
@@ -154,6 +164,7 @@ export function useLabFlowState(): FlowData {
     state,
     failure,
     loading: loading && !failure,
+    noProjects: !loading && !failure && projects.length === 0,
     projects,
     projectId: activeProject?.id ?? '',
     setProjectId,

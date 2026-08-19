@@ -16,6 +16,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MockRepository, mockRepository } from '../../../data/mockRepository';
+import { okRows } from '../../../data/readResult';
+import type { LabProject } from '../../../data/labEvidenceTypes';
 import { useAppStore } from '../../../store/appStore';
 import { useLabLiveStore } from '../../../store/labLiveStore';
 import { LabFlow } from './LabFlow';
@@ -24,6 +26,38 @@ async function mountFlow(repository = new MockRepository()) {
   useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
   render(<LabFlow />);
   await waitFor(() => screen.getByRole('group', { name: /13 tahap berurutan/ }));
+  return repository;
+}
+
+/**
+ * A database where every Lab table returned SUCCESSFULLY with zero rows —
+ * a fresh install after migrations, before the first project. Every read
+ * lands ok; nothing is pending and nothing failed. Empty is the ANSWER.
+ */
+function freshInstall(): MockRepository {
+  const repository = new MockRepository();
+  const seam = repository.labEvidence;
+  seam.listProjects = async () => okRows([]);
+  seam.listSourceDocuments = async () => okRows([]);
+  seam.listReferences = async () => okRows([]);
+  seam.listCommitmentSources = async () => okRows([]);
+  seam.listDatapoints = async () => okRows([]);
+  seam.listConflicts = async () => okRows([]);
+  seam.listClaims = async () => okRows([]);
+  seam.listContradictions = async () => okRows([]);
+  seam.listOutputs = async () => okRows([]);
+  seam.listTasks = async () => okRows([]);
+  seam.listQuestions = async () => okRows([]);
+  seam.listSubQuestions = async () => okRows([]);
+  seam.listEvidenceRequirements = async () => okRows([]);
+  seam.listCandidateSources = async () => okRows([]);
+  seam.listModelSpecs = async () => okRows([]);
+  seam.listModelSpecParams = async () => okRows([]);
+  seam.listModelResults = async () => okRows([]);
+  seam.latestSweep = async () => okRows([]);
+  repository.lab.listAgents = async () => okRows([]);
+  repository.lab.listProviders = async () => okRows([]);
+  repository.lab.listRuns = async () => okRows([]);
   return repository;
 }
 
@@ -140,5 +174,57 @@ describe('§5 a chain advances station to station, and a failure never leaves th
     });
     expect(await screen.findByText(/evidence-extractor gagal di langkah 2/)).toBeTruthy();
     expect(screen.getByText('Model call failed (429).')).toBeTruthy();
+  });
+});
+
+describe('§6 empty is an answer — a fresh install renders, it never hangs at Checking', () => {
+  // The live failure this reproduces (2026-08-19, os.dikagustiana.com):
+  // os_lab_projects held ZERO rows, every read returned ok, and the Flow
+  // tab sat at `Checking…` forever. readResult.ts's doctrine names the
+  // conflation: `Checking` means A READ HAS NOT RETURNED. Here every read
+  // HAD returned — the database was simply empty, and emptiness is a fact
+  // to render in words, never a spinner.
+
+  it('zero projects, every Lab table empty: the screen says what that MEANS, and Checking is gone', async () => {
+    useAppStore.setState({ repository: freshInstall(), area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    // The meaning of this emptiness, in words — not a spinner, not an error.
+    expect(await screen.findByText(/Belum ada proyek riset/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
+    expect(screen.queryByText('Could not check')).toBeNull();
+  });
+
+  it('one project, every other table empty: 13 stages render and the sweep line reads "belum pernah tercatat" — not an error, not 0 jam', async () => {
+    const repository = freshInstall();
+    repository.labEvidence.listProjects = async () =>
+      okRows<LabProject>([
+        { id: 'p-fresh', name: 'Proyek pertama', researchQuestion: '', status: 'active', wipSlot: null },
+      ]);
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    const track = await screen.findByRole('group', { name: /13 tahap berurutan/ });
+    expect(track.querySelectorAll('button')).toHaveLength(13);
+    // An empty sweep log means the sweep has never run — say that, and
+    // never dress the absence up as an age of zero hours. (The line shows
+    // on more than one surface — rail and console read the same state.)
+    expect(screen.getAllByText(/belum pernah tercatat/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/0 jam/)).toBeNull();
+    expect(screen.queryByText('Could not check')).toBeNull();
+    expect(screen.queryByText('Checking…')).toBeNull();
+  });
+
+  it('a rejected core read renders Could not check WITH the error text — never Checking, never zeros', async () => {
+    const repository = new MockRepository();
+    repository.labEvidence.listDatapoints = async () => ({
+      ok: false,
+      reason: 'failed',
+      detail: 'listDatapoints: 42501 — izin ditolak (RLS atau grant), bukan data kosong',
+    });
+    useAppStore.setState({ repository, area: 'lab', labView: 'flow' });
+    render(<LabFlow />);
+    expect(await screen.findByText('Could not check')).toBeTruthy();
+    expect(screen.getByText(/42501 — izin ditolak/)).toBeTruthy();
+    expect(screen.queryByText('Checking…')).toBeNull();
+    expect(screen.queryByRole('group', { name: /13 tahap berurutan/ })).toBeNull();
   });
 });

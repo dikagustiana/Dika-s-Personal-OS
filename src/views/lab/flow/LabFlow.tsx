@@ -232,14 +232,43 @@ export function LabFlow() {
 
       <LiveBanner />
 
+      {/* Four read states, each its own render — the readResult rule.
+          `Checking` is ONLY for reads that have not returned; an empty
+          project list is an ANSWER and gets its meaning in words. The
+          final arm is unreachable today (reads done, nothing failed, a
+          project exists, yet no state) — if code drift ever makes it
+          real, it renders loud, never as a spinner or an idle floor. */}
       {data.failure ? (
         <Card>
           <CardContent className="pt-5">
             <CouldNotCheck label="Flow" failure={data.failure} />
           </CardContent>
         </Card>
-      ) : !data.state ? (
+      ) : data.loading ? (
         <Checking label="Flow" />
+      ) : data.noProjects ? (
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-sm text-foreground-muted">
+              Belum ada proyek riset — tiga belas tahap ini belum punya apa-apa untuk dihitung.
+              Buat proyek di tab Evidence, lalu masukkan komitmennya sebagai klaim layer A;
+              begitu ada, posisinya muncul di sini.
+            </p>
+          </CardContent>
+        </Card>
+      ) : !data.state ? (
+        <Card>
+          <CardContent className="pt-5">
+            <CouldNotCheck
+              label="Flow"
+              failure={{
+                reason: 'failed',
+                detail:
+                  'Flow: semua read selesai dan proyek ada, tapi state tidak terbentuk — bug di layar ini, bukan database kosong. Laporkan.',
+              }}
+            />
+          </CardContent>
+        </Card>
       ) : (
         <>
           <FlowTrack
