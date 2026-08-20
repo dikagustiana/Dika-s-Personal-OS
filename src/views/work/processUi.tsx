@@ -27,6 +27,7 @@ import type {
   ProcessNeedKind,
   ProcessNeedStatus,
   ProcessStep,
+  ProcessFormDef,
   ProcessTrackDef,
 } from '../../data/types';
 import {
@@ -163,6 +164,21 @@ export function TrackChip({ code, def }: { code: string; def?: ProcessTrackDef }
           : 'border border-border bg-surface-2 text-foreground-secondary',
       )}
     >
+      {def?.label ?? code}
+    </span>
+  );
+}
+
+/**
+ * The SECOND axis beside the track: product form (KGR's KARKAS/OLAHAN since
+ * the sourcing retrack). A chip, never a filter — dashed where the track chip
+ * is solid, so two chips on one box read as two different facts and neither
+ * looks pressable. Renders nothing for the normal case (no form).
+ */
+export function FormChip({ code, def }: { code?: string; def?: ProcessFormDef }) {
+  if (!code) return null;
+  return (
+    <span className={cn(CHIP, 'border border-dashed border-border text-foreground-muted')}>
       {def?.label ?? code}
     </span>
   );

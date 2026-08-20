@@ -5,10 +5,12 @@
  * stale the first time a step moved; instead the flow is recomputed from one
  * path walk per BRANCH track, so convergence (two arrows into put-away),
  * divergence (POD forking per track) and the handoff count all fall out of
- * the data. Within one walk two steps can never share a slot — the seed
- * guarantees it, and duplicateChainSlots() is the tripwire: when it reports
- * anything the seed is broken and the view must refuse to draw arrows rather
- * than guess an order.
+ * the data. Within one walk, a slot holds at most one BRANCH step and at
+ * most one SHARED step: a branch+shared pair is the schema's parallel-branch
+ * doctrine landing inside a walk (KGR trading, slot 6) and draws as a fan;
+ * two of the SAME population on one slot is a broken seed, and
+ * duplicateChainSlots() is the tripwire — when it reports anything the view
+ * refuses to draw arrows rather than guess an order.
  *
  * SINCE MIGRATION 52 THE TRACK VOCABULARY IS DATA (os_process_tracks), so
  * every derivation here takes the entity's ProcessTrackDef[] instead of
@@ -95,12 +97,20 @@ export function visibleSteps(
  * would render — shared steps included. Any other definition would drift from
  * what the button actually does.
  *
- * At 80%, on the three chains that exist:
- *   SAMB  Trade 19/30 (63%) · LP 20/30 (67%)        → shown
- *   ARBI  Forward 21/23 (91%) · Reverse 8/23 (35%)  → shown
- *   KGR   Karkas 35/38 (92%) · Olahan 37/38 (97%)   → hidden
- * The nearest call is ARBI's Reverse at 35%, a wide margin below, and KGR's
- * Karkas at 92%, a wide margin above. Nothing sits near the line.
+ * KGR IS THE RULE'S OWN PROOF, IN BOTH DIRECTIONS. Under KARKAS/OLAHAN the
+ * branches covered 92% and 97% and the control was hidden — the excursion of
+ * four boxes kept its information as chips. The sourcing retrack
+ * (20260820000087) replaced that axis with RPA/TRADING, which partitions the
+ * chain, and the same rule flips the control back on with no code change.
+ *
+ * At 80%, on the three chains as seeded today:
+ *   SAMB  Trade 19/30 (63%) · LP 20/30 (67%)          → shown
+ *   ARBI  Forward 21/23 (91%) · Reverse 8/23 (35%)    → shown
+ *   KGR   RPA 38/48 (79%) · Trading 23/48 (48%)       → shown
+ * KGR's RPA sits one point under the ceiling — deliberately stated, not an
+ * accident: RPA ∪ shared IS the whole slaughter chain, and the button that
+ * shows it is really the button that hides the ten trading boxes. The
+ * decisive branch is Trading at 48%.
  */
 export const TRACK_FILTER_COVERAGE_CEILING = 0.8;
 
@@ -162,8 +172,17 @@ export function chainFor(
 }
 
 /**
- * Slots that appear twice INSIDE one walk. Always empty for a healthy seed;
- * non-empty means the chain order is ambiguous and arrows must not be drawn.
+ * Slots where one walk's order is genuinely AMBIGUOUS: two BRANCH steps, or
+ * two SHARED steps, on the same slot. Always empty for a healthy seed;
+ * non-empty means arrows must not be drawn, because any order would be a
+ * guess.
+ *
+ * A branch step and a SHARED step sharing a slot is deliberately NOT flagged:
+ * that is the schema's own parallel-branch doctrine ("two steps MAY share a
+ * slot — a parallel branch, not a duplicate") arriving inside one walk. KGR's
+ * trading chain made it real — T6 (QC penerimaan) and the shared AP step both
+ * sit at slot 6 — and deriveEdges draws that column as a fan: both follow the
+ * previous slot, both precede the next, and no order between them is claimed.
  */
 export function duplicateChainSlots(
   steps: ProcessStep[],
@@ -172,8 +191,10 @@ export function duplicateChainSlots(
   const shared = sharedTrackCodes(tracks);
   const problems: Array<{ track: string; slot: number }> = [];
   for (const branch of branchTracks(tracks)) {
-    const seen = new Set<number>();
+    const seenBranch = new Set<number>();
+    const seenShared = new Set<number>();
     for (const step of chainFor(steps, branch.code, shared)) {
+      const seen = shared.has(step.track) ? seenShared : seenBranch;
       if (seen.has(step.slot)) problems.push({ track: branch.code, slot: step.slot });
       seen.add(step.slot);
     }
@@ -194,6 +215,12 @@ export interface ProcessEdge {
  * arrow. Identity is the label because the label IS the step's identity
  * within its entity — which is why this function must only ever see one
  * entity's steps.
+ *
+ * A walk is a sequence of SLOT GROUPS, not of steps: two steps legally
+ * sharing a slot (a branch step beside a shared one — KGR trading's slot 6)
+ * are parallel work, so every member of one group points at every member of
+ * the next. A chain whose groups are all singletons — SAMB and ARBI — draws
+ * exactly what it always drew.
  */
 export function deriveEdges(
   steps: ProcessStep[],
@@ -205,14 +232,22 @@ export function deriveEdges(
   for (const branch of branchTracks(tracks)) {
     if (filter !== ALL_TRACKS && filter !== branch.code) continue;
     const chain = chainFor(steps, branch.code, shared);
-    for (let i = 1; i < chain.length; i += 1) {
-      const from = chain[i - 1];
-      const to = chain[i];
-      edges.set(`${from.label}>${to.label}`, {
-        from,
-        to,
-        cross: from.laneKey !== to.laneKey,
-      });
+    const groups: ProcessStep[][] = [];
+    for (const step of chain) {
+      const last = groups[groups.length - 1];
+      if (last && last[0].slot === step.slot) last.push(step);
+      else groups.push([step]);
+    }
+    for (let i = 1; i < groups.length; i += 1) {
+      for (const from of groups[i - 1]) {
+        for (const to of groups[i]) {
+          edges.set(`${from.label}>${to.label}`, {
+            from,
+            to,
+            cross: from.laneKey !== to.laneKey,
+          });
+        }
+      }
     }
   }
   return [...edges.values()];
@@ -247,12 +282,19 @@ export function groupCells(steps: ProcessStep[]): Map<string, ProcessStep[]> {
   return cells;
 }
 
+/** Rows of the default ribbon: no track scope. The tiling invariant is theirs. */
+export function defaultPhases(phases: ProcessPhase[]): ProcessPhase[] {
+  return phases.filter((phase) => !phase.track);
+}
+
 /**
- * Phases must tile slot 1..highestSlot exactly once — no gap, no overlap —
- * PER ENTITY: callers pass one entity's phases against that entity's highest
- * slot. Not enforceable in the table (each row only knows its own range), so
- * this is the check, asserted over both seeds in tests and used by the view
- * to refuse a broken ribbon.
+ * DEFAULT-RIBBON phases must tile slot 1..highestSlot exactly once — no gap,
+ * no overlap — PER ENTITY: callers pass one entity's TRACK-NULL phases (see
+ * defaultPhases) against that entity's highest slot. Track-scoped rows live
+ * under scopedPhaseProblems, whose invariant deliberately allows gaps. Not
+ * enforceable in the table (each row only knows its own range), so this is
+ * the check, asserted over the seeds in tests and used by the view to refuse
+ * a broken ribbon.
  */
 export function phaseCoverageProblems(phases: ProcessPhase[], highestSlot: number): string[] {
   const problems: string[] = [];
@@ -272,6 +314,106 @@ export function phaseCoverageProblems(phases: ProcessPhase[], highestSlot: numbe
   }
   if (expected <= highestSlot) problems.push(`celah slot ${expected}–${highestSlot}`);
   return problems;
+}
+
+/**
+ * TRACK-SCOPED ribbon rows carry a different invariant from the default
+ * ribbon (20260820000086): within one track they must not overlap each
+ * other, and together they must cover every slot that carries a step
+ * REACHABLE on that track — the track's own steps plus the shared spine.
+ * They need not tile: a gap over unreachable slots is a true statement that
+ * the walk jumps, never a problem. Tracks with no scoped rows are vacuous —
+ * they fall back to the default ribbon everywhere.
+ */
+export function scopedPhaseProblems(
+  phases: ProcessPhase[],
+  steps: ProcessStep[],
+  tracks: ProcessTrackDef[],
+): string[] {
+  const problems: string[] = [];
+  const shared = sharedTrackCodes(tracks);
+  const byTrack = new Map<string, ProcessPhase[]>();
+  for (const phase of phases) {
+    if (!phase.track) continue;
+    const group = byTrack.get(phase.track);
+    if (group) group.push(phase);
+    else byTrack.set(phase.track, [phase]);
+  }
+  for (const [trackCode, scoped] of [...byTrack.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const ordered = [...scoped].sort((a, b) => a.slotFrom - b.slotFrom);
+    for (let i = 1; i < ordered.length; i += 1) {
+      const prev = ordered[i - 1];
+      const next = ordered[i];
+      if (next.slotFrom <= prev.slotTo) {
+        problems.push(
+          `${trackCode}: ${prev.name} × ${next.name} tumpang tindih di slot ${next.slotFrom}–${Math.min(prev.slotTo, next.slotTo)}`,
+        );
+      }
+    }
+    const reachable = [...new Set(
+      steps
+        .filter((step) => stepVisible(step, trackCode, shared))
+        .map((step) => step.slot),
+    )].sort((a, b) => a - b);
+    const uncovered = reachable.filter(
+      (slot) => !scoped.some((phase) => slot >= phase.slotFrom && slot <= phase.slotTo),
+    );
+    if (uncovered.length > 0) {
+      problems.push(`${trackCode}: slot terjangkau tanpa fase — ${uncovered.join(', ')}`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * One drawable ribbon segment. `phaseId` is the REAL phase row (the panel
+ * opens it); a default-ribbon phase partially shadowed by a scoped row is
+ * split into fragments that keep its id, so `key` — unique per fragment —
+ * is the render key.
+ */
+export interface RibbonSegment {
+  key: string;
+  phaseId: string;
+  name: string;
+  slotFrom: number;
+  slotTo: number;
+}
+
+/**
+ * The ribbon under a filter, resolved per §6.2 of the sourcing-split brief:
+ * for each slot, a phase whose track matches the active filter wins over the
+ * default (track-null) ribbon; with no filter active the default wins
+ * everywhere (scoped rows are for a chosen walk, not for the stacked view).
+ * Adjacent slots resolving to the same phase merge back into one segment.
+ */
+export function ribbonSegments(
+  phases: ProcessPhase[],
+  filter: TrackFilter,
+  highestSlot: number,
+): RibbonSegment[] {
+  const base = defaultPhases(phases);
+  const scoped = filter === ALL_TRACKS ? [] : phases.filter((phase) => phase.track === filter);
+  const at = (slot: number): ProcessPhase | undefined =>
+    scoped.find((phase) => slot >= phase.slotFrom && slot <= phase.slotTo) ??
+    base.find((phase) => slot >= phase.slotFrom && slot <= phase.slotTo);
+  const segments: RibbonSegment[] = [];
+  for (let slot = 1; slot <= highestSlot; slot += 1) {
+    const phase = at(slot);
+    if (!phase) continue;
+    const last = segments[segments.length - 1];
+    if (last && last.phaseId === phase.id && last.slotTo === slot - 1) {
+      last.slotTo = slot;
+    } else {
+      segments.push({
+        key: `${phase.id}:${slot}`,
+        phaseId: phase.id,
+        name: phase.name,
+        slotFrom: slot,
+        slotTo: slot,
+      });
+    }
+  }
+  return segments;
 }
 
 /** Gate ids referenced by steps but absent from the gates table. */

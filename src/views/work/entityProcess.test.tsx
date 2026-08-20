@@ -57,6 +57,7 @@ function bothEntitiesRepository(): Repository {
     listProcessNeeds: async () => okRows([...fixtureNeeds(), ...arbiNeeds()]),
     listProcessStepItems: async () => okRows([...fixtureStepItems(), ...arbiStepItems()]),
     listProcessTracks: async () => okRows([...fixtureTracks(), ...arbiTracks()]),
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
@@ -79,6 +80,7 @@ function pre52Repository(): Repository {
         code: 'PGRST205',
         message: "Could not find the table 'public.os_process_tracks' in the schema cache",
       }) as ReadResult<ProcessTrackDef>,
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;

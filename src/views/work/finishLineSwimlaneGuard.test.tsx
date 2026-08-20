@@ -52,6 +52,7 @@ function seededRepository(): Repository {
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
     listProcessTracks: async () => okRows(fixtureTracks()),
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;
@@ -68,6 +69,7 @@ function missingRelationRepository(): Repository {
     listProcessNeeds: async () => gone('listProcessNeeds'),
     listProcessStepItems: async () => gone('listProcessStepItems'),
     listProcessTracks: async () => gone('listProcessTracks'),
+    listProcessForms: async () => gone('listProcessForms'),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;

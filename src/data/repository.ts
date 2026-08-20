@@ -46,6 +46,7 @@ import type {
   ProcessStep,
   ProcessStepItem,
   ProcessTextHistoryEntry,
+  ProcessFormDef,
   ProcessTrackDef,
   Project,
   ProjectMember,
@@ -268,6 +269,8 @@ export interface Repository {
    * visible line saying multi-entity is not active yet.
    */
   listProcessTracks(): Promise<ReadResult<ProcessTrackDef>>;
+  /** The form vocabulary — chip decoration; absent table degrades to none. */
+  listProcessForms(): Promise<ReadResult<ProcessFormDef>>;
   listProcessLanes(): Promise<ReadResult<ProcessLane>>;
   listProcessPhases(): Promise<ReadResult<ProcessPhase>>;
   listProcessSteps(): Promise<ReadResult<ProcessStep>>;

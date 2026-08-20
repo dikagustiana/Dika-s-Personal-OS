@@ -64,6 +64,7 @@ import type {
   ProcessNeedStatus,
   ProcessPhase,
   ProcessReference,
+  ProcessFormDef,
   ProcessStep,
   ProcessStepItem,
   ProcessTrackDef,
@@ -72,12 +73,15 @@ import { useMutation } from '../../hooks/useMutation';
 import { cn } from '../../lib/utils';
 import {
   ALL_TRACKS,
+  defaultPhases,
   deriveEdges,
   duplicateChainSlots,
   groupCells,
   maxSlot,
   phaseCoverageProblems,
   processStats,
+  ribbonSegments,
+  scopedPhaseProblems,
   sharedTrackCodes,
   trackFilterDiscriminates,
   visibleSteps,
@@ -122,6 +126,7 @@ import { Checking, CouldNotCheck } from './finishLineUi';
 import {
   EntityScopeRow,
   GateChip,
+  FormChip,
   NeedKindChip,
   NeedStatusChip,
   TrackChip,
@@ -233,6 +238,9 @@ export function FinishLineSwimlane({
   const [needsRead, setNeedsRead] = useState<ReadResult<ProcessNeed>>(unread);
   const [stepItemsRead, setStepItemsRead] = useState<ReadResult<ProcessStepItem>>(unread);
   const [tracksRead, setTracksRead] = useState<ReadResult<ProcessTrackDef>>(unread);
+  // Decoration, not structure: an absent or failed forms read degrades to no
+  // chips (the references pattern) and never gates the model.
+  const [formsRead, setFormsRead] = useState<ReadResult<ProcessFormDef>>(unread);
   const [referencesRead, setReferencesRead] = useState<ReadResult<ProcessReference>>(unread);
   const [referencesOpen, setReferencesOpen] = useState(false);
   const [itemsRead, setItemsRead] = useState<ReadResult<FinishLineItem>>(unread);
@@ -257,7 +265,7 @@ export function FinishLineSwimlane({
   const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [lanes, phases, steps, gates, needs, stepItems, tracks, references, items] =
+    const [lanes, phases, steps, gates, needs, stepItems, tracks, forms, references, items] =
       await Promise.all([
       repository.listProcessLanes(),
       repository.listProcessPhases(),
@@ -266,6 +274,7 @@ export function FinishLineSwimlane({
       repository.listProcessNeeds(),
       repository.listProcessStepItems(),
       repository.listProcessTracks(),
+      repository.listProcessForms(),
       repository.listProcessReferences(),
       repository.listFinishLineItems(),
     ]);
@@ -276,6 +285,7 @@ export function FinishLineSwimlane({
     setNeedsRead(needs);
     setStepItemsRead(stepItems);
     setTracksRead(tracks);
+    setFormsRead(forms);
     setReferencesRead(references);
     setItemsRead(items);
     setLoaded(true);
@@ -346,6 +356,15 @@ export function FinishLineSwimlane({
     () => new Map(entityTracks.map((trackDef) => [trackDef.code, trackDef])),
     [entityTracks],
   );
+  const formDefByCode = useMemo(
+    () =>
+      new Map(
+        rowsOf(formsRead)
+          .filter((formDef) => formDef.entityCode === entity)
+          .map((formDef) => [formDef.code, formDef]),
+      ),
+    [formsRead, entity],
+  );
 
   // THE EFFECTIVE FILTER, not the stored one. When the jalur control is hidden
   // for this entity there is no way to clear a branch selection, so a choice
@@ -396,9 +415,24 @@ export function FinishLineSwimlane({
     () => duplicateChainSlots(steps, entityTracks),
     [steps, entityTracks],
   );
+  // Two invariants since phases learned track scope: the default (track-null)
+  // ribbon still tiles 1..max exactly once; scoped rows must not overlap
+  // within their track and must cover every reachable slot — gaps allowed.
   const phaseProblems = useMemo(
-    () => (steps.length > 0 ? phaseCoverageProblems(phases, highestSlot) : []),
-    [phases, steps.length, highestSlot],
+    () =>
+      steps.length > 0
+        ? [
+            ...phaseCoverageProblems(defaultPhases(phases), highestSlot),
+            ...scopedPhaseProblems(phases, steps, entityTracks),
+          ]
+        : [],
+    [phases, steps, highestSlot, entityTracks],
+  );
+  // The ribbon under the active filter: scoped rows win their slots, the
+  // default ribbon fills the rest; unfiltered, the default renders alone.
+  const ribbon = useMemo(
+    () => ribbonSegments(phases, track, highestSlot),
+    [phases, track, highestSlot],
   );
 
   const wireEdges: WireEdge[] = useMemo(() => {
@@ -957,28 +991,32 @@ export function FinishLineSwimlane({
                     </svg>
                   )}
 
-                  {/* Phase ribbon (row 1); the top-left corner stays empty. */}
+                  {/* Phase ribbon (row 1); the top-left corner stays empty.
+                      Resolved per track: a row scoped to the active filter
+                      wins its slots, the default ribbon fills the rest, and a
+                      shadowed default phase renders as fragments that still
+                      open the real phase row. */}
                   <div style={{ gridColumn: 1, gridRow: 1 }} />
-                  {phases.map((phase) => (
+                  {ribbon.map((segment) => (
                     <div
-                      key={phase.id}
+                      key={segment.key}
                       className="z-[2] pb-2"
                       style={{
                         gridRow: 1,
-                        gridColumn: `${2 + (phase.slotFrom - 1) * 2} / ${2 + (phase.slotTo - 1) * 2 + 1}`,
+                        gridColumn: `${2 + (segment.slotFrom - 1) * 2} / ${2 + (segment.slotTo - 1) * 2 + 1}`,
                       }}
                     >
                       <div className="h-1 rounded-sm bg-foreground opacity-15" />
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedPhaseId(phase.id);
+                          setSelectedPhaseId(segment.phaseId);
                           setSelectedLaneKey(null);
                           setSelectedLabel(null);
                         }}
                         className="block pt-1.5 text-left text-[9px] font-bold uppercase leading-4 tracking-[0.14em] text-foreground-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        {phase.name}
+                        {segment.name}
                       </button>
                     </div>
                   ))}
@@ -997,6 +1035,7 @@ export function FinishLineSwimlane({
                         gatesById={gatesById}
                         needsByStep={needsByStep}
                         trackDefByCode={trackDefByCode}
+                        formDefByCode={formDefByCode}
                         density={density}
                         showCol={showCol}
                         onlyGap={onlyGap}
@@ -1106,6 +1145,7 @@ export function FinishLineSwimlane({
                 step={selectedStep}
                 gates={gates}
                 trackDefByCode={trackDefByCode}
+                formDefByCode={formDefByCode}
                 laneLabel={
                   lanes.find((lane) => lane.key === selectedStep.laneKey)?.label ??
                   selectedStep.laneKey
@@ -1240,6 +1280,7 @@ function LaneRow({
   gatesById,
   needsByStep,
   trackDefByCode,
+  formDefByCode,
   density,
   showCol,
   onlyGap,
@@ -1256,6 +1297,7 @@ function LaneRow({
   gatesById: Map<string, ProcessGate>;
   needsByStep: Map<string, ProcessNeed[]>;
   trackDefByCode: Map<string, ProcessTrackDef>;
+  formDefByCode: Map<string, ProcessFormDef>;
   density: Density;
   showCol: Record<AttachColumn, boolean>;
   onlyGap: boolean;
@@ -1327,6 +1369,7 @@ function LaneRow({
               gate={step.gateId ? gatesById.get(step.gateId) : undefined}
               needs={needsByStep.get(step.id) ?? []}
               trackDefByCode={trackDefByCode}
+              formDefByCode={formDefByCode}
               density={density}
               showCol={showCol}
               // Two independent reasons to recede, and either is enough:
@@ -1383,6 +1426,7 @@ function StepBox({
   gate,
   needs,
   trackDefByCode,
+  formDefByCode,
   density,
   showCol,
   dim,
@@ -1393,6 +1437,7 @@ function StepBox({
   gate?: ProcessGate;
   needs: ProcessNeed[];
   trackDefByCode: Map<string, ProcessTrackDef>;
+  formDefByCode: Map<string, ProcessFormDef>;
   density: Density;
   showCol: Record<AttachColumn, boolean>;
   dim: boolean;
@@ -1440,6 +1485,7 @@ function StepBox({
       </span>
       <span className="mt-1.5 flex items-center gap-1.5">
         <TrackChip code={step.track} def={trackDefByCode.get(step.track)} />
+        {step.form && <FormChip code={step.form} def={formDefByCode.get(step.form)} />}
         {step.co && (
           <span className="min-w-0 truncate text-[9px] font-semibold uppercase tracking-[0.1em] text-foreground-muted">
             {step.co}
@@ -1601,6 +1647,7 @@ function StepPanel({
   step,
   gates,
   trackDefByCode,
+  formDefByCode,
   laneLabel,
   needs,
   gate,
@@ -1616,6 +1663,7 @@ function StepPanel({
   step: ProcessStep;
   gates: ProcessGate[];
   trackDefByCode: Map<string, ProcessTrackDef>;
+  formDefByCode: Map<string, ProcessFormDef>;
   laneLabel: string;
   needs: ProcessNeed[];
   gate?: ProcessGate;
@@ -1654,6 +1702,7 @@ function StepPanel({
           <h2 className="mt-1 text-sm font-semibold leading-5 text-foreground">{step.name}</h2>
           <p className="mt-1 flex flex-wrap items-center gap-1">
             <TrackChip code={step.track} def={trackDefByCode.get(step.track)} />
+            {step.form && <FormChip code={step.form} def={formDefByCode.get(step.form)} />}
             {step.co && (
               <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-foreground-muted">
                 {step.co}

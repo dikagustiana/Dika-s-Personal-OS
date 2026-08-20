@@ -97,6 +97,7 @@ function seededRepository(
     listProcessNeeds: async () => okRows([...needs]),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
     listProcessTracks: async () => okRows(fixtureTracks()),
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
 

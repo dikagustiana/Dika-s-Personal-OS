@@ -1,5 +1,5 @@
 -- ===========================================================================
--- §11 — READING THE NINE os_process_* TABLES AS THE ROLES THAT ACTUALLY READ
+-- §11 — READING THE TEN os_process_* TABLES AS THE ROLES THAT ACTUALLY READ
 -- THEM. THE INVARIANT THAT MATTERS MOST IS ZERO THROWS.
 -- ===========================================================================
 --
@@ -75,16 +75,17 @@ $$ select pg_temp.read_as('authenticated', '11111111-1111-4111-8111-111111111111
 create or replace function pg_temp.as_arbi(q text) returns text language sql as
 $$ select pg_temp.read_as('authenticated', '22222222-2222-4222-8222-222222222222', null, q) $$;
 
--- The nine tables, in one place so no section can quietly test eight.
+-- The ten tables, in one place so no section can quietly test nine.
 create or replace function pg_temp.process_tables() returns setof text language sql as $$
   select unnest(array[
     'os_process_steps', 'os_process_needs', 'os_process_step_items',
     'os_process_lanes', 'os_process_phases', 'os_process_tracks',
-    'os_process_gates', 'os_process_references', 'os_process_text_history'])
+    'os_process_forms', 'os_process_gates', 'os_process_references',
+    'os_process_text_history'])
 $$;
 
 -- ===========================================================================
--- 0. NOTHING THROWS. Nine tables x four identities = 36 reads, zero errors.
+-- 0. NOTHING THROWS. Ten tables x four identities = 40 reads, zero errors.
 --    This is the check the last regression would have failed, and it is
 --    deliberately first: a count assertion below cannot be trusted while a
 --    read is still capable of erroring.
@@ -111,7 +112,7 @@ where result like 'THREW%';
 
 -- ===========================================================================
 -- 1. `anon` WITHOUT A KEY SEES NOTHING — and sees it silently.
---    Not a member, not the owner: every one of the nine returns 0. Section 0
+--    Not a member, not the owner: every one of the ten returns 0. Section 0
 --    already proved none of them threw, so a non-zero here means a policy is
 --    handing rows to the open internet.
 -- ===========================================================================
@@ -125,26 +126,33 @@ where result <> '0';
 
 -- ===========================================================================
 -- 2. THE OWNER SEES EVERYTHING. The §1 ledger numbers, pinned.
---    91 steps = SAMB 30 + ARBI 23 + KGR 38. 347 needs = 118 + 112 + 117.
+--    101 steps = SAMB 30 + ARBI 23 + KGR 48 (the 38-step slaughter chain,
+--    retracked to RPA/KEDUANYA by 20260820000087, plus the 10-step trading
+--    chain of 20260820000088). 360 needs = 118 + 112 + 130; LIVE reads five
+--    more on KGR (kgr_decision_needs is a live-only ledger entry), so 130 is
+--    the replay's truth and 135 is live's — both known, neither a drift.
 --    83 bridge pairs = SAMB 46 (45 from the seed + the 18b pair recorded by
 --    migration 56) + ARBI 37 + KGR 0 — KGR's bridge is DELIBERATELY absent
---    until the poultry rows exist, so 83 not moving when its seed landed is
---    itself part of the ledger.
+--    until the step→row mapping is authored, so 83 not moving as KGR's
+--    chains land is itself part of the ledger. 29 phases = 7 + 7 + 15 (ten
+--    default + five TRADING-scoped). 2 forms = KGR's KARKAS/OLAHAN, the
+--    second axis.
 -- ===========================================================================
 select 'owner: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
-  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '91'  as expected
+  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '101' as expected
   union all select 'steps SAMB',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='SAMB'$q$), '30'
   union all select 'steps ARBI',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='ARBI'$q$), '23'
-  union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '38'
-  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '347'
+  union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '48'
+  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '360'
   union all select 'bridge',      pg_temp.as_owner('select count(*) from public.os_process_step_items'),           '83'
   union all select 'bridge KGR',  pg_temp.as_owner($q$select count(*) from public.os_process_step_items i
                                                       join public.os_process_steps s on s.id = i.step_id
                                                       where s.entity_code='KGR'$q$),                               '0'
   union all select 'lanes',       pg_temp.as_owner('select count(*) from public.os_process_lanes'),                '21'
-  union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '24'
+  union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '29'
   union all select 'tracks',      pg_temp.as_owner('select count(*) from public.os_process_tracks'),               '9'
+  union all select 'forms',       pg_temp.as_owner('select count(*) from public.os_process_forms'),                '2'
   union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '69'
   union all select 'text_history',pg_temp.as_owner('select count(*) from public.os_process_text_history'),         '1'
 ) t
@@ -172,7 +180,7 @@ from (
 where got <> expected;
 
 -- ===========================================================================
--- 3b. THE NINTH TABLE IS THE POINT: zero rows, WITHOUT an error.
+-- 3b. THE TENTH TABLE IS THE POINT: zero rows, WITHOUT an error.
 --     os_process_text_history deliberately has no member policy (§14 item 11).
 --     The fixture puts one row in it, so this distinguishes "the policy denies
 --     the member" from "the table happens to be empty" — without that row the
@@ -200,6 +208,8 @@ from (
          pg_temp.as_member5($q$select count(*) from public.os_process_phases where entity_code='KGR'$q$)
   union all select 'os_process_tracks',
          pg_temp.as_member5($q$select count(*) from public.os_process_tracks where entity_code='KGR'$q$)
+  union all select 'os_process_forms',
+         pg_temp.as_member5($q$select count(*) from public.os_process_forms where entity_code='KGR'$q$)
   union all select 'os_process_gates',
          pg_temp.as_member5($q$select count(*) from public.os_process_gates where entity_code='KGR'$q$)
   union all select 'os_process_needs',
@@ -223,6 +233,7 @@ from (
   union all select 'lanes',  pg_temp.as_arbi('select count(*) from public.os_process_lanes'),         '6'
   union all select 'phases', pg_temp.as_arbi('select count(*) from public.os_process_phases'),        '7'
   union all select 'tracks', pg_temp.as_arbi('select count(*) from public.os_process_tracks'),        '3'
+  union all select 'forms',  pg_temp.as_arbi('select count(*) from public.os_process_forms'),         '0'
   union all select 'gates',  pg_temp.as_arbi('select count(*) from public.os_process_gates'),         '12'
 ) t
 where got <> expected;
@@ -264,6 +275,8 @@ from (
          pg_temp.as_arbi($q$select count(*) from public.os_process_phases where entity_code='KGR'$q$)
   union all select 'os_process_tracks',
          pg_temp.as_arbi($q$select count(*) from public.os_process_tracks where entity_code='KGR'$q$)
+  union all select 'os_process_forms',
+         pg_temp.as_arbi($q$select count(*) from public.os_process_forms where entity_code='KGR'$q$)
   union all select 'os_process_gates',
          pg_temp.as_arbi($q$select count(*) from public.os_process_gates where entity_code='KGR'$q$)
   union all select 'os_process_needs',
