@@ -1830,7 +1830,12 @@ class SupabaseRepository implements Repository {
   }
 
   async listProcessSteps(): Promise<ReadResult<ProcessStep>> {
-    const result = await this.legacyEntityRead<Omit<ProcessStepRow, 'entity_code'>>(
+    // The retry deliberately uses the FROZEN pre-52 list: a pre-52 table has
+    // neither entity_code nor form, and rowToProcessStep treats the absent
+    // form like an empty one.
+    const result = await this.legacyEntityRead<
+      Omit<ProcessStepRow, 'entity_code' | 'form'> & { form?: string | null }
+    >(
       'listProcessSteps',
       () =>
         this.client
@@ -1840,7 +1845,7 @@ class SupabaseRepository implements Repository {
       () =>
         this.client
           .from('os_process_steps')
-          .select(PROCESS_STEP_COLUMNS)
+          .select(LEGACY_PROCESS_STEP_COLUMNS)
           .order('slot', { ascending: true }),
     );
     if (!result.ok) return result;
@@ -2614,7 +2619,8 @@ interface ProcessStepRow {
   control: string | null;
   note: string | null;
   gate_id: string | null;
-  form: string | null;
+  /** Optional: the legacy (pre-52) select never asks for it. */
+  form?: string | null;
   docs: string[] | null;
   coa: ProcessCoaRef[] | null;
   drivers: string[] | null;
@@ -2625,6 +2631,14 @@ interface ProcessStepRow {
 // exists and the §4.6 legacy exception stays exactly as narrow as it is.
 const PROCESS_STEP_COLUMNS =
   'id, label, slot, lane_key, co, track, form, name, risk, control, note, gate_id, docs, coa, drivers';
+
+// The legacy retry's list is FROZEN at the pre-52 table shape. It must never
+// gain a column that postdates 52 (form is 86): the retry exists to serve a
+// database where entity_code is missing, and asking THAT table for form
+// would turn the documented SAMB fallback into a second 42703 — a hard
+// failure where the fallback used to render. Caught in review of #100.
+const LEGACY_PROCESS_STEP_COLUMNS =
+  'id, label, slot, lane_key, co, track, name, risk, control, note, gate_id, docs, coa, drivers';
 
 function rowToProcessStep(row: ProcessStepRow): ProcessStep {
   const step: ProcessStep = {
