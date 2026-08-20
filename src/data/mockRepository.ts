@@ -38,6 +38,7 @@ import type {
   FinishLineEntity,
   FinishLineItem,
   OrphanMilestone,
+  ProcessFormDef,
   ProcessGate,
   ProcessLane,
   ProcessNeed,
@@ -931,6 +932,13 @@ export class MockRepository implements Repository {
 
   async listProcessTracks(): Promise<ReadResult<ProcessTrackDef>> {
     return okRows(clone([...this.processTracks].sort((a, b) => a.ordinal - b.ordinal)));
+  }
+
+  /** Starts empty, like the live table before migration 20260820000086. */
+  private readonly processForms: ProcessFormDef[] = [];
+
+  async listProcessForms(): Promise<ReadResult<ProcessFormDef>> {
+    return okRows(clone([...this.processForms].sort((a, b) => a.ordinal - b.ordinal)));
   }
 
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {

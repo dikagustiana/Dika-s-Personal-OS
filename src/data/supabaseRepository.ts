@@ -51,6 +51,7 @@ import type {
   FinishLineStyle,
   OrphanMilestone,
   ProcessCoaRef,
+  ProcessFormDef,
   ProcessGate,
   ProcessGateType,
   ProcessLane,
@@ -1747,6 +1748,29 @@ class SupabaseRepository implements Repository {
     );
   }
 
+  /**
+   * The form vocabulary — the second axis (20260820000086). Decoration for
+   * the chip, never a filter: a failed or absent read degrades to no chips
+   * (readAbsence, the references pattern), and the model does not fold on it.
+   */
+  async listProcessForms(): Promise<ReadResult<ProcessFormDef>> {
+    const { data, error } = await this.client
+      .from('os_process_forms')
+      .select('entity_code, code, label, ordinal')
+      .order('ordinal', { ascending: true });
+    if (error) return readAbsence('listProcessForms', error);
+    return okRows(
+      (
+        data as { entity_code: string; code: string; label: string; ordinal: number }[]
+      ).map((row) => ({
+        entityCode: row.entity_code,
+        code: row.code,
+        label: row.label,
+        ordinal: row.ordinal,
+      })),
+    );
+  }
+
   async listProcessLanes(): Promise<ReadResult<ProcessLane>> {
     const result = await this.legacyEntityRead<Omit<ProcessLaneRow, 'entity_code'>>(
       'listProcessLanes',
@@ -1771,13 +1795,17 @@ class SupabaseRepository implements Repository {
       name: string;
       slot_from: number;
       slot_to: number;
+      track: string | null;
     }
-    const result = await this.legacyEntityRead<PhaseRow>(
+    // `track` (20260820000086) rides the entity-aware select only; its
+    // migration is applied before any frontend naming it deploys, so the
+    // legacy retry below stays what it has always been: the pre-52 window.
+    const result = await this.legacyEntityRead<Omit<PhaseRow, 'track'> & { track?: string | null }>(
       'listProcessPhases',
       () =>
         this.client
           .from('os_process_phases')
-          .select('id, entity_code, name, slot_from, slot_to')
+          .select('id, entity_code, name, slot_from, slot_to, track')
           .order('slot_from', { ascending: true }),
       () =>
         this.client
@@ -1787,18 +1815,27 @@ class SupabaseRepository implements Repository {
     );
     if (!result.ok) return result;
     return okRows(
-      result.rows.map((row) => ({
-        id: row.id,
-        entityCode: row.entity_code,
-        name: row.name,
-        slotFrom: row.slot_from,
-        slotTo: row.slot_to,
-      })),
+      result.rows.map((row) => {
+        const phase: ProcessPhase = {
+          id: row.id,
+          entityCode: row.entity_code,
+          name: row.name,
+          slotFrom: row.slot_from,
+          slotTo: row.slot_to,
+        };
+        if (row.track) phase.track = row.track;
+        return phase;
+      }),
     );
   }
 
   async listProcessSteps(): Promise<ReadResult<ProcessStep>> {
-    const result = await this.legacyEntityRead<Omit<ProcessStepRow, 'entity_code'>>(
+    // The retry deliberately uses the FROZEN pre-52 list: a pre-52 table has
+    // neither entity_code nor form, and rowToProcessStep treats the absent
+    // form like an empty one.
+    const result = await this.legacyEntityRead<
+      Omit<ProcessStepRow, 'entity_code' | 'form'> & { form?: string | null }
+    >(
       'listProcessSteps',
       () =>
         this.client
@@ -1808,7 +1845,7 @@ class SupabaseRepository implements Repository {
       () =>
         this.client
           .from('os_process_steps')
-          .select(PROCESS_STEP_COLUMNS)
+          .select(LEGACY_PROCESS_STEP_COLUMNS)
           .order('slot', { ascending: true }),
     );
     if (!result.ok) return result;
@@ -2582,12 +2619,25 @@ interface ProcessStepRow {
   control: string | null;
   note: string | null;
   gate_id: string | null;
+  /** Optional: the legacy (pre-52) select never asks for it. */
+  form?: string | null;
   docs: string[] | null;
   coa: ProcessCoaRef[] | null;
   drivers: string[] | null;
 }
 
+// `form` (20260820000086) rides the entity-aware select only — its migration
+// is applied before any frontend that names it deploys, so no 42703 window
+// exists and the §4.6 legacy exception stays exactly as narrow as it is.
 const PROCESS_STEP_COLUMNS =
+  'id, label, slot, lane_key, co, track, form, name, risk, control, note, gate_id, docs, coa, drivers';
+
+// The legacy retry's list is FROZEN at the pre-52 table shape. It must never
+// gain a column that postdates 52 (form is 86): the retry exists to serve a
+// database where entity_code is missing, and asking THAT table for form
+// would turn the documented SAMB fallback into a second 42703 — a hard
+// failure where the fallback used to render. Caught in review of #100.
+const LEGACY_PROCESS_STEP_COLUMNS =
   'id, label, slot, lane_key, co, track, name, risk, control, note, gate_id, docs, coa, drivers';
 
 function rowToProcessStep(row: ProcessStepRow): ProcessStep {
@@ -2610,6 +2660,7 @@ function rowToProcessStep(row: ProcessStepRow): ProcessStep {
   if (row.control) step.control = row.control;
   if (row.note) step.note = row.note;
   if (row.gate_id) step.gateId = row.gate_id;
+  if (row.form) step.form = row.form;
   return step;
 }
 

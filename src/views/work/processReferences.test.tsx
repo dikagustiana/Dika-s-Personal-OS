@@ -56,6 +56,7 @@ function repositoryWith(references: () => ReadResult<ProcessReference>): Reposit
     listProcessNeeds: async () => okRows(fixtureNeeds()),
     listProcessStepItems: async () => okRows(fixtureStepItems()),
     listProcessTracks: async () => okRows(fixtureTracks()),
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => references(),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
   } as unknown as Repository;

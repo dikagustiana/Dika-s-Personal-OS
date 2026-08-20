@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  ALL_TRACKS,
   cellKey,
   chainFor,
+  defaultPhases,
   deriveEdges,
   duplicateChainSlots,
   groupCells,
@@ -15,11 +17,14 @@ import {
   maxSlot,
   phaseCoverageProblems,
   processStats,
+  ribbonSegments,
+  scopedPhaseProblems,
   stepVisible,
   unknownGateRefs,
   unusedGates,
   visibleSteps,
 } from './process';
+import type { ProcessPhase, ProcessStep, ProcessTrackDef } from '../data/types';
 import {
   fixtureGates,
   fixtureLanes,
@@ -197,5 +202,156 @@ describe('§6.8 the stats line follows the jalur filter', () => {
     const shared8 = steps.find((step) => step.label === '8');
     expect(shared8 && stepVisible(shared8, 'TRADE', shared)).toBe(true);
     expect(shared8 && stepVisible(shared8, 'LP', shared)).toBe(true);
+  });
+});
+
+describe('§track-scope — the default ribbon tiles, scoped ribbons may gap but never lie', () => {
+  // A compressed KGR-shaped fixture: ten slots, a default ribbon that tiles
+  // them, one TRADING-scoped ribbon that covers only the reachable slots.
+  const kind = (over: Partial<ProcessPhase>): ProcessPhase => ({
+    id: 'p?',
+    entityCode: 'KGR',
+    name: '?',
+    slotFrom: 1,
+    slotTo: 1,
+    ...over,
+  });
+  const base = [
+    kind({ id: 'pA', name: 'AWAL', slotFrom: 1, slotTo: 4 }),
+    kind({ id: 'pB', name: 'TENGAH', slotFrom: 5, slotTo: 7 }),
+    kind({ id: 'pC', name: 'AKHIR', slotFrom: 8, slotTo: 10 }),
+  ];
+  const scoped = [
+    kind({ id: 'pT1', name: 'BELI', slotFrom: 1, slotTo: 3, track: 'TRADING' }),
+    kind({ id: 'pT2', name: 'LAPOR', slotFrom: 9, slotTo: 10, track: 'TRADING' }),
+  ];
+  const twoTracks: ProcessTrackDef[] = [
+    { entityCode: 'KGR', code: 'RPA', label: 'RPA', ordinal: 1, isShared: false },
+    { entityCode: 'KGR', code: 'TRADING', label: 'TRADING', ordinal: 2, isShared: false },
+    { entityCode: 'KGR', code: 'KEDUANYA', label: 'BERSAMA', ordinal: 3, isShared: true },
+  ];
+  const mini = (slot: number, track: string): ProcessStep =>
+    ({
+      id: `s${track}-${slot}`,
+      entityCode: 'KGR',
+      label: `${track}-${slot}`,
+      slot,
+      laneKey: 'GUDANG',
+      track,
+      name: `step ${slot}`,
+      docs: [],
+      coa: [],
+      drivers: [],
+    }) as ProcessStep;
+  // TRADING reaches slots 1–3 (its own) and 9 (shared); RPA runs 1..10.
+  const miniSteps = [
+    ...[1, 2, 3].map((slot) => mini(slot, 'TRADING')),
+    ...[1, 2, 3, 4, 5, 6, 7, 8, 10].map((slot) => mini(slot, 'RPA')),
+    mini(9, 'KEDUANYA'),
+  ];
+
+  it('splits default from scoped rows', () => {
+    expect(defaultPhases([...base, ...scoped])).toEqual(base);
+  });
+
+  it('renders the default ribbon alone when no filter is active', () => {
+    const segments = ribbonSegments([...base, ...scoped], ALL_TRACKS, 10);
+    expect(segments.map((s) => `${s.name} ${s.slotFrom}-${s.slotTo}`)).toEqual([
+      'AWAL 1-4',
+      'TENGAH 5-7',
+      'AKHIR 8-10',
+    ]);
+  });
+
+  it('lets a scoped row win its slots and splits the shadowed default into fragments that keep their id', () => {
+    const segments = ribbonSegments([...base, ...scoped], 'TRADING', 10);
+    expect(segments.map((s) => `${s.name} ${s.slotFrom}-${s.slotTo}`)).toEqual([
+      'BELI 1-3',
+      'AWAL 4-4',
+      'TENGAH 5-7',
+      'AKHIR 8-8',
+      'LAPOR 9-10',
+    ]);
+    // The fragment still opens the REAL phase row.
+    expect(segments[1].phaseId).toBe('pA');
+    expect(segments[3].phaseId).toBe('pC');
+    // Fragment keys stay unique even when one phase renders twice.
+    expect(new Set(segments.map((s) => s.key)).size).toBe(segments.length);
+  });
+
+  it('reports nothing on a clean scoped ribbon — the gap over unreachable slots is not a problem', () => {
+    expect(scopedPhaseProblems([...base, ...scoped], miniSteps, twoTracks)).toEqual([]);
+  });
+
+  it('reports an overlap within one track', () => {
+    const overlapping = [...scoped, kind({ id: 'pT3', name: 'GANDA', slotFrom: 2, slotTo: 4, track: 'TRADING' })];
+    expect(
+      scopedPhaseProblems([...base, ...overlapping], miniSteps, twoTracks).some((p) =>
+        p.includes('tumpang tindih'),
+      ),
+    ).toBe(true);
+  });
+
+  it('reports a reachable slot no scoped row covers', () => {
+    const short = [kind({ id: 'pT1', name: 'BELI', slotFrom: 1, slotTo: 3, track: 'TRADING' })];
+    expect(scopedPhaseProblems([...base, ...short], miniSteps, twoTracks)).toEqual([
+      'TRADING: slot terjangkau tanpa fase — 9',
+    ]);
+  });
+
+  it('is vacuous for a track with no scoped rows — it falls back to the default ribbon everywhere', () => {
+    expect(scopedPhaseProblems(base, miniSteps, twoTracks)).toEqual([]);
+  });
+});
+
+describe('§walk-fan — a branch step beside a shared step in one slot is parallel, not broken', () => {
+  const fanTracks: ProcessTrackDef[] = [
+    { entityCode: 'KGR', code: 'RPA', label: 'RPA', ordinal: 1, isShared: false },
+    { entityCode: 'KGR', code: 'TRADING', label: 'TRADING', ordinal: 2, isShared: false },
+    { entityCode: 'KGR', code: 'KEDUANYA', label: 'BERSAMA', ordinal: 3, isShared: true },
+  ];
+  const mk = (label: string, slot: number, track: string, laneKey: string): ProcessStep =>
+    ({
+      id: label,
+      entityCode: 'KGR',
+      label,
+      slot,
+      laneKey,
+      track,
+      name: label,
+      docs: [],
+      coa: [],
+      drivers: [],
+    }) as ProcessStep;
+  // KGR trading's shape in miniature: T5 → [shared 6 ∥ T6] → T7.
+  const fanSteps = [
+    mk('T5', 5, 'TRADING', 'GUDANG'),
+    mk('6', 6, 'KEDUANYA', 'ACCOUNTING'),
+    mk('T6', 6, 'TRADING', 'QC'),
+    mk('T7', 7, 'TRADING', 'VETERINER'),
+  ];
+
+  it('keeps the tripwire silent for the branch+shared pair', () => {
+    expect(duplicateChainSlots(fanSteps, fanTracks)).toEqual([]);
+  });
+
+  it('draws the column as a fan: both follow T5, both precede T7, no order between them', () => {
+    const edges = deriveEdges(fanSteps, 'TRADING', fanTracks).map(
+      (edge) => `${edge.from.label}>${edge.to.label}`,
+    );
+    expect(edges.sort()).toEqual(['6>T7', 'T5>6', 'T5>T6', 'T6>T7']);
+  });
+
+  it('still trips on two BRANCH steps sharing a slot — that order would be a guess', () => {
+    const broken = [...fanSteps, mk('T6b', 6, 'TRADING', 'GUDANG')];
+    expect(duplicateChainSlots(broken, fanTracks)).toEqual([{ track: 'TRADING', slot: 6 }]);
+  });
+
+  it('still trips on two SHARED steps sharing a slot, reported per walk', () => {
+    const broken = [...fanSteps, mk('6b', 6, 'KEDUANYA', 'SALES')];
+    expect(duplicateChainSlots(broken, fanTracks)).toEqual([
+      { track: 'RPA', slot: 6 },
+      { track: 'TRADING', slot: 6 },
+    ]);
   });
 });

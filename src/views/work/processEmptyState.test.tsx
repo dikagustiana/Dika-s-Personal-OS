@@ -165,6 +165,7 @@ function needsRepository(overrides: Partial<Repository>): Repository {
     listProcessSteps: async () => okRows<ProcessStep>([]),
     listProcessNeeds: async () => okRows<ProcessNeed>([]),
     listProcessTracks: async () => okRows(arbiTracks()),
+    listProcessForms: async () => okRows([]),
     listProcessReferences: async () => okRows<ProcessReference>([]),
     listFinishLineItems: async () => okRows<FinishLineItem>([]),
     ...overrides,

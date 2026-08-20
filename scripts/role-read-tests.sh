@@ -41,7 +41,7 @@ echo "==> fixture seeded"
 
 RC=0
 echo ""
-run_suite "process_role_reads    (§11 four role conditions, nine tables)" \
+run_suite "process_role_reads    (§11 four role conditions, ten tables)" \
   "$REPO/supabase/tests/process_role_reads.sql" || RC=1
 run_suite "rls_function_grants   (§9.2 every policy fn, every reaching role)" \
   "$REPO/supabase/tests/rls_function_grants.sql" || RC=1

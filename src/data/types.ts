@@ -969,6 +969,18 @@ export interface ProcessTrackDef {
 }
 
 /**
+ * Product-form vocabulary per entity — the second, orthogonal axis to
+ * tracks (KGR: KARKAS/OLAHAN beside RPA/TRADING). A form is a CHIP, never a
+ * filter button and never a walk root: no isShared, no backbone semantics.
+ */
+export interface ProcessFormDef {
+  entityCode: string;
+  code: string;
+  label: string;
+  ordinal: number;
+}
+
+/**
  * DATA = waiting on someone else; DECISION = waiting on the process owner;
  * OOS = outside SAMB scope, rendered dimmed so gate numbering stays aligned
  * with the blocker register kept outside the app.
@@ -994,13 +1006,21 @@ export interface ProcessLane {
   isExternal: boolean;
 }
 
-/** A ribbon segment. Phases tile slot 1..max(slot) exactly once per entity. */
+/**
+ * A ribbon segment. Rows with no `track` are the default ribbon and tile
+ * slot 1..max(slot) exactly once per entity; rows carrying a track apply
+ * only under that track's filter, must not overlap within the track, must
+ * cover every slot reachable on it, and may gap — a gap is a true statement
+ * that the walk jumps.
+ */
 export interface ProcessPhase {
   id: string;
   entityCode: string;
   name: string;
   slotFrom: number;
   slotTo: number;
+  /** Track this ribbon row is scoped to; absent = applies to every track. */
+  track?: string;
 }
 
 export interface ProcessCoaRef {
@@ -1021,6 +1041,12 @@ export interface ProcessStep {
   laneKey: string;
   co?: string;
   track: ProcessTrack;
+  /**
+   * Product form this step is restricted to, from the entity's
+   * os_process_forms vocabulary; absent — the normal case — when the step
+   * serves any form. Orthogonal to track: rendered as a chip, never a filter.
+   */
+  form?: string;
   name: string;
   risk?: string;
   control?: string;
