@@ -45,6 +45,8 @@ run_suite "process_role_reads    (§11 four role conditions, ten tables)" \
   "$REPO/supabase/tests/process_role_reads.sql" || RC=1
 run_suite "rls_function_grants   (§9.2 every policy fn, every reaching role)" \
   "$REPO/supabase/tests/rls_function_grants.sql" || RC=1
+run_suite "anon_definer_gates    (every anon-callable SECURITY DEFINER fn gates)" \
+  "$REPO/supabase/tests/anon_definer_gates.sql" || RC=1
 run_suite "process_entity_checks (seed counts and shape)" \
   "$REPO/supabase/tests/process_entity_checks.sql" || RC=1
 
@@ -63,6 +65,22 @@ else
   echo "ok    suite goes red when the grant is revoked (it catches the regression)"
 fi
 psql_ "-c 'grant execute on function public.os_member_entities() to anon;'" >/dev/null 2>&1
+
+# Same posture for the definer-gate suite, and it runs the REAL migration
+# files in both directions — so this doubles as the proof that 89's
+# down-migration restores exactly the body 89 replaced. Applying the down
+# migration reopens the hole on purpose; the suite must see it.
+echo ""
+echo "==> negative control: applying 89's down-migration (ungates os_lab_stale_sweep)"
+psql_ "-f $REPO/supabase/migrations/down/20260827000089_lab_stale_sweep_owner_gate_down.sql" >/dev/null 2>&1
+if run_suite "anon_definer_gates WITH THE SWEEP UNGATED (must FAIL)" \
+     "$REPO/supabase/tests/anon_definer_gates.sql" >/dev/null 2>&1; then
+  echo "FAIL  suite stayed green with os_lab_stale_sweep ungated — it does not catch the regression"
+  RC=1
+else
+  echo "ok    suite goes red when the sweep is ungated (it catches the regression)"
+fi
+psql_ "-f $REPO/supabase/migrations/20260827000089_lab_stale_sweep_owner_gate.sql" >/dev/null 2>&1
 
 echo ""
 if [ $RC -eq 0 ]; then echo "PASS — all suites green, negative control red as required"
