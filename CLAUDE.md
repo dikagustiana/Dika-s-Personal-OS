@@ -305,6 +305,24 @@ the same commit.
 10. **Free-tier Supabase.** No automated daily backups, no PITR. Manual
     `supabase db dump` is the only backup mechanism available.
 
+11. **`current_user` inside a `SECURITY DEFINER` function is the DEFINER, not
+    the caller.** It reads `postgres` no matter who called. A gate written
+    against it never fires. The caller's role is the `role` GUC —
+    `current_setting('role', true)` — which PostgREST sets per request and
+    pg_cron leaves as `'none'`. This shipped once (`20260827000089`, corrected
+    by `...091`) and reached production, because a catalog check cannot tell a
+    gate that runs from a gate that is merely mentioned. Gate predicates get a
+    **behavioural** test: `supabase/tests/anon_definer_gate_behaviour.sql`.
+
+12. **The repo's migration filenames and the live ledger's versions are two
+    different numbering schemes.** Production has ~93 entries whose names and
+    timestamps do not match the 88 files here; several repo files were applied
+    as two or more ledger entries. **Never** run `supabase db push`,
+    `migration up`, `db reset` or `db remote commit` — any of them replays from
+    `0001_schema.sql` against live production data. Apply migrations one at a
+    time (the `apply_migration` tool), which is what every entry in that ledger
+    already reflects.
+
 ---
 
 ## 9. Do not touch
