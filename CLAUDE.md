@@ -91,7 +91,7 @@ supabase/
 scripts/            Bash harnesses for the SQL suites. lib/pg-cluster.sh is shared.
 content/ielts/      MDX method pages. Path === the topic slug in os_ielts_topic.
 docs/               Runbooks + screenshot history (v5–v8).
-deploy/             Vercel notes + the interim bootstrap.
+deploy/             Vercel notes. Documentation only — nothing here builds.
 ```
 
 Two files sit under `views/growth/` but are mounted in the **WORK** branch of
@@ -298,9 +298,13 @@ the same commit.
    sync, and the only write path is an explicit previewed paste. Nothing tells
    you when it has gone stale.
 
-9. **`deploy/vercel-bootstrap/build.sh` runs `npm install`** on this pnpm
-   project. If that bootstrap is still what builds production, production ships
-   dependency versions CI never tested.
+9. **Production builds from `main` via Vercel's Git integration.** Verified by
+   measurement, not assumption: a push landing `48d20eb` produced a live bundle
+   stamped `48d20eb` seconds later with no manual trigger. The old
+   `deploy/vercel-bootstrap/` — which cloned the repo and ran `npm install` on
+   this pnpm project — was dead weight and has been deleted. If staleness is
+   ever suspected again, push and compare the sidebar build stamp; the one-line
+   `curl` is in `deploy/README.md`.
 
 10. **Free-tier Supabase.** No automated daily backups, no PITR. Manual
     `supabase db dump` is the only backup mechanism available.
