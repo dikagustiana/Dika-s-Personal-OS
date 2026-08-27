@@ -47,6 +47,8 @@ run_suite "rls_function_grants   (§9.2 every policy fn, every reaching role)" \
   "$REPO/supabase/tests/rls_function_grants.sql" || RC=1
 run_suite "anon_definer_gates    (every anon-callable SECURITY DEFINER fn gates)" \
   "$REPO/supabase/tests/anon_definer_gates.sql" || RC=1
+run_suite "anon_definer_gate_behaviour (…and the gates actually FIRE when called)" \
+  "$REPO/supabase/tests/anon_definer_gate_behaviour.sql" || RC=1
 run_suite "process_entity_checks (seed counts and shape)" \
   "$REPO/supabase/tests/process_entity_checks.sql" || RC=1
 
@@ -81,6 +83,35 @@ else
   echo "ok    suite goes red when the sweep is ungated (it catches the regression)"
 fi
 psql_ "-f $REPO/supabase/migrations/20260827000089_lab_stale_sweep_owner_gate.sql" >/dev/null 2>&1
+psql_ "-f $REPO/supabase/migrations/20260827000091_lab_stale_sweep_gate_fix_definer_context.sql" >/dev/null 2>&1
+
+# --- the negative control that matters most -------------------------------
+# 89 shipped a gate reading current_user inside a SECURITY DEFINER body, where
+# it is the definer and never the caller. The catalog suite passed it, because
+# the body still contained the string `os_key_valid`. It reached production.
+#
+# So this control restores exactly that body (91's down-migration) and asserts
+# the two suites disagree: the catalog one STAYS GREEN — that is its structural
+# blind spot, demonstrated rather than described — while the behavioural one
+# goes RED. If they ever agree here, the behavioural suite has stopped earning
+# its place.
+echo ""
+echo "==> negative control: restoring 89's never-firing gate (91's down-migration)"
+psql_ "-f $REPO/supabase/migrations/down/20260827000091_lab_stale_sweep_gate_fix_definer_context_down.sql" >/dev/null 2>&1
+if run_suite "anon_definer_gates WITH A DECORATIVE GATE (expected: stays GREEN — its blind spot)" \
+     "$REPO/supabase/tests/anon_definer_gates.sql" >/dev/null 2>&1; then
+  echo "ok    catalog suite stays green on a gate that never fires (known blind spot, why the next one exists)"
+else
+  echo "note  catalog suite went red on the decorative gate — it got stronger; revisit this control"
+fi
+if run_suite "anon_definer_gate_behaviour WITH A DECORATIVE GATE (must FAIL)" \
+     "$REPO/supabase/tests/anon_definer_gate_behaviour.sql" >/dev/null 2>&1; then
+  echo "FAIL  behavioural suite stayed green on a gate that never fires — it does not catch the regression"
+  RC=1
+else
+  echo "ok    behavioural suite goes red on a gate that never fires (it catches what the catalog cannot)"
+fi
+psql_ "-f $REPO/supabase/migrations/20260827000091_lab_stale_sweep_gate_fix_definer_context.sql" >/dev/null 2>&1
 
 echo ""
 if [ $RC -eq 0 ]; then echo "PASS — all suites green, negative control red as required"
