@@ -53,9 +53,18 @@ export interface LabRepository {
     input: LabAgentWrite,
     providers: readonly LabProvider[],
   ): Promise<LabAgent>;
+  /**
+   * PUBLIC LANE ONLY. The database refuses to delete an agent whose
+   * data_class is 'internal' — internal agents are cited by run rows and by
+   * sibling prompts, and removing one silently orphans that history. A public
+   * agent is disposable by design: assembled and torn down in minutes.
+   */
+  deleteAgent(id: string): Promise<void>;
   listChains(): Promise<ReadResult<LabChain>>;
   createChain(input: LabChainWrite): Promise<LabChain>;
   updateChain(id: string, input: LabChainWrite): Promise<LabChain>;
+  /** Chains carry no lane of their own — deleting one removes the route, never the agents. */
+  deleteChain(id: string): Promise<void>;
   /** Newest first, capped — the log renders a page, not a warehouse. */
   listRuns(limit?: number): Promise<ReadResult<LabRun>>;
   listArtifacts(): Promise<ReadResult<LabArtifact>>;
@@ -291,6 +300,26 @@ export function createSupabaseLabRepository(client: SupabaseClient): LabReposito
       return mapAgent(data as AgentRow);
     },
 
+    async deleteAgent(id) {
+      // Public lane only, enforced in the database (20260827000093). The
+      // filter is not the boundary — it is the fast failure, so the owner
+      // reads a sentence instead of a PostgREST error when the row is
+      // internal. A delete that matched zero rows is reported, not silently
+      // treated as success: a disappeared refusal is worse than a refusal.
+      const { data, error } = await client
+        .from('os_lab_agents')
+        .delete()
+        .eq('id', id)
+        .eq('data_class', 'public')
+        .select('id');
+      if (error) throw new Error(`deleteAgent: ${error.message}`);
+      if (!data || data.length === 0) {
+        throw new Error(
+          `deleteAgent: agent ${id} was not deleted — it is an internal-lane agent, or it no longer exists. Internal agents are cited by run history and sibling prompts and are removed by migration, not by a button.`,
+        );
+      }
+    },
+
     async listChains() {
       const { data, error } = await client
         .from('os_lab_chains')
@@ -319,6 +348,13 @@ export function createSupabaseLabRepository(client: SupabaseClient): LabReposito
         .single();
       if (error) throw new Error(`updateChain: ${error.message}`);
       return mapChain(data as ChainRow);
+    },
+
+    async deleteChain(id) {
+      // A chain is a route, not a lane: deleting it removes the ordering and
+      // leaves every agent and every run row it referenced intact.
+      const { error } = await client.from('os_lab_chains').delete().eq('id', id);
+      if (error) throw new Error(`deleteChain: ${error.message}`);
     },
 
     async listRuns(limit = 500) {
@@ -644,15 +680,35 @@ export class MockLabRepository implements LabRepository {
     if (!existing) throw new Error(`updateAgent: no agent ${id}`);
     // Mirror the database guard: a system_prompt edit is a new version.
     if (existing.systemPrompt !== guarded.systemPrompt) existing.version += 1;
+    // Mirror os_lab_agents_class_freeze_guard (20260827000092): data_class is
+    // frozen after insert, in both directions. Without this the mock would
+    // permit the exact laundering the database refuses, and every test that
+    // runs against the mock would be reasoning about a wall that is not there.
+    if (existing.dataClass !== guarded.dataClass) {
+      throw new Error(
+        `updateAgent: data_class is frozen after insert (${existing.dataClass} → ${guarded.dataClass} on agent ${existing.slug}). An agent belongs to one lane for life; re-lane by deleting and recreating.`,
+      );
+    }
     existing.slug = guarded.slug;
     existing.name = guarded.name;
     existing.description = guarded.description;
     existing.systemPrompt = guarded.systemPrompt;
-    existing.dataClass = guarded.dataClass;
     existing.defaultProviderId = guarded.defaultProviderId;
     if (guarded.isActive !== undefined) existing.isActive = guarded.isActive;
     existing.updatedAt = new Date().toISOString();
     return { ...existing };
+  }
+
+  async deleteAgent(id: string): Promise<void> {
+    const index = this.agents.findIndex((agent) => agent.id === id);
+    if (index === -1) throw new Error(`deleteAgent: no agent ${id}`);
+    // Mirror the database's public-lane-only delete (20260827000093).
+    if (this.agents[index].dataClass !== 'public') {
+      throw new Error(
+        `deleteAgent: agent ${this.agents[index].slug} is internal-lane and is not deletable from the app. Internal agents are cited by run history and sibling prompts; removing one is a migration.`,
+      );
+    }
+    this.agents.splice(index, 1);
   }
 
   async listChains(): Promise<ReadResult<LabChain>> {
@@ -679,6 +735,12 @@ export class MockLabRepository implements LabRepository {
     existing.steps = [...input.steps];
     if (input.isActive !== undefined) existing.isActive = input.isActive;
     return { ...existing, steps: [...existing.steps] };
+  }
+
+  async deleteChain(id: string): Promise<void> {
+    const index = this.chains.findIndex((chain) => chain.id === id);
+    if (index === -1) throw new Error(`deleteChain: no chain ${id}`);
+    this.chains.splice(index, 1);
   }
 
   async listRuns(limit = 500): Promise<ReadResult<LabRun>> {

@@ -141,6 +141,37 @@ export function LabRegistry() {
   };
 
   /**
+   * Deleting a public agent. Confirmed first because it is irreversible and
+   * unlogged — there is no agent history table — but deliberately NOT gated
+   * any harder than that: the whole point of this lane is that an agent can
+   * be thrown away as cheaply as it was made.
+   *
+   * useMutation resolves undefined on failure and raises a retryable toast,
+   * so a refused delete (an internal agent reaching here through some future
+   * caller) surfaces the database's sentence rather than vanishing.
+   */
+  const handleDelete = async (agent: LabAgent) => {
+    const ok = window.confirm(
+      `Hapus agent "${agent.name}"? Tindakan ini permanen dan tidak tercatat di mana pun.`,
+    );
+    if (!ok) return;
+    // `return true as const` is the house convention for a void mutation
+    // (FinishLine.tsx:434-438): useMutation resolves undefined on failure, so
+    // a void action would be indistinguishable from a failed one and the list
+    // would never refresh after a successful delete.
+    const done = await mutate('Delete agent', async () => {
+      await repository.lab.deleteAgent(agent.id);
+      return true as const;
+    });
+    if (!done) return;
+    if (editing === agent.id) {
+      setEditing(null);
+      setDraft(EMPTY_DRAFT);
+    }
+    reload();
+  };
+
+  /**
    * The boundary at the form: an internal draft locks the provider select to
    * the Anthropic row. Not a tooltip on hover — a sentence that is always
    * there, because the rule is structural and reads as such.
@@ -206,6 +237,12 @@ export function LabRegistry() {
               <select
                 className="native-select"
                 value={draft.dataClass}
+                // FROZEN ON EDIT. data_class is immutable after insert
+                // (20260827000092) — it is the wall between the two lanes, and
+                // an agent belongs to one for life. Disabling it here is not
+                // the enforcement (the trigger is); it is so the control
+                // cannot promise an edit the database will refuse.
+                disabled={editing !== 'new'}
                 onChange={(event) =>
                   setDraft({ ...draft, dataClass: event.target.value as AgentDraft['dataClass'] })
                 }
@@ -412,6 +449,21 @@ export function LabRegistry() {
                     <Button size="sm" variant="ghost" onClick={() => startEdit(agent)}>
                       Edit
                     </Button>
+                    {/* PUBLIC LANE ONLY. Internal agents are cited by run rows
+                        and by sibling prompts; the database refuses to delete
+                        one (20260827000093) and the button is absent rather
+                        than disabled, so the lane difference reads as a fact
+                        about what exists, not a permission being withheld. */}
+                    {agent.dataClass === 'public' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={isPending}
+                        onClick={() => void handleDelete(agent)}
+                      >
+                        Hapus
+                      </Button>
+                    )}
                   </div>
                 </CardContent>
               </Card>

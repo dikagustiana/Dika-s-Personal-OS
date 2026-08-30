@@ -49,6 +49,8 @@ run_suite "anon_definer_gates    (every anon-callable SECURITY DEFINER fn gates)
   "$REPO/supabase/tests/anon_definer_gates.sql" || RC=1
 run_suite "anon_definer_gate_behaviour (…and the gates actually FIRE when called)" \
   "$REPO/supabase/tests/anon_definer_gate_behaviour.sql" || RC=1
+run_suite "lab_public_lane      (the wall between the two lanes, called not read)" \
+  "$REPO/supabase/tests/lab_public_lane.sql" || RC=1
 run_suite "process_entity_checks (seed counts and shape)" \
   "$REPO/supabase/tests/process_entity_checks.sql" || RC=1
 
@@ -112,6 +114,34 @@ else
   echo "ok    behavioural suite goes red on a gate that never fires (it catches what the catalog cannot)"
 fi
 psql_ "-f $REPO/supabase/migrations/20260827000091_lab_stale_sweep_gate_fix_definer_context.sql" >/dev/null 2>&1
+
+# --- the lane wall, both halves -------------------------------------------
+# 092 exists because data_class was editable and the anthropic base_url was
+# not pinned. Drop each guard in turn and the lane suite MUST go red; a wall
+# that cannot be observed falling down is not a wall.
+echo ""
+echo "==> negative control: dropping the data_class freeze"
+psql_ "-c 'drop trigger os_lab_agents_class_freeze_guard on public.os_lab_agents;'" >/dev/null 2>&1
+if run_suite "lab_public_lane WITH CLASS FREEZE DROPPED (must FAIL)" \
+     "$REPO/supabase/tests/lab_public_lane.sql" >/dev/null 2>&1; then
+  echo "FAIL  lane suite stayed green with data_class editable — laundering is undetected"
+  RC=1
+else
+  echo "ok    lane suite goes red when data_class is editable (it catches laundering)"
+fi
+psql_ "-c 'create trigger os_lab_agents_class_freeze_guard before update on public.os_lab_agents for each row execute function public.os_lab_agents_class_freeze_guard();'" >/dev/null 2>&1
+
+echo ""
+echo "==> negative control: dropping the anthropic endpoint pin"
+psql_ "-c 'drop trigger os_lab_providers_endpoint_pin_guard on public.os_lab_providers;'" >/dev/null 2>&1
+if run_suite "lab_public_lane WITH ENDPOINT PIN DROPPED (must FAIL)" \
+     "$REPO/supabase/tests/lab_public_lane.sql" >/dev/null 2>&1; then
+  echo "FAIL  lane suite stayed green with the anthropic endpoint repointable"
+  RC=1
+else
+  echo "ok    lane suite goes red when the anthropic endpoint is repointable"
+fi
+psql_ "-c 'create trigger os_lab_providers_endpoint_pin_guard before insert or update on public.os_lab_providers for each row execute function public.os_lab_providers_endpoint_pin_guard();'" >/dev/null 2>&1
 
 echo ""
 if [ $RC -eq 0 ]; then echo "PASS — all suites green, negative control red as required"
