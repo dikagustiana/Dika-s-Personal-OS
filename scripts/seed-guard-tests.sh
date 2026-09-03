@@ -61,8 +61,14 @@ gates_of()  { count "select count(*) from public.os_process_gates where entity_c
 # KGR points at 61, not 60: v0.2 replaced v0.1 in place, so 60 is history and
 # re-running it would refuse against 38 rows for the wrong reason. Whenever a
 # seed is superseded, this row moves to the file that defines the live shape.
+#
+# SAMB's counts are what a FULL replay leaves behind, not what its seed file
+# inserts: 20260806000051 still seeds 30/118/15 and still refuses on re-run,
+# and 20260903000094 (v0.4) then raises the chain to 33 steps, 131 needs and
+# 20 gates in place. The v0.4 file is not a seed and is exercised separately
+# in section 4 below.
 ENTITIES=(
-  "SAMB 20260806000051_samb_process_seed 30 118 7 6 15"
+  "SAMB 20260806000051_samb_process_seed 33 131 7 6 20"
   "ARBI 20260806000053_arbi_process_seed 23 112 7 6 12"
   "KGR  20260807000061_kgr_process_seed_v2 38 117 10 9 42"
 )
@@ -150,8 +156,8 @@ else
     echo "FAIL  down-seed left $after_down ARBI steps behind"; RC=1
   fi
   # And it must not have touched the other entity.
-  if [ "$(steps_of SAMB)" = "30" ]; then
-    echo "ok    SAMB untouched by the ARBI down-seed (steps=30)"
+  if [ "$(steps_of SAMB)" = "33" ]; then
+    echo "ok    SAMB untouched by the ARBI down-seed (steps=33)"
   else
     echo "FAIL  the ARBI down-seed changed SAMB: steps=$(steps_of SAMB)"; RC=1
   fi
@@ -191,6 +197,67 @@ if [ "$after_phases" = "$before_phases" ]; then
 else
   echo "FAIL  renamed phases DUPLICATED on reseed ($before_phases → $after_phases) — the guard still keys on name"
   RC=1
+fi
+
+# ---------------------------------------------------------------------------
+# 4. THE v0.4 RAISE (20260903000094) IS ONE-SHOT TOO, AND ITS DOWN RESTORES v0.3.
+# ---------------------------------------------------------------------------
+# 94 is not a seed, but it inserts needs and bridge rows by step LABEL, so a
+# re-run against a database that already carries it would duplicate them with
+# no error — which is why its guard refuses the moment G16 exists. The replay
+# above applied it once. This re-runs it (must abort with its own message and
+# move no row), runs its down (SAMB back to the seed's 30/118/15 while ARBI
+# is untouched), then applies it again (33/131/20 restored). A guard that
+# cannot be got past legitimately is a wall, not a gate — the same bar the
+# ARBI seed is held to in section 2.
+V04="$MIG/20260903000094_samb_process_v04.sql"
+V04_DOWN="$DOWN/20260903000094_samb_process_v04_down.sql"
+
+echo ""
+echo "==> re-running the SAMB v0.4 raise (94) against a database that already carries it"
+before_v04="steps=$(steps_of SAMB) needs=$(needs_of SAMB) gates=$(gates_of SAMB)"
+out=$(psql_capture "-f $V04")
+if [ -z "$(printf '%s' "$out" | grep -i 'ERROR')" ]; then
+  echo "FAIL  re-running 94 did NOT abort — its guard is not firing"; RC=1
+elif [ -z "$(printf '%s' "$out" | grep -i 'menolak jalan')" ]; then
+  echo "FAIL  94 aborted, but not with its guard's message:"
+  printf '%s\n' "$out" | head -4 | sed 's/^/      /'; RC=1
+else
+  echo "ok    re-running 94 aborts with its guard's own message"
+  printf '      %s\n' "$(printf '%s' "$out" | grep -io 'samb_process_v04 menolak jalan[^"]*' | head -1 | cut -c1-96)…"
+fi
+after_v04="steps=$(steps_of SAMB) needs=$(needs_of SAMB) gates=$(gates_of SAMB)"
+if [ "$before_v04" = "$after_v04" ]; then
+  echo "ok    SAMB unchanged by the refused re-run ($after_v04)"
+else
+  echo "FAIL  SAMB moved despite the refusal: $before_v04 → $after_v04"; RC=1
+fi
+
+echo ""
+echo "==> down 94 (SAMB back to v0.3 + 56), then 94 again"
+if ! out=$(psql_capture "-f $V04_DOWN"); then
+  echo "FAIL  94's down-migration did not run"; printf '%s\n' "$out" | head -6 | sed 's/^/      /'; RC=1
+else
+  if [ "$(steps_of SAMB)" = "30" ] && [ "$(needs_of SAMB)" = "118" ] && [ "$(gates_of SAMB)" = "15" ]; then
+    echo "ok    94's down restored the seed exactly: steps=30 needs=118 gates=15"
+  else
+    echo "FAIL  94's down did not restore v0.3: steps=$(steps_of SAMB) needs=$(needs_of SAMB) gates=$(gates_of SAMB)"; RC=1
+  fi
+  if [ "$(steps_of ARBI)" = "23" ]; then
+    echo "ok    ARBI untouched by 94's down (steps=23)"
+  else
+    echo "FAIL  94's down changed ARBI: steps=$(steps_of ARBI)"; RC=1
+  fi
+  if ! out=$(psql_capture "-f $V04"); then
+    echo "FAIL  re-applying 94 after its down did NOT work — the guard is a wall:"
+    printf '%s\n' "$out" | head -6 | sed 's/^/      /'; RC=1
+  else
+    if [ "$(steps_of SAMB)" = "33" ] && [ "$(needs_of SAMB)" = "131" ] && [ "$(gates_of SAMB)" = "20" ]; then
+      echo "ok    94 re-applied cleanly: steps=33 needs=131 gates=20"
+    else
+      echo "FAIL  94 did not restore v0.4: steps=$(steps_of SAMB) needs=$(needs_of SAMB) gates=$(gates_of SAMB)"; RC=1
+    fi
+  fi
 fi
 
 echo ""

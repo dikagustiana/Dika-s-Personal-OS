@@ -145,7 +145,7 @@ const unread = <T,>(): ReadResult<T> => ({ ok: false, reason: 'failed', detail: 
  * renders its chain with no subtitle until one is added here.
  */
 const SCOPE_SUBTITLES: Record<string, string> = {
-  SAMB: 'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan.',
+  SAMB: 'Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim ke principal (18c), rekonsiliasi billing LP lawan buku (27), dan alokasi pool & carve-out COS–LP saat tutup buku (28) sekarang dipetakan. Alat pengumpul setiap need adalah 21 workpaper yang namanya disebut di docs masing-masing step.',
   ARBI: 'Rantai B2C ARBI: setup master & harga → pengadaan → inbound & penyimpanan → order marketplace → outbound → pengiriman kurir → retur → settlement & kas. Jalur retur masuk lewat pintu inbound sebagai ASN Return. Seam ke jalur LP SAMB belum ditetapkan — lihat B04.',
   KGR: 'Pengadaan live bird → lini potong sampai TITIK SPLIT-OFF di karkas → disposisi karkas jadi barang jadi atau WIP → pemrosesan lanjut jadi SKU A–J dan MDM → costing dua lapisan: alokasi joint NRV atas kategori yield, lalu separable cost per SKU → penjualan → EOD settlement → penagihan, pembayaran, pelaporan. Fresh dan frozen adalah keadaan persediaan, bukan jalur: fresh default, frozen lahir dari sisa yang tidak habis hari itu lewat blasting. Toll fee tidak ada.',
 };

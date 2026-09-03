@@ -3,18 +3,19 @@
  * §4 of the redesign brief, held programmatically — not by eye.
  *
  * The invariants a canvas rework is most likely to break silently:
- *   - 30 boxes / 12 handoff markers in Semua; 19/6 in Trade; 20/7 in LP.
+ *   - 33 boxes / 15 handoff markers in Semua; 21/8 in Trade; 23/9 in LP.
  *   - No two handoff markers gathered into one blot (the markers are 11px
  *     diamonds; the computeWires anti-stack keeps centres >22px apart in x
  *     or >18px in y, so adjacency here means overlap there).
- *   - The ?item highlight DIMS 26 and lights 4, and changes neither the box
+ *   - The ?item highlight DIMS 28 and lights 5, and changes neither the box
  *     count nor the wire count — highlighting must never become filtering.
  *   - No density ever puts prose on the canvas: risk/control/note text
  *     renders in the panel and only in the panel.
  *   - Every matrix group on a box caps at two items, with the remainder
  *     declared as "+N di panel".
  *
- * Fixtures are the seedFixture — what migration 20260806000051 inserts — and
+ * Fixtures are the seedFixture — what migrations 20260806000051, 56 and
+ * 20260903000094 (SAMB v0.4) leave behind — and
  * layout is stubbed the same way finishLineSwimlaneGuard.test.tsx stubs it,
  * because jsdom performs no layout of its own.
  */
@@ -144,12 +145,12 @@ async function waitForCanvas(container: HTMLElement, boxes: number) {
 }
 
 describe('§4 boxes and handoff markers per filter', () => {
-  it('Semua: 30 boxes, 12 handoff markers, none gathered', async () => {
+  it('Semua: 33 boxes, 15 handoff markers, none gathered', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
 
     const markers = container.querySelectorAll('[data-handoff-marker]');
-    expect(markers.length).toBe(12);
+    expect(markers.length).toBe(15);
 
     // The centres come out of the rendered diamond paths ("M{x},{y-5.5} …"),
     // so this asserts what is actually on screen, not what computeWires
@@ -170,27 +171,27 @@ describe('§4 boxes and handoff markers per filter', () => {
     }
   });
 
-  it('Trade: 19 boxes, 6 handoff markers', async () => {
+  it('Trade: 21 boxes, 8 handoff markers', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     // The jalur filter is per-tab local state now — driven by its button,
     // whose label comes from os_process_tracks.
     fireEvent.click(screen.getByRole('button', { name: 'TRADE' }));
-    await waitForCanvas(container, 19);
-    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(6);
+    await waitForCanvas(container, 21);
+    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(8);
   });
 
-  it('LP: 20 boxes, 7 handoff markers', async () => {
+  it('LP: 23 boxes, 9 handoff markers', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     fireEvent.click(screen.getByRole('button', { name: 'LP' }));
-    await waitForCanvas(container, 20);
-    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(7);
+    await waitForCanvas(container, 23);
+    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(9);
   });
 
   it('renders 6 lane labels and 7 phase ribbon segments', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     for (const lane of fixtureLanes()) {
       expect(screen.getByText(lane.label)).toBeDefined();
     }
@@ -203,21 +204,21 @@ describe('§4 boxes and handoff markers per filter', () => {
 });
 
 describe('§4 the ?item highlight dims — it never filters', () => {
-  it('lights 4, dims 26, and leaves the box and wire counts untouched', async () => {
+  it('lights 5, dims 28, and leaves the box and wire counts untouched', async () => {
     const plain = renderSwimlane();
-    await waitForCanvas(plain.container, 30);
+    await waitForCanvas(plain.container, 33);
     const plainWireCount = plain.container.querySelectorAll('svg path[marker-end]').length;
     const plainMarkerCount = plain.container.querySelectorAll('[data-handoff-marker]').length;
     plain.unmount();
 
     const { container } = renderSwimlane({ itemFilter: SALES_GENERAL_TRADE });
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
 
     const boxes = [...container.querySelectorAll<HTMLElement>('[data-step-label]')];
     const lit = boxes.filter((box) => box.dataset.dim === undefined);
     const dimmed = boxes.filter((box) => box.dataset.dim === 'true');
-    expect(lit.map((box) => box.dataset.stepLabel).sort()).toEqual(['10', '18a', '19', '2']);
-    expect(dimmed.length).toBe(26);
+    expect(lit.map((box) => box.dataset.stepLabel).sort()).toEqual(['10', '18a', '18c', '19', '2']);
+    expect(dimmed.length).toBe(28);
 
     expect(container.querySelectorAll('svg path[marker-end]').length).toBe(plainWireCount);
     expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(plainMarkerCount);
@@ -227,7 +228,7 @@ describe('§4 the ?item highlight dims — it never filters', () => {
 describe('prose never renders on the canvas — at any density', () => {
   it('keeps risk text out of ringkas, sedang and lengkap, and in the panel', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     const risk = STEP_9_RISK_FRAGMENT();
 
     // ringkas (default)
@@ -236,14 +237,14 @@ describe('prose never renders on the canvas — at any density', () => {
     // sedang
     fireEvent.click(screen.getByRole('button', { name: 'Sedang' }));
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+      expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
     });
     expect(screen.queryByText(risk)).toBeNull();
 
     // lengkap
     fireEvent.click(screen.getByRole('button', { name: 'Lengkap' }));
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+      expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
     });
     expect(screen.queryByText(risk)).toBeNull();
 
@@ -257,7 +258,7 @@ describe('prose never renders on the canvas — at any density', () => {
 
   it('caps every on-box group at two items and declares the rest', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     fireEvent.click(screen.getByRole('button', { name: 'Lengkap' }));
 
     // Step 9 carries 9 needs in the seed; its box shows 2 and says +7.
@@ -277,7 +278,7 @@ describe('prose never renders on the canvas — at any density', () => {
 
   it('sedang shows the two highest-signal needs — BELUM outranks ADA', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
     fireEvent.click(screen.getByRole('button', { name: 'Sedang' }));
 
     // Step 7a: needs are GRN (ADA), faktor konversi (BELUM), harga beli
@@ -294,7 +295,7 @@ describe('prose never renders on the canvas — at any density', () => {
 describe('the toolbar collapsed to one density control', () => {
   it('offers three density positions and no tempel toggle', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
 
     expect(screen.getByRole('button', { name: 'Ringkas' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'Sedang' })).toBeDefined();
@@ -305,7 +306,7 @@ describe('the toolbar collapsed to one density control', () => {
 
   it('shows the column popover only at lengkap, and toggling a column works', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
+    await waitForCanvas(container, 33);
 
     expect(screen.queryByRole('button', { name: /Kolom/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Lengkap' }));

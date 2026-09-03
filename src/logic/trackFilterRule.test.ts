@@ -110,8 +110,8 @@ describe('§7 the jalur control is shown only where a branch narrows something',
     const steps = fixtureSteps();
     const coverage = branchCoverage(steps, fixtureTracks());
     expect(coverage.map((c) => `${c.label} ${c.covered}/${c.total}`)).toEqual([
-      'TRADE 19/30',
-      'LP 20/30',
+      'TRADE 21/33',
+      'LP 23/33',
     ]);
     expect(coverage.every((c) => c.ratio <= TRACK_FILTER_COVERAGE_CEILING)).toBe(true);
     expect(trackFilterDiscriminates(steps, fixtureTracks())).toBe(true);

@@ -126,26 +126,28 @@ where result <> '0';
 
 -- ===========================================================================
 -- 2. THE OWNER SEES EVERYTHING. The §1 ledger numbers, pinned.
---    101 steps = SAMB 30 + ARBI 23 + KGR 48 (the 38-step slaughter chain,
+--    104 steps = SAMB 33 (30 from the seed + 18c/27/28 from 20260903000094,
+--    the v0.4 raise) + ARBI 23 + KGR 48 (the 38-step slaughter chain,
 --    retracked to RPA/KEDUANYA by 20260820000087, plus the 10-step trading
---    chain of 20260820000088). 360 needs = 118 + 112 + 130; LIVE reads five
+--    chain of 20260820000088). 373 needs = 131 + 112 + 130; LIVE reads five
 --    more on KGR (kgr_decision_needs is a live-only ledger entry), so 130 is
 --    the replay's truth and 135 is live's — both known, neither a drift.
---    83 bridge pairs = SAMB 46 (45 from the seed + the 18b pair recorded by
---    migration 56) + ARBI 37 + KGR 0 — KGR's bridge is DELIBERATELY absent
---    until the step→row mapping is authored, so 83 not moving as KGR's
---    chains land is itself part of the ledger. 29 phases = 7 + 7 + 15 (ten
---    default + five TRADING-scoped). 2 forms = KGR's KARKAS/OLAHAN, the
---    second axis.
+--    88 bridge pairs = SAMB 51 (45 from the seed + the 18b pair recorded by
+--    migration 56 + five from 94) + ARBI 37 + KGR 0 — KGR's bridge is
+--    DELIBERATELY absent until the step→row mapping is authored, so the
+--    total not moving as KGR's chains land is itself part of the ledger.
+--    29 phases = 7 + 7 + 15 (ten default + five TRADING-scoped). 2 forms =
+--    KGR's KARKAS/OLAHAN, the second axis. 74 gates = SAMB 20 + ARBI 12 +
+--    KGR 42.
 -- ===========================================================================
 select 'owner: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
-  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '101' as expected
-  union all select 'steps SAMB',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='SAMB'$q$), '30'
+  select 'steps'        as what, pg_temp.as_owner('select count(*) from public.os_process_steps')                  as got, '104' as expected
+  union all select 'steps SAMB',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='SAMB'$q$), '33'
   union all select 'steps ARBI',  pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='ARBI'$q$), '23'
   union all select 'steps KGR',   pg_temp.as_owner($q$select count(*) from public.os_process_steps where entity_code='KGR'$q$),  '48'
-  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '360'
-  union all select 'bridge',      pg_temp.as_owner('select count(*) from public.os_process_step_items'),           '83'
+  union all select 'needs',       pg_temp.as_owner('select count(*) from public.os_process_needs'),                '373'
+  union all select 'bridge',      pg_temp.as_owner('select count(*) from public.os_process_step_items'),           '88'
   union all select 'bridge KGR',  pg_temp.as_owner($q$select count(*) from public.os_process_step_items i
                                                       join public.os_process_steps s on s.id = i.step_id
                                                       where s.entity_code='KGR'$q$),                               '0'
@@ -153,7 +155,7 @@ from (
   union all select 'phases',      pg_temp.as_owner('select count(*) from public.os_process_phases'),               '29'
   union all select 'tracks',      pg_temp.as_owner('select count(*) from public.os_process_tracks'),               '9'
   union all select 'forms',       pg_temp.as_owner('select count(*) from public.os_process_forms'),                '2'
-  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '69'
+  union all select 'gates',       pg_temp.as_owner('select count(*) from public.os_process_gates'),                '74'
   union all select 'text_history',pg_temp.as_owner('select count(*) from public.os_process_text_history'),         '1'
 ) t
 where got <> expected;
@@ -168,13 +170,13 @@ where got <> expected;
 -- ===========================================================================
 select 'five-entity member: ' || what || ' = ' || got || ', expected ' || expected as problem
 from (
-  select 'steps'  as what, pg_temp.as_member5('select count(*) from public.os_process_steps')        as got, '53' as expected
-  union all select 'needs',      pg_temp.as_member5('select count(*) from public.os_process_needs'),      '230'
-  union all select 'bridge',     pg_temp.as_member5('select count(*) from public.os_process_step_items'), '83'
+  select 'steps'  as what, pg_temp.as_member5('select count(*) from public.os_process_steps')        as got, '56' as expected
+  union all select 'needs',      pg_temp.as_member5('select count(*) from public.os_process_needs'),      '243'
+  union all select 'bridge',     pg_temp.as_member5('select count(*) from public.os_process_step_items'), '88'
   union all select 'lanes',      pg_temp.as_member5('select count(*) from public.os_process_lanes'),      '12'
   union all select 'phases',     pg_temp.as_member5('select count(*) from public.os_process_phases'),     '14'
   union all select 'tracks',     pg_temp.as_member5('select count(*) from public.os_process_tracks'),     '6'
-  union all select 'gates',      pg_temp.as_member5('select count(*) from public.os_process_gates'),      '27'
+  union all select 'gates',      pg_temp.as_member5('select count(*) from public.os_process_gates'),      '32'
   union all select 'references', pg_temp.as_member5('select count(*) from public.os_process_references'), '1'
 ) t
 where got <> expected;

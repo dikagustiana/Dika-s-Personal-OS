@@ -91,8 +91,8 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
   it('is ready with the full seed, bridge included', () => {
     const model = buildProcessModel(ready());
     expect(model.kind).toBe('ready');
-    expect(model.kind === 'ready' && model.steps).toHaveLength(30);
-    expect(model.kind === 'ready' && model.stepItems).toHaveLength(46);
+    expect(model.kind === 'ready' && model.steps).toHaveLength(33);
+    expect(model.kind === 'ready' && model.stepItems).toHaveLength(51);
   });
 
   // The tests above force 42P01 one read at a time. THIS is the actual live
@@ -150,12 +150,12 @@ describe('§10.9 a missing os_process_* relation is the ordinary empty state', (
   });
 });
 
-describe('§4 the bridge is 46 pairs over 17 rows, and the SQL says the same', () => {
-  it('carries 46 edges across 17 distinct Finish line rows', () => {
+describe('§4 the bridge is 51 pairs over 17 rows, and the SQL says the same', () => {
+  it('carries 51 edges across 17 distinct Finish line rows', () => {
     const edges = fixtureStepItems();
-    expect(edges).toHaveLength(46);
+    expect(edges).toHaveLength(51);
     expect(new Set(edges.map((edge) => edge.itemId)).size).toBe(17);
-    expect(new Set(edges.map((edge) => `${edge.stepId}|${edge.itemId}`)).size).toBe(46);
+    expect(new Set(edges.map((edge) => `${edge.stepId}|${edge.itemId}`)).size).toBe(51);
   });
 
   it('references only step labels that exist in the seed', () => {
@@ -179,13 +179,14 @@ describe('§4 the bridge is 46 pairs over 17 rows, and the SQL says the same', (
     expect(unfed).toEqual(['4', '11', '12', '22', '26']);
   });
 
-  it('matches migrations 20260806000051 + 20260806000056 pair for pair — the anti-drift tripwire', () => {
+  it('matches migrations 20260806000051 + 20260806000056 + 20260903000094 pair for pair — the anti-drift tripwire', () => {
     // Parses section 6's VALUES rows straight out of the seed, then adds the
-    // one pair migration 56 records. If SQL and fixture are edited apart, this
-    // fails instead of the app quietly showing a mapping the database does not
-    // have. Reading BOTH files is the point: the repo's bridge is their sum,
-    // and a fixture that modelled only the seed would model a database that
-    // has not existed since 56 was applied.
+    // one pair migration 56 records and the five that 94 (SAMB v0.4) adds. If
+    // SQL and fixture are edited apart, this fails instead of the app quietly
+    // showing a mapping the database does not have. Reading ALL THREE files
+    // is the point: the repo's bridge is their sum, and a fixture that
+    // modelled only the seed would model a database that has not existed
+    // since 56 was applied.
     const seed = readFileSync(
       new URL('../../supabase/migrations/20260806000051_samb_process_seed.sql', import.meta.url),
       'utf8',
@@ -209,7 +210,22 @@ describe('§4 the bridge is 46 pairs over 17 rows, and the SQL says the same', (
     expect(itemId).toBe('2b7394bf-92f4-4900-b2a6-03353dbe6d98');
     expect(/entity_code = 'SAMB'/.test(statement)).toBe(true);
 
-    expect([...fromSql, `${label}|${itemId}`].sort()).toEqual(
+    // Migration 94 adds its five pairs in the seed's own VALUES shape
+    // (label, literal uuid), resolved to steps by label through a join — so
+    // the same row regex reads them, and the same entity filter must be there.
+    const v04 = readFileSync(
+      new URL('../../supabase/migrations/20260903000094_samb_process_v04.sql', import.meta.url),
+      'utf8',
+    );
+    const v04Section = v04.slice(v04.indexOf('insert into public.os_process_step_items'));
+    const fromV04 = [...v04Section.matchAll(/^ {2}\('([^']+)', '([0-9a-f-]{36})'\),?$/gm)].map(
+      ([, stepLabel, item]) => `${stepLabel}|${item}`,
+    );
+    expect(fromV04).toHaveLength(5);
+    expect(fromV04.map((pair) => pair.split('|')[0])).toEqual(['18c', '27', '28', '28', '28']);
+    expect(/entity_code = 'SAMB'/.test(v04Section)).toBe(true);
+
+    expect([...fromSql, `${label}|${itemId}`, ...fromV04].sort()).toEqual(
       fixtureStepItems()
         .map((edge) => `${edge.stepId}|${edge.itemId}`)
         .sort(),
@@ -230,17 +246,17 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
   const steps = fixtureSteps();
   const needs = fixtureNeeds();
 
-  it('shows all 118 rows unfiltered', () => {
+  it('shows all 131 rows unfiltered', () => {
     expect(
       registerRows(needs, steps, { track: 'ALL', status: ALL_STATUS, kind: ALL_KIND }, SHARED),
-    ).toHaveLength(118);
+    ).toHaveLength(131);
   });
 
   it('drops rows of steps outside the jalur filter', () => {
     const trade = registerRows(needs, steps, { track: 'TRADE', status: ALL_STATUS, kind: ALL_KIND }, SHARED);
     const lp = registerRows(needs, steps, { track: 'LP', status: ALL_STATUS, kind: ALL_KIND }, SHARED);
-    expect(trade.length).toBeLessThan(118);
-    expect(lp.length).toBeLessThan(118);
+    expect(trade.length).toBeLessThan(131);
+    expect(lp.length).toBeLessThan(131);
     expect(trade.every((row) => row.step.track !== 'LP')).toBe(true);
     expect(lp.every((row) => row.step.track !== 'TRADE')).toBe(true);
   });
@@ -264,9 +280,9 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
 
   it('summarizes the proportion bar over the jalur population, not the toggle slice', () => {
     const all = summarizeNeeds(needs, steps, 'ALL', SHARED);
-    expect(all.total).toBe(118);
-    expect(all.ada + all.sebagian + all.belum).toBe(118);
-    expect(summarizeNeeds(needs, steps, 'TRADE', SHARED).total).toBeLessThan(118);
+    expect(all.total).toBe(131);
+    expect(all.ada + all.sebagian + all.belum).toBe(131);
+    expect(summarizeNeeds(needs, steps, 'TRADE', SHARED).total).toBeLessThan(131);
   });
 
   it('groups per owner sorted by BELUM count first — the request-composing order', () => {
@@ -282,7 +298,7 @@ describe('§7 the register joins needs to steps and filters honestly', () => {
           (prev.belum === next.belum && prev.owner.localeCompare(next.owner) <= 0),
       ).toBe(true);
     }
-    expect(groups.flatMap((group) => group.rows)).toHaveLength(118);
+    expect(groups.flatMap((group) => group.rows)).toHaveLength(131);
   });
 });
 
@@ -304,8 +320,8 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
     const closing = closingConditionsForItem(SALES_GENERAL_TRADE, 'SAMB', stepItems, needs, steps);
     expect(closing).not.toBeNull();
     if (!closing) return;
-    expect(closing.stepCount).toBe(4);
-    const expected = needs.filter((need) => ['2', '10', '18a', '19'].includes(need.stepId));
+    expect(closing.stepCount).toBe(5);
+    const expected = needs.filter((need) => ['2', '10', '18a', '18c', '19'].includes(need.stepId));
     expect(closing.groups.flatMap((group) => group.rows)).toHaveLength(expected.length);
     expect(closing.counts.ADA + closing.counts.SEBAGIAN + closing.counts.BELUM).toBe(
       expected.length,
@@ -320,11 +336,12 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
 
   it('carries the step label on every row so each need is traceable back', () => {
     const closing = closingConditionsForItem(STORING_COST, 'SAMB', stepItems, needs, steps);
-    expect(closing?.stepCount).toBe(6);
+    // Seven since v0.4: step 28 books the carve-out that leaves Storing cost.
+    expect(closing?.stepCount).toBe(7);
     const labels = new Set(
       closing?.groups.flatMap((group) => group.rows.map((row) => row.stepLabel)),
     );
-    expect([...labels].sort()).toEqual(['13', '14', '15a', '6a', '8', '9']);
+    expect([...labels].sort()).toEqual(['13', '14', '15a', '28', '6a', '8', '9']);
   });
 
   it('counts a step once even though it feeds several rows', () => {
@@ -342,7 +359,7 @@ describe('§5 the closing-conditions block, derived through the bridge', () => {
   it('still returns a value when feeding steps carry no needs', () => {
     const bare: ProcessNeed[] = [];
     const closing = closingConditionsForItem(SALES_GENERAL_TRADE, 'SAMB', stepItems, bare, steps);
-    expect(closing).toMatchObject({ stepCount: 4, groups: [] });
+    expect(closing).toMatchObject({ stepCount: 5, groups: [] });
     expect(closing?.counts).toEqual({ ADA: 0, SEBAGIAN: 0, BELUM: 0 });
   });
 });
@@ -351,10 +368,10 @@ describe('§2 the pre-filter highlights the feeding steps and nothing else', () 
   const steps = fixtureSteps();
   const stepItems = fixtureStepItems();
 
-  it('lights 4 of the 30 steps for Sales — General Trade, leaving 26 dimmed', () => {
+  it('lights 5 of the 33 steps for Sales — General Trade, leaving 28 dimmed', () => {
     const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
-    expect([...lit].sort()).toEqual(['10', '18a', '19', '2']);
-    expect(steps.length - lit.size).toBe(26);
+    expect([...lit].sort()).toEqual(['10', '18a', '18c', '19', '2']);
+    expect(steps.length - lit.size).toBe(28);
   });
 
   it('lights nothing for a row outside the bridge, so no step is falsely implicated', () => {

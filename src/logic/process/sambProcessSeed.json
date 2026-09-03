@@ -88,8 +88,8 @@
    "type": "DATA",
    "title": "Isi per karton per SKU",
    "owner": "Commercial / Purchasing",
-   "sub": "Standing blocker #1",
-   "unblock": "Datanya melewati Purchasing tiap kali PO dibuat (step 2). Minta formal, eskalasi kalau menggantung."
+   "sub": "Standing blocker #1 — konsekuensinya kini terukur",
+   "unblock": "Datanya melewati Purchasing tiap kali PO dibuat (step 3). Minta formal, eskalasi kalau menggantung. Tanpa isi per karton, basis volume budget terpaksa memakai kapasitas armada alih-alih volume fisik dari dimensi karton — SELURUH metrik per CBM bergeser, dan uji muat gudang (step 9) tidak bisa dijalankan. Jalan tercepat: minta price list lewat MD02 sheet Annex SKU, mulai dari principal dengan SKU terbanyak. Satu blocker ini menutup G16 dan perbandingan cost-to-serve per karton sekaligus."
   },
   {
    "id": "G02",
@@ -118,10 +118,10 @@
   {
    "id": "G05",
    "type": "DECISION",
-   "title": "Driver COGS LP Fulfillment",
+   "title": "Driver COGS-LP per pool (bukan satu driver)",
    "owner": "Kamu",
-   "sub": "Standing blocker #5",
-   "unblock": "Pilih satu: pallet position (step 6) · CBM stored (step 7) · pick line count (step 10). Ketiganya sudah lahir di rantai."
+   "sub": "Metode ditetapkan — sisa satu keputusan satuan, lihat G16",
+   "unblock": "Premis lama — pilih satu dari pallet position, CBM stored, atau pick line — ditinggalkan. Tiga pool dibelah masing-masing SEKALI dengan driver konsumsinya sendiri: ruang → pallet position; handling → karton-ekuivalen masuk + keluar; truk → CBM, diuji atas basis tonase. Bukan revenue share, bukan persentase flat. Yang dibelah harus KELUAR dari pool asalnya (step 28), sehingga reklas ini netral terhadap laba operasi. Yang belum diputus: satuan handling — G16."
   },
   {
    "id": "G06",
@@ -129,7 +129,7 @@
    "title": "Mekanisme Distribution Cost Trucking",
    "owner": "Kamu",
    "sub": "Standing blocker #6",
-   "unblock": "Pilih (a) split internal/LP + benchmark rate, CBM dari estimasi inventory; atau (b) all internal armada, CBM dari Trip Log actual, tanpa Rate Card."
+   "unblock": "Pilih (a) split internal/LP + benchmark rate, CBM dari estimasi inventory; atau (b) all internal armada, CBM dari Trip Log actual, tanpa Rate Card. Dua koreksi, apa pun pilihannya: pembilang biaya delivery WAJIB memuat CBM barang klien karena truk yang sama mengangkut keduanya — carve-out truk membelah pool yang sudah memuatnya, bukan menambah pool baru; dan satuan kapasitas normal per kelas armada belum ditetapkan (G17), karena pada basis CBM utilisasinya terbaca rendah dengan cara yang lebih menunjukkan armada trade dibatasi jumlah drop dan tonase daripada volume."
   },
   {
    "id": "G07",
@@ -153,7 +153,7 @@
    "title": "Scope Discount to Distributor",
    "owner": "Kamu",
    "sub": "Open item",
-   "unblock": "Menentukan apakah masuk pengurang revenue atau biaya komersial. Retur & klaim belum dipetakan sebagai step."
+   "unblock": "Menentukan apakah masuk pengurang revenue atau biaya komersial. Retur & klaim sekarang dipetakan di step 18c."
   },
   {
    "id": "G10",
@@ -184,8 +184,8 @@
    "type": "DECISION",
    "title": "Carve-out COS–LP dari pool bersama",
    "owner": "Kamu",
-   "sub": "Terbuka — risiko double count",
-   "unblock": "Tetapkan apakah biaya melayani barang klien dikarve-out dari pool yang sama sehingga Storing/Distribution Cost tinggal porsi barang sendiri, atau dihitung terpisah. Tanpa keputusan ini, sewa gudang dan biaya armada berisiko terhitung dua kali."
+   "sub": "Metode ditetapkan — sisa dua pertanyaan: lokasi fisik dan entitas penagih",
+   "unblock": "Metodenya: carve-out per pool dengan driver konsumsi fisik, masing-masing sekali, dibukukan SAAT TUTUP BUKU di step 28 — bukan saat invoice di step 21. Jumlah yang masuk COGS-LP dikeluarkan lewat baris 'dikeluarkan ke COGS-LP' di pool asalnya, jadi laba operasi tidak berubah oleh reklas (gross profit turun, opex turun). Yang masih terbuka: (a) apakah barang klien yang ditagih benar berada di gudang trading — kalau tidak, pool yang dibelah salah; (b) entitas mana yang menagih klien di gudang sewa (G18)."
   },
   {
    "id": "G14",
@@ -201,7 +201,47 @@
    "title": "Basis tarif layanan LP",
    "owner": "Kamu",
    "sub": "Terbuka",
-   "unblock": "Tarif ke pihak ketiga = harga pasar di atas cost-to-serve. Untuk klien afiliasi, tarif pihak ketiga jadi pembanding internal — tetapkan apakah dipakai apa adanya atau disesuaikan, dan dokumentasikan selisihnya."
+   "unblock": "Tarif ke pihak ketiga = harga pasar di atas cost-to-serve. Untuk klien afiliasi, tarif pihak ketiga jadi pembanding internal — tetapkan apakah dipakai apa adanya atau disesuaikan, dan dokumentasikan selisihnya. Tarif LP bukan dua angka: ada beberapa kelas driver yang hidup berdampingan — pallet position × waktu, nilai persediaan, karton keluar, persentase nilai penjualan, pallet/karton masuk-keluar, CBM per zona — dan sebagian besar tagihan berbentuk SATU HARGA BUNDEL yang memuat penyimpanan, pick/pack, pengiriman, dan biaya komersial sekaligus. Karena bundel itu satu harga, pemisahan revenue LP ke channel COA Fulfillment dan Trucking adalah KEPUTUSAN, bukan pembacaan data; skenarionya disiapkan di LP09 sheet Split."
+  },
+  {
+   "id": "G16",
+   "type": "DECISION",
+   "title": "Satuan driver handling",
+   "owner": "Kamu (PF) + Warehouse",
+   "sub": "Blocker baru — putaran 3",
+   "unblock": "Karton bukan satuan kerja yang setara: karton antar pemilik barang berbeda volume jauh, sehingga share handling yang dihitung atas karton dan atas CBM masuk-keluar memberi hasil yang berbeda material. Carve-out handling bisa terlalu besar atau terlalu kecil hanya karena satuannya. Tetapkan satu: pallet-movement (masuk + keluar), CBM masuk-keluar per kelas, atau tetap karton dengan bobot per kelas dari WH03."
+  },
+  {
+   "id": "G17",
+   "type": "DECISION",
+   "title": "Satuan kapasitas normal armada per kelas",
+   "owner": "Kamu (PF) + Fleet",
+   "sub": "Blocker baru — putaran 3",
+   "unblock": "PSAK 14 mengalokasi biaya tetap atas kapasitas normal, dan satuan kapasitas itu belum ditetapkan. Pada basis CBM, varians kapasitas tak terpakai membesar dengan cara yang menunjukkan satuannya salah untuk kelas armada trade. Tetapkan per kelas: drop per hari untuk armada kecil dan menengah, tonase untuk produk padat, CBM untuk armada besar. FLT01 sudah punya kolom CBM dan tonase; kolom drop perlu ditambahkan."
+  },
+  {
+   "id": "G18",
+   "type": "DATA",
+   "title": "Entitas pemilik biaya gudang sewa & penagih klien LP01",
+   "owner": "FAT + GA + Legal",
+   "sub": "Blocker baru — dua semesta klien",
+   "unblock": "Neraca percobaan SAMB hanya memuat sewa gudang trading, sementara gudang sewa tempat barang klien LP01 berada tidak punya biaya yang terlihat di mana pun; dan tidak satu nama klien di daftar okupansi gudang sewa yang muncul di daftar klien yang ditagih. Dua semesta klien, satu akun revenue. Konfirmasi dua hal: gudang mana yang ada di kontrak SAMB, dan entitas mana yang menerbitkan invoice untuk klien di gudang sewa. Jawabannya menentukan POOL MANA YANG DIBELAH, bukan hanya angkanya."
+  },
+  {
+   "id": "G19",
+   "type": "DECISION",
+   "title": "Basis periode workpaper: potret atau deret bulanan",
+   "owner": "Kamu (PF)",
+   "sub": "Open item — putaran 3",
+   "unblock": "Workpaper volume hari ini potret satu periode acuan, sedangkan budget butuh dua belas bulan; hanya LP09 yang berkolom bulan. Menjembatani satu angka workpaper ke dua belas bulan memakai aturan tetap/mengikuti-volume — itu asumsi, bukan pengukuran. Tetapkan: workpaper rekap (WH01, WH04, WH05, FAT05, SLS01, LP07) diberi kolom per bulan, sedangkan register transaksi (LP05, LP06, FAT06) tetap satu berkas per periode."
+  },
+  {
+   "id": "G20",
+   "type": "DATA",
+   "title": "Nama untuk selisih billing LP lawan buku",
+   "owner": "FAT + PF",
+   "sub": "Blocker baru — putaran 3",
+   "unblock": "Jumlah dasar tagih per komponen tidak sama dengan akun revenue jasa LP di buku, dan selisihnya belum punya penjelasan maupun pemilik. Sampai bernama, selisih itu TIDAK DIANGGARKAN — bukan disembunyikan di tarif. Arsip billing periode terakhir juga belum masuk, sehingga tidak bisa dibedakan apakah selisihnya membesar atau tagihannya memang naik. Rekonsiliasinya di step 27."
   }
  ],
  "steps": [
@@ -213,12 +253,18 @@
    "docs": [
     "Perjanjian jasa fulfillment & trucking",
     "LP02 Rate Card Model",
-    "Proposal & penawaran tarif"
+    "Proposal & penawaran tarif",
+    "LP04 master klien LP, komitmen kapasitas & tarif"
    ],
    "coa": [],
    "drivers": [
-    "Tarif per pallet position per periode",
-    "Tarif per CBM per zona"
+    "Tarif per pallet position per periode — hanya berlaku untuk sebagian klien",
+    "Tarif per karton keluar di dalam distribution fee bundel",
+    "Persentase nilai penjualan principal di dalam bundel yang sama",
+    "Persentase nilai persediaan — stok awal dan barang masuk",
+    "Tarif handling per pallet atau per karton masuk-keluar",
+    "Tarif per CBM per zona",
+    "Floor, ratchet dan take-or-pay per klien"
    ],
    "needs": [
     {
@@ -231,14 +277,14 @@
     {
      "item": "Master klien LP — badan usaha, term, tarif",
      "kind": "MASTER",
-     "src": "Sistem / Sales",
+     "src": "LP04 + arsip billing — tarif efektif per klien sudah bisa diturunkan",
      "owner": "Sales",
-     "status": "BELUM"
+     "status": "SEBAGIAN"
     },
     {
      "item": "Basis penetapan tarif layanan",
      "kind": "PARAMETER",
-     "src": "LP02 Rate Card Model",
+     "src": "LP09 sheet Driver per Klien-Komponen — kelas driver yang benar-benar dipakai",
      "owner": "PF",
      "status": "SEBAGIAN"
     },
@@ -271,7 +317,8 @@
    "docs": [
     "SAMB_Demand_Forecast_WP_v1.0.xlsx",
     "Historis sales SAP (VBRP)",
-    "Rencana promo principal"
+    "Rencana promo principal",
+    "SLS01 rekap order count & AOV"
    ],
    "coa": [],
    "drivers": [
@@ -307,7 +354,7 @@
     {
      "item": "Kapasitas normal gudang dalam pallet position",
      "kind": "PARAMETER",
-     "src": "Survey gudang",
+     "src": "WH01 sheet Zona & Tinggi Rak",
      "owner": "Warehouse (Pak Deni)",
      "status": "BELUM"
     },
@@ -330,7 +377,8 @@
    "docs": [
     "PO",
     "Price list principal",
-    "Konfirmasi trading term"
+    "Konfirmasi trading term",
+    "MD02 kontrak & trading term per principal"
    ],
    "coa": [],
    "drivers": [
@@ -418,7 +466,8 @@
    "docs": [
     "Instruksi penitipan barang",
     "SJ klien",
-    "Berita acara terima titipan"
+    "Berita acara terima titipan",
+    "LP05 register barang titipan & berita acara"
    ],
    "coa": [
     {
@@ -466,7 +515,8 @@
    "docs": [
     "SJ principal",
     "Tally sheet bongkar",
-    "Referensi PO"
+    "Referensi PO",
+    "WH02 time study manpower gudang & activity pool"
    ],
    "coa": [
     {
@@ -475,7 +525,8 @@
     }
    ],
    "drivers": [
-    "CBM inbound per kategori → Pool 1 Receiving & Put-Away"
+    "CBM inbound per kategori → Pool 1 Receiving & Put-Away",
+    "Upah bongkar dibayar per karton — biaya variabel yang mengikuti volume, bukan biaya tetap"
    ],
    "risk": "Qty fisik ≠ qty SJ principal; kerusakan saat bongkar tidak tercatat sehingga jadi selisih opname nanti.",
    "control": "Dual check tally lawan SJ principal dan PO; berita acara selisih ditandatangani dua pihak sebelum truk principal keluar.",
@@ -618,7 +669,8 @@
    "docs": [
     "Berita acara terima titipan",
     "Entry WMS dengan kode pemilik",
-    "Foto kondisi barang"
+    "Foto kondisi barang",
+    "LP05 register barang titipan & berita acara"
    ],
    "coa": [
     {
@@ -671,7 +723,9 @@
    "docs": [
     "Task put-away WMS",
     "Peta lokasi rak",
-    "LP01 — occupancy"
+    "LP01 — occupancy",
+    "WH01 kapasitas gudang, zona & pallet position",
+    "WH03 kelas tumpuk & stacking factor"
    ],
    "coa": [
     {
@@ -748,7 +802,10 @@
     "Stock report WMS",
     "Berita acara opname",
     "LP01 — occupancy pallet-day",
-    "Aging / slow-moving report"
+    "Aging / slow-moving report",
+    "WH01 kapasitas gudang, zona & pallet position",
+    "WH03 kelas tumpuk & stacking factor",
+    "FAT04 rekonsiliasi opname & basis inventory days"
    ],
    "coa": [
     {
@@ -780,7 +837,9 @@
     "CBM × inventory days (space × time) → Pool 2 Storage & Housekeeping",
     "Pallet-day rate — total cost pool ÷ pallet-days",
     "Net CBM movement → cluster sisa account",
-    "Pallet-day per pemilik barang → belah pool bersama"
+    "Pallet-day per pemilik barang → belah pool bersama",
+    "Sewa gudang menjadi depresiasi hak-guna aset + bunga sejak PSAK 73 berlaku — tarif kontrak per PP tidak boleh ditambahkan di atas depresiasi",
+    "Uji muat: stok CBM × faktor tumpuk ÷ m³ per pallet position, dibandingkan dengan PP tersedia"
    ],
    "risk": "Selisih opname tidak ditelusuri sampai akar; slow-moving dan expired tidak terdeteksi sampai jadi write-off. Stok titipan afiliasi tercampur dengan stok milik sendiri sehingga opname tidak akan pernah tie ke TB.",
    "control": "Cycle count berjadwal dengan toleransi tertulis; aging review bulanan dengan pemilik keputusan yang jelas.",
@@ -825,7 +884,7 @@
     {
      "item": "Headcount & pembagian waktu per 4 activity pool",
      "kind": "MASTER",
-     "src": "HR + time study",
+     "src": "WH02 Time Study — payroll per departemen sudah ada, yang hilang time study-nya",
      "owner": "HR + Warehouse",
      "status": "BELUM"
     },
@@ -862,7 +921,8 @@
    "docs": [
     "SO",
     "Credit check",
-    "ATP / stock availability check"
+    "ATP / stock availability check",
+    "SLS01 rekap order count & AOV"
    ],
    "coa": [],
    "drivers": [
@@ -913,7 +973,8 @@
    "track": "LP",
    "docs": [
     "Delivery order klien",
-    "Daftar tujuan kirim"
+    "Daftar tujuan kirim",
+    "LP06 DO klien, register SJ barang klien & peran SAMB"
    ],
    "coa": [],
    "drivers": [
@@ -948,7 +1009,8 @@
    "co": "Sales Admin + Warehouse",
    "docs": [
     "DO",
-    "Picking list"
+    "Picking list",
+    "SLS02 master rute, zona & aturan FEFO"
    ],
    "coa": [],
    "drivers": [
@@ -991,7 +1053,9 @@
    "co": "Outbound",
    "docs": [
     "Picking list",
-    "Konfirmasi pick di WMS"
+    "Konfirmasi pick di WMS",
+    "WH04 rekap outbound, pick line & CBM per surat jalan",
+    "WH02 time study manpower gudang & activity pool"
    ],
    "coa": [
     {
@@ -1001,13 +1065,13 @@
    ],
    "drivers": [
     "CBM outbound per kategori → Pool 3 Picking & Packing",
-    "Pick line count → kandidat driver LP Fulfillment",
-    "Baris pick per pemilik barang → belah pool bersama"
+    "Baris pick per pemilik barang → membelah Pool 3",
+    "Karton keluar per pemilik barang → driver handling, satuannya belum ditetapkan (G16)"
    ],
    "risk": "Salah SKU atau qty; pick dilakukan tanpa scan sehingga stok sistem menyimpang dari fisik.",
    "control": "Scan verifikasi per baris pick; sampling QC sebelum packing.",
    "gap": "G05",
-   "note": "Pick line count yang tercatat di step ini adalah salah satu dari tiga kandidat driver LP Fulfillment. Kalau driver-nya dipilih, datanya sudah ada di sini. Tidak dipecah: picking list adalah dokumen kerja internal dengan format yang sama untuk kedua jalur, dan tidak ada posting akuntansi. Yang membedakan hanya atribut pemilik.",
+   "note": "Baris pick per pemilik barang yang tercatat di step ini adalah driver yang membelah Pool 3 — bukan lagi salah satu dari tiga kandidat driver tunggal (premis G05 yang lama). Karton keluar per pemilik barang lahir di sini juga, dan satuannya menunggu G16. Tidak dipecah: picking list adalah dokumen kerja internal dengan format yang sama untuk kedua jalur, dan tidak ada posting akuntansi. Yang membedakan hanya atribut pemilik.",
    "needs": [
     {
      "item": "Baris pick per DO",
@@ -1048,7 +1112,8 @@
    "co": "Outbound",
    "docs": [
     "Label pengiriman",
-    "Packing list"
+    "Packing list",
+    "WH04 rekap outbound, pick line & CBM per surat jalan"
    ],
    "coa": [
     {
@@ -1079,7 +1144,7 @@
     {
      "item": "Pemakaian material packing per periode",
      "kind": "TRANSAKSI",
-     "src": "GL / stok material",
+     "src": "Kartu stok → WH04 sheet Material Packing",
      "owner": "Warehouse + FAT",
      "status": "BELUM"
     }
@@ -1095,7 +1160,8 @@
    "docs": [
     "SJ SAMB — grain per-SJ",
     "Checklist loading",
-    "Feed ke LP02 Trip Log"
+    "Feed ke LP02 Trip Log",
+    "WH04 rekap outbound, pick line & CBM per surat jalan"
    ],
    "coa": [
     {
@@ -1105,7 +1171,9 @@
    ],
    "drivers": [
     "CBM outbound → Pool 4 Loading & Dispatch",
-    "CBM per SJ → basis alokasi trucking"
+    "CBM per SJ → basis alokasi trucking",
+    "Karton per SJ → satuan upah borongan DAN penyebut share handling",
+    "Berat per SJ → tonase mengikat sebelum CBM untuk produk padat"
    ],
    "risk": "SJ terbit tanpa barang benar-benar naik; kolom CBM di SJ dikosongkan karena tidak ada yang memakainya di lapangan.",
    "control": "Verifikasi loading vs SJ oleh checker terpisah; SJ bernomor urut dan dipertanggungjawabkan.",
@@ -1115,7 +1183,7 @@
     {
      "item": "CBM per SJ",
      "kind": "TRANSAKSI",
-     "src": "Kolom di SJ → LP02 Trip Log",
+     "src": "Kolom di SJ → Trip Log → WH04",
      "owner": "Warehouse Outbound",
      "status": "BELUM"
     },
@@ -1139,6 +1207,13 @@
      "src": "Absensi",
      "owner": "Warehouse + HR",
      "status": "BELUM"
+    },
+    {
+     "item": "Karton & berat per SJ",
+     "kind": "TRANSAKSI",
+     "src": "Kolom di SJ → WH04 sheet Rekap Outbound",
+     "owner": "Warehouse Outbound",
+     "status": "BELUM"
     }
    ],
    "track": "TRADE",
@@ -1153,7 +1228,8 @@
     "SJ pengiriman barang klien — SAMB sebagai pengangkut, bukan penjual",
     "Referensi DO klien",
     "Salinan SJ untuk klien",
-    "Feed ke LP02 Trip Log"
+    "Feed ke LP02 Trip Log",
+    "LP06 DO klien, register SJ barang klien & peran SAMB"
    ],
    "coa": [
     {
@@ -1167,7 +1243,8 @@
    ],
    "drivers": [
     "CBM outbound per klien → Pool 4, porsi COS–LP",
-    "CBM per SJ per klien → dasar tagih trucking"
+    "CBM per SJ per klien → dasar tagih trucking",
+    "Karton dan berat per SJ per klien → penyebut handling dan uji basis tonase"
    ],
    "risk": "SJ barang klien diterbitkan dengan format dan seri yang sama seperti SJ penjualan SAMB, sehingga terlihat seolah SAMB yang melakukan penyerahan — implikasinya PPN dan pengakuan revenue tercatat di entitas yang salah.",
    "control": "Format SJ terpisah dengan peran SAMB sebagai pengangkut tertulis jelas; seri nomor terpisah dari SJ penjualan; salinan SJ diserahkan ke klien.",
@@ -1214,7 +1291,8 @@
    "docs": [
     "LP02 Trip Log — Trip Key, Armada, Kepemilikan Barang, utilization",
     "LP02 Master Truck",
-    "Rencana rute & zona"
+    "Rencana rute & zona",
+    "FLT01 jumlah armada, kapasitas normal & koreksi rate card"
    ],
    "coa": [
     {
@@ -1236,8 +1314,9 @@
    ],
    "drivers": [
     "CBM per trip dari Trip Log",
-    "Normal / achievable capacity per tipe truk — BUKAN actual",
-    "Depresiasi normalized per tipe truk"
+    "Kapasitas NORMAL per tipe armada — satuannya belum ditetapkan (G17): drop per hari, tonase, atau CBM",
+    "Depresiasi normalized per tipe truk",
+    "Varians kapasitas tak terpakai — disurfacing, tidak dikubur ke unit cost"
    ],
    "risk": "Utilisasi rendah tidak terpantau sehingga terserap diam-diam ke unit cost; trip tercatat tanpa muatan riil.",
    "control": "Utilization dihitung otomatis di Trip Log; approval rute sebelum armada keluar.",
@@ -1305,7 +1384,9 @@
    "docs": [
     "SJ + tanda terima",
     "Log BBM per trip",
-    "Data GPS / tracking"
+    "Data GPS / tracking",
+    "FLT02 rekonsiliasi biaya armada GL lawan laporan operasional",
+    "SLS02 master rute, zona & aturan FEFO"
    ],
    "coa": [
     {
@@ -1315,7 +1396,8 @@
    ],
    "drivers": [
     "CBM × zona (Zone 1 / 2 / 3)",
-    "Backhaul sudah di dalam asumsi tarif round-trip Zone 2 & 3"
+    "Backhaul sudah di dalam asumsi tarif round-trip Zone 2 & 3",
+    "CBM barang sendiri DAN barang klien di satu pembilang — truk yang sama mengangkut keduanya"
    ],
    "risk": "BBM dan uang jalan tidak sepadan dengan rute; deviasi rute tidak terdeteksi.",
    "control": "Log BBM per trip direkonsiliasi dengan jarak GPS; deviasi di atas ambang wajib penjelasan.",
@@ -1361,7 +1443,8 @@
    "co": "serah ke Finance",
    "docs": [
     "POD bertanda tangan customer",
-    "Nota retur / reject"
+    "Nota retur / reject",
+    "WH05 register POD, retur & reject"
    ],
    "coa": [
     {
@@ -1412,7 +1495,8 @@
    "docs": [
     "POD bertanda tangan penerima",
     "Salinan POD untuk klien",
-    "Nota retur titipan"
+    "Nota retur titipan",
+    "WH05 register POD, retur & reject"
    ],
    "coa": [
     {
@@ -1459,12 +1543,69 @@
    "slot": 15
   },
   {
+   "name": "Retur, reject & klaim ke principal",
+   "fn": "WAREHOUSE",
+   "co": "Warehouse + Sales Admin",
+   "docs": [
+    "WH05 register POD, retur & reject",
+    "Nota retur bernomor",
+    "Rekap retur per principal"
+   ],
+   "coa": [
+    {
+     "code": "4.3.xx",
+     "label": "Sales Return — pengurang revenue"
+    },
+    {
+     "code": "Laba rugi",
+     "label": "Claim Discount — klaim ke principal"
+    }
+   ],
+   "drivers": [
+    "Nilai retur sebagai porsi penjualan per principal",
+    "Qty retur per alasan",
+    "Porsi layak jual lawan write-off",
+    "Porsi yang diklaim ke principal"
+   ],
+   "risk": "Barang kembali diterima tanpa nota bernomor, sehingga tidak pernah sampai ke Sales Return maupun ke klaim ke principal — nilainya hilang dua kali: barangnya sudah kembali, penggantiannya tidak pernah ditagih. Retur barang klien tercampur dengan retur barang sendiri karena kolom Kepemilikan Barang tidak ada di nota.",
+   "control": "Nota retur bernomor untuk setiap barang kembali, dengan kolom Kepemilikan Barang dan kode alasan; barang layak jual dipisah dari write-off sebelum kembali ke rak; rekap bulanan per principal direkonsiliasi ke akun Sales Return dan ke daftar klaim yang diajukan.",
+   "gap": "G09",
+   "note": "Kotak ini sebelumnya tidak ada, dan meta.scope v0.3 menyebutnya sendiri. Registernya sekarang tersedia di WH05. Muara akuntansinya DUA dan berangkat dari satu nota: Sales Return untuk yang ditanggung SAMB, klaim ke principal untuk yang ditanggung principal — jadi kalau kolom 'siapa menanggung' kosong, dua-duanya salah.",
+   "needs": [
+    {
+     "item": "Nota retur bernomor dengan kolom Kepemilikan Barang",
+     "kind": "TRANSAKSI",
+     "src": "WH05 register POD, retur & reject",
+     "owner": "Warehouse + Sales Admin",
+     "status": "BELUM"
+    },
+    {
+     "item": "Kode alasan retur yang dipakai bersama",
+     "kind": "MASTER",
+     "src": "Kebijakan internal",
+     "owner": "Sales + Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Hak retur & batas waktu per principal",
+     "kind": "REFERENSI",
+     "src": "Kontrak principal → MD02",
+     "owner": "Commercial",
+     "status": "SEBAGIAN"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "18c",
+   "slot": 15
+  },
+  {
    "name": "Terbit invoice & faktur pajak",
    "fn": "FINANCE",
    "co": "AR + Tax",
    "docs": [
     "Invoice (dicetak fisik)",
-    "Faktur pajak / e-Faktur"
+    "Faktur pajak / e-Faktur",
+    "FAT05 rekap invoice, driver commercial support & perbaikan formula budget"
    ],
    "coa": [
     {
@@ -1485,7 +1626,8 @@
     }
    ],
    "drivers": [
-    "Jumlah invoice created → Commercial Support (people cost DAN paper cost)"
+    "Jumlah invoice created → Commercial Support (people cost DAN paper cost)",
+    "Headcount AR × porsi waktu ke invoicing → biaya orang Commercial Support; mekanismenya di FAT05 sheet Headcount AR"
    ],
    "risk": "Invoice tidak match SJ atau POD; faktur pajak terlambat terbit sehingga timbul eksposur sanksi.",
    "control": "Invoice hanya boleh terbit dari POD valid; rekonsiliasi invoice vs faktur pajak bulanan.",
@@ -1516,9 +1658,9 @@
     {
      "item": "Headcount & biaya staff invoicing vs collection",
      "kind": "MASTER",
-     "src": "HR",
+     "src": "Salary Details → FAT05 sheet Headcount AR — departemennya ada, pembagiannya G11",
      "owner": "HR + Finance",
-     "status": "BELUM"
+     "status": "SEBAGIAN"
     },
     {
      "item": "Porsi dedikasi Asman Tax",
@@ -1540,28 +1682,33 @@
    "docs": [
     "Rekap pallet-day per klien",
     "Rekap CBM terkirim per klien",
-    "LP01 + LP02 sebagai sumber"
+    "LP01 + LP02 sebagai sumber",
+    "LP07 pengukuran konsumsi layanan per klien LP",
+    "LP09 rekonsiliasi billing LP, driver per klien & carve-out"
    ],
    "coa": [],
    "drivers": [
-    "Pallet-day per klien → dasar tagih fulfillment",
-    "CBM × zona per klien → dasar tagih trucking",
-    "Baris pick per klien → kandidat driver fulfillment"
+    "Pallet-day per klien → dasar tagih fulfillment, berlaku hanya untuk sebagian klien",
+    "Nilai persediaan klien → dasar tagih storage untuk sebagian klien lain",
+    "Karton keluar atau persentase nilai penjualan → distribution fee bundel",
+    "Pallet atau karton masuk + keluar → handling",
+    "CBM × zona per klien → trucking eksplisit, porsi terkecil",
+    "PERINGATAN: klien di gudang sewa dan klien yang ditagih adalah dua himpunan terpisah (G18)"
    ],
    "needs": [
     {
      "item": "Pallet-day per klien LP per periode",
      "kind": "TRANSAKSI",
-     "src": "Turunan WMS + LP01",
+     "src": "Arsip billing untuk klien bertarif pallet, WMS untuk sisanya",
      "owner": "PF",
-     "status": "BELUM"
+     "status": "SEBAGIAN"
     },
     {
      "item": "CBM terkirim per klien per zona",
      "kind": "TRANSAKSI",
-     "src": "Turunan LP02 Trip Log",
+     "src": "Arsip billing untuk klien afiliasi, imputasi master produk untuk klien bundel, sisanya belum",
      "owner": "PF",
-     "status": "BELUM"
+     "status": "SEBAGIAN"
     },
     {
      "item": "Baris pick per klien per periode",
@@ -1586,7 +1733,8 @@
    "docs": [
     "Invoice jasa LP",
     "Faktur pajak",
-    "Lampiran rekap konsumsi"
+    "Lampiran rekap konsumsi",
+    "LP08 invoice jasa LP & carve-out COS–LP"
    ],
    "coa": [
     {
@@ -1607,15 +1755,16 @@
     }
    ],
    "drivers": [
-    "Tarif × konsumsi terukur per klien"
+    "Tarif × konsumsi terukur per klien",
+    "Selisih antara dasar tagih dan akun revenue di buku dibawa sebagai baris tersendiri — bukan disembunyikan di tarif (G20)"
    ],
    "needs": [
     {
      "item": "Nomor & nilai invoice jasa LP per klien",
      "kind": "TRANSAKSI",
-     "src": "SAP",
+     "src": "Arsip billing per klien per komponen",
      "owner": "Finance AR",
-     "status": "SEBAGIAN"
+     "status": "ADA"
     },
     {
      "item": "Faktur pajak atas jasa LP",
@@ -1634,7 +1783,7 @@
    ],
    "risk": "Revenue LP diakui tanpa carve-out biayanya, sehingga margin jasa LP terlihat lebih tinggi dari sebenarnya dan Storing Cost menanggung biaya melayani barang milik klien.",
    "control": "Invoice hanya terbit dari rekap konsumsi terukur; carve-out COS–LP dibukukan di periode yang sama dengan revenue-nya.",
-   "gap": "G13",
+   "gap": "G15",
    "note": "DI SINI RISIKO DOUBLE COUNT. Sewa gudang dan biaya armada yang melayani barang klien tidak boleh tetap tinggal di Storing/Distribution Cost sekaligus muncul di COS–LP. Satu pool, satu kali.",
    "label": "21",
    "slot": 17
@@ -1645,7 +1794,8 @@
    "co": "AR",
    "docs": [
     "Tanda terima tukar faktur",
-    "Log pengiriman tagihan"
+    "Log pengiriman tagihan",
+    "FAT06 tukar faktur, DSO aktual & AR aging"
    ],
    "coa": [
     {
@@ -1699,7 +1849,8 @@
    "docs": [
     "Transfer pricing documentation",
     "Analisis kesebandingan",
-    "Bukti manfaat bagi penerima jasa"
+    "Bukti manfaat bagi penerima jasa",
+    "TAX01 dokumentasi transfer pricing klien afiliasi"
    ],
    "coa": [],
    "drivers": [
@@ -1716,9 +1867,9 @@
     {
      "item": "Tarif ke klien pihak ketiga sebagai pembanding internal",
      "kind": "REFERENSI",
-     "src": "Rate card & invoice aktual",
+     "src": "TAX01 sheet Pembanding Internal + rate card terkoreksi FLT01",
      "owner": "Sales + PF",
-     "status": "BELUM"
+     "status": "SEBAGIAN"
     },
     {
      "item": "Analisis kesebandingan per transaksi afiliasi",
@@ -1742,7 +1893,8 @@
    "docs": [
     "AR aging",
     "Statement of account",
-    "Log dunning"
+    "Log dunning",
+    "FAT06 tukar faktur, DSO aktual & AR aging"
    ],
    "coa": [
     {
@@ -1885,7 +2037,8 @@
    "docs": [
     "Matrix intercompany 9 entitas — BS & IS",
     "Kertas kerja eliminasi",
-    "TB konsolidasi"
+    "TB konsolidasi",
+    "FAT07 pre-recon TB & pasangan intercompany per nomor dokumen"
    ],
    "coa": [
     {
@@ -1897,7 +2050,11 @@
      "label": "Eliminasi unrealized profit atas markup"
     }
    ],
-   "drivers": [],
+   "drivers": [
+    "Pasangan revenue ↔ biaya AT COST per nomor dokumen — laba rugi bukan cermin",
+    "Markup di atas cost dieliminasi terpisah sebagai laba belum terealisasi",
+    "Kolom pasangan diisi bertanda cermin — tanpa konvensi tanda, semua baris terbaca selisih"
+   ],
    "needs": [
     {
      "item": "Saldo AR/AP afiliasi yang sudah direkonsiliasi dua sisi",
@@ -1927,11 +2084,143 @@
    "note": "BS adalah mirror simetris — AR di A = AP di B, satu lawan satu. IS tidak. Berlaku HANYA untuk klien LP yang berstatus afiliasi; tagihan ke klien pihak ketiga tidak dieliminasi.",
    "label": "26",
    "slot": 21
+  },
+  {
+   "name": "Rekonsiliasi billing LP lawan buku",
+   "fn": "FINANCE",
+   "co": "PF + FAT",
+   "docs": [
+    "LP09 rekonsiliasi billing LP, driver per klien & carve-out",
+    "Arsip billing per klien per bulan",
+    "Buku akun revenue jasa LP"
+   ],
+   "coa": [
+    {
+     "code": "4.4.xx",
+     "label": "Sales — Logistic provider"
+    }
+   ],
+   "drivers": [
+    "Dasar tagih per klien per komponen",
+    "Porsi klien afiliasi di dalamnya",
+    "Selisih dasar tagih lawan buku per bulan"
+   ],
+   "risk": "Revenue jasa LP diakui dari buku tanpa pernah dicocokkan ke dasar tagih per komponen, sehingga selisihnya tidak pernah bernama dan ikut terbawa ke budget sebagai pendapatan berulang yang tidak punya dasar tagih.",
+   "control": "Setiap bulan dasar tagih per klien per komponen dijumlah dan dicocokkan ke akun revenue jasa LP di buku; selisih di atas ambang diberi nama dan pemilik sebelum tutup buku; selisih yang belum bernama tidak dianggarkan.",
+   "gap": "G20",
+   "note": "Di sinilah dua semesta klien terlihat: klien yang menerima tagihan dan klien yang menempati gudang sewa tidak bertemu di satu nama pun, sementara keduanya bermuara ke satu akun revenue. Rekonsiliasi bulanan inilah yang memaksa pertanyaan itu keluar, bukan analisis terpisah.",
+   "needs": [
+    {
+     "item": "Arsip billing LP per klien per bulan",
+     "kind": "TRANSAKSI",
+     "src": "Arsip billing → LP09",
+     "owner": "PF",
+     "status": "ADA"
+    },
+    {
+     "item": "Arsip billing periode terakhir",
+     "kind": "TRANSAKSI",
+     "src": "Arsip billing",
+     "owner": "PF + Finance AR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Penjelasan selisih dasar tagih lawan buku per bulan",
+     "kind": "REFERENSI",
+     "src": "Penelusuran FAT",
+     "owner": "FAT",
+     "status": "BELUM"
+    },
+    {
+     "item": "Padanan nama klien yang ditagih lawan klien gudang sewa",
+     "kind": "MASTER",
+     "src": "Daftar okupansi + arsip billing",
+     "owner": "Sales + PF",
+     "status": "BELUM"
+    }
+   ],
+   "track": "LP",
+   "label": "27",
+   "slot": 19
+  },
+  {
+   "name": "Alokasi pool biaya & carve-out COS–LP (tutup buku)",
+   "fn": "FINANCE",
+   "co": "PF + Accounting",
+   "docs": [
+    "LP09 rekonsiliasi billing LP — sheet Konsumsi & Carve-out",
+    "LP08 invoice jasa LP & carve-out COS–LP",
+    "WH02 time study manpower gudang & activity pool"
+   ],
+   "coa": [
+    {
+     "code": "5.4.xx",
+     "label": "COGS — Logistic provider"
+    },
+    {
+     "code": "6.3.xx",
+     "label": "Storing — dikeluarkan ke COGS-LP"
+    },
+    {
+     "code": "7.3.xx",
+     "label": "Distribution — dikeluarkan ke COGS-LP"
+    }
+   ],
+   "drivers": [
+    "Pool ruang × porsi pallet position klien",
+    "Pool handling × porsi karton-ekuivalen klien",
+    "Pool truk × porsi CBM klien, diuji atas basis tonase",
+    "Bobot pool handling dari time study"
+   ],
+   "risk": "Biaya melayani barang klien tetap tinggal di Storing dan Distribution sementara COGS-LP dibukukan terpisah, sehingga biaya yang sama terhitung dua kali dan marjin jasa LP terbaca penuh; atau sebaliknya pool dibelah dengan revenue share, sehingga cost-to-serve per CBM tidak pernah bisa dipertanggungjawabkan ke luar.",
+   "control": "Tiga pool ditetapkan sebelum alokasi (ruang, handling, truk), masing-masing dibelah SEKALI dengan driver konsumsi fisiknya; jumlah yang masuk COGS-LP dikeluarkan lewat baris 'dikeluarkan ke COGS-LP' di pool asalnya; kontrol bulanan memeriksa carve-out sama dengan pengurangan pool, dan laba operasi tidak berubah oleh reklas.",
+   "gap": "G13",
+   "note": "Inilah tempat G13 sebenarnya — bukan step 21. Carve-out adalah jurnal tutup buku, bukan bagian dari penerbitan invoice. Buku tidak punya dan tidak akan punya akun biaya LP: klien dilayani oleh ruang, tenaga handling dan truk yang SAMA dengan barang sendiri. Satu-satunya cara yang mengikuti realita adalah membelah pool dengan driver konsumsi — bukan persentase flat, bukan revenue share.",
+   "needs": [
+    {
+     "item": "Total pallet position terisi seluruh gudang per bulan",
+     "kind": "TRANSAKSI",
+     "src": "WMS → WH01",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Total karton keluar + masuk gudang per bulan",
+     "kind": "TRANSAKSI",
+     "src": "WMS → WH04",
+     "owner": "Warehouse",
+     "status": "BELUM"
+    },
+    {
+     "item": "Total CBM & tonase dikirim per bulan",
+     "kind": "TRANSAKSI",
+     "src": "Trip Log → WH04",
+     "owner": "Fleet",
+     "status": "BELUM"
+    },
+    {
+     "item": "Bobot empat activity pool dari time study",
+     "kind": "PARAMETER",
+     "src": "WH02 Time Study",
+     "owner": "Warehouse + HR",
+     "status": "BELUM"
+    },
+    {
+     "item": "Payroll per departemen per bulan",
+     "kind": "TRANSAKSI",
+     "src": "Salary Details",
+     "owner": "HRD",
+     "status": "ADA"
+    }
+   ],
+   "track": "KEDUANYA",
+   "label": "28",
+   "slot": 21
   }
  ],
  "meta": {
   "entity": "SAMB",
-  "version": "0.3",
-  "scope": "Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim discount belum dipetakan."
+  "version": "0.4",
+  "scope": "Order ke principal → collection, plus jalur SAMB sebagai penyedia jasa logistik ke klien pihak ketiga. Intake terpisah per jalur; konvergensi mulai di put-away. Retur & klaim ke principal (18c), rekonsiliasi billing LP lawan buku (27), dan alokasi pool & carve-out COS–LP saat tutup buku (28) sekarang dipetakan. Alat pengumpul setiap need adalah 21 workpaper yang namanya disebut di docs masing-masing step."
  }
 }

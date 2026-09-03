@@ -14,13 +14,20 @@
  * (see readResult.ts) wearing a new hat.
  *
  * So these tests do the opposite. They assert POSITIVE COUNTS end to end —
- * 118, 64, 29 owners, 83/35 Trade, 82/50 LP — over the real seed fixture, and
+ * 131, 69, 30 owners, 92/41 Trade, 94/55 LP — over the real seed fixture, and
  * they FAIL if needs ever come back empty, whatever the reason. A regression
  * that silently drops the register cannot pass this file.
  *
- * The figures are the live table, verified against production on 6 August:
+ * WHOSE FIGURES THESE ARE. The v0.3 numbers were the live table, verified
+ * against production on 6 August:
  *   118 needs · ADA 22 · SEBAGIAN 32 · BELUM 64 · 30/30 steps carry needs
  *   Trade 83 (35 BELUM) · LP 82 (50 BELUM) · 29 owners hold a BELUM
+ * The numbers asserted below are the v0.4 FIXTURE's (sambProcessSeed.json
+ * after 20260903000094), computed by running the derivations over it, not
+ * read off production. They equal production only once that migration is
+ * applied; until then live still answers the v0.3 line above:
+ *   131 needs · ADA 25 · SEBAGIAN 37 · BELUM 69 · 33/33 steps carry needs
+ *   Trade 92 (41 BELUM) · LP 94 (55 BELUM) · 30 owners hold a BELUM
  */
 import { describe, expect, it } from 'vitest';
 import { okRows, readAbsence, type ReadResult } from '../data/readResult';
@@ -60,67 +67,67 @@ const TRACKS = fixtureTracks();
 const SHARED: ReadonlySet<string> = new Set(['KEDUANYA']);
 
 describe('the needs register reaches the canvas — positive counts, not absence of error', () => {
-  it('carries 118 needs through buildProcessModel into the stats line', () => {
+  it('carries 131 needs through buildProcessModel into the stats line', () => {
     const model = buildProcessModel(ready());
     expect(model.kind).toBe('ready');
     if (model.kind !== 'ready') return;
 
     // The assertion that would have failed on 6 August.
-    expect(model.needs.length).toBe(118);
+    expect(model.needs.length).toBe(131);
     const stats = processStats(model.steps, model.needs, 'ALL', TRACKS);
     expect(stats).toEqual({
-      visible: 30,
-      total: 30,
-      handoffCount: 12,
-      needCount: 118,
-      needBelum: 64,
+      visible: 33,
+      total: 33,
+      handoffCount: 15,
+      needCount: 131,
+      needBelum: 69,
     });
   });
 
-  it('quotes 83/35 on Trade and 82/50 on LP — the jalur filter never zeroes the register', () => {
+  it('quotes 92/41 on Trade and 94/55 on LP — the jalur filter never zeroes the register', () => {
     const model = buildProcessModel(ready());
     if (model.kind !== 'ready') throw new Error('model must be ready');
 
     const trade = processStats(model.steps, model.needs, 'TRADE', TRACKS);
-    expect([trade.needCount, trade.needBelum]).toEqual([83, 35]);
+    expect([trade.needCount, trade.needBelum]).toEqual([92, 41]);
     const lp = processStats(model.steps, model.needs, 'LP', TRACKS);
-    expect([lp.needCount, lp.needBelum]).toEqual([82, 50]);
+    expect([lp.needCount, lp.needBelum]).toEqual([94, 55]);
   });
 
-  it('leaves no step without needs — every one of the 30 boxes can show a count', () => {
+  it('leaves no step without needs — every one of the 33 boxes can show a count', () => {
     const model = buildProcessModel(ready());
     if (model.kind !== 'ready') throw new Error('model must be ready');
 
     const withNeeds = new Set(model.needs.map((need) => need.stepId));
     const stepIds = new Set(model.steps.map((step) => step.id));
-    expect(withNeeds.size).toBe(30);
+    expect(withNeeds.size).toBe(33);
     // The join key itself: every need must resolve to a step. A uuid-vs-label
     // mix-up would leave the counts at zero with both reads perfectly healthy.
     for (const stepId of withNeeds) expect(stepIds.has(stepId)).toBe(true);
   });
 
-  it('groups the 64 BELUM rows under 29 owners — the request list is not empty', () => {
+  it('groups the 69 BELUM rows under 30 owners — the request list is not empty', () => {
     const rows = registerRows(
       fixtureNeeds(),
       fixtureSteps(),
       { track: 'ALL', status: BELUM_ONLY, kind: ALL_KIND },
       SHARED,
     );
-    expect(rows.length).toBe(64);
+    expect(rows.length).toBe(69);
     const groups = groupByOwner(rows);
-    expect(groups.length).toBe(29);
-    expect(groups.reduce((total, group) => total + group.rows.length, 0)).toBe(64);
+    expect(groups.length).toBe(30);
+    expect(groups.reduce((total, group) => total + group.rows.length, 0)).toBe(69);
     // Most-BELUM-first is the order to go asking in; a zeroed register would
     // make this vacuously true, so assert the head is a real group.
     expect(groups[0].belum).toBeGreaterThan(0);
   });
 
-  it('summarises 22 / 32 / 64 of 118 for the proportion bar', () => {
+  it('summarises 25 / 37 / 69 of 131 for the proportion bar', () => {
     expect(summarizeNeeds(fixtureNeeds(), fixtureSteps(), 'ALL', SHARED)).toEqual({
-      ada: 22,
-      sebagian: 32,
-      belum: 64,
-      total: 118,
+      ada: 25,
+      sebagian: 37,
+      belum: 69,
+      total: 131,
     });
   });
 
