@@ -17,7 +17,11 @@
 -- which is what they were before 095.
 --
 -- Order matters: the policies call the functions, so policies go first; the
--- table's own policies and trigger go with the table.
+-- table's own policies and trigger go with the table. RUN 20260904000097's
+-- DOWN FILE BEFORE THIS ONE — its deps/edges policies name
+-- os_member_readable_cells(), and Postgres refuses to drop a function a
+-- policy still depends on (scripts/grant-scope-tests.sh unwinds in that
+-- order).
 
 drop policy if exists "member reads granted accounts" on public.os_finish_line_accounts;
 drop policy if exists "member reads granted cells"    on public.os_finish_line_cells;

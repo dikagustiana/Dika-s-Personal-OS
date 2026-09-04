@@ -28,7 +28,7 @@
 #      entity-wide policy from 040 is re-added — each must turn the suite red,
 #      each is restored, and the suite must be green again afterwards.
 #
-# Then collab_rls.sql — the 40-case live suite the owner is told to run after
+# Then collab_rls.sql — the live suite the owner is told to run after
 # applying — is run here first, against the same cluster, with the projects
 # and the KNI cell it reaches for seeded by fixtures/collab_rls_fixture.sql.
 #
@@ -48,6 +48,10 @@ FIX="$REPO/supabase/tests/fixtures"
 TESTS="$REPO/supabase/tests"
 GRANTS_UP="$MIG/20260904000095_finish_line_grants.sql"
 GRANTS_DOWN="$DOWN/20260904000095_finish_line_grants_down.sql"
+# 097 hangs deps/edges policies off os_member_readable_cells(), so it must be
+# unwound BEFORE 095 (which drops that function) and re-applied AFTER it.
+EDGES_UP="$MIG/20260904000097_finish_line_edges_follow_grants.sql"
+EDGES_DOWN="$DOWN/20260904000097_finish_line_edges_follow_grants_down.sql"
 RC=0
 
 UID_A=11111111-1111-4111-8111-111111111111
@@ -113,7 +117,9 @@ run_script() {
 # 1. THE BACKFILL, MEASURED
 # ---------------------------------------------------------------------------
 echo ""
-echo "==> the backfill, measured: 095 down (membership model), count, 095 up, count"
+echo "==> the backfill, measured: 097 + 095 down (membership model), count, 095 + 097 up, count"
+psql_ "-f $EDGES_DOWN" >/dev/null \
+  || { echo "FATAL: 097 down-migration failed" >&2; exit 1; }
 psql_ "-f $GRANTS_DOWN" >/dev/null \
   || { echo "FATAL: 095 down-migration failed" >&2; exit 1; }
 if [ "$(scalar "select to_regclass('public.os_finish_line_grants') is null")" != "t" ]; then
@@ -127,6 +133,8 @@ if ! UP_OUT=$(psql_ "-f $GRANTS_UP" 2>&1); then
 fi
 echo "    the migration's own NOTICE lines:"
 printf '%s\n' "$UP_OUT" | grep -o 'finish_line_grants: .*' | sed 's/^/      /'
+psql_ "-f $EDGES_UP" >/dev/null 2>&1 \
+  || { echo "FATAL: 097 failed to re-apply after 095" >&2; exit 1; }
 
 AFTER_A=$(readable_as $UID_A); AFTER_B=$(readable_as $UID_B); AFTER_C=$(readable_as $UID_C)
 ORPHAN_A=$(parentless_of $UID_A); ORPHAN_B=$(parentless_of $UID_B); ORPHAN_C=$(parentless_of $UID_C)

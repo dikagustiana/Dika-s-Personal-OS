@@ -1042,6 +1042,9 @@ $$;
 --      no sections, no capability, two entities, two sections on a revoke —
 --      and the log gains nothing from any of them (audit failed = action
 --      failed, at the SQL layer the function cannot get around)
+--   L1 the link-status reader (20260904000098): service_role calls it and
+--      gets no row for a user without a token; anon and authenticated cannot
+--      execute it at all — it must never let a browser probe who holds one
 --   P3 revoke clears BOTH axes and writes one log row carrying both arrays;
 --      the scope grants go with the membership through the 095 cascade
 do $$
@@ -1211,6 +1214,20 @@ begin
   if n <> expected then failures := failures || format('S4: the log grew by %s row(s) from refused entries', n - expected); end if;
   raise notice 'S4: five malformed scope entries refused; the log did not grow';
 
+  -- ===== L1: the link-status reader answers service_role only ==============
+  execute 'set local role service_role';
+  select count(*) into n from public.os_collab_link_status(array[uid_p]);
+  if n <> 0 then failures := failures || format('L1: os_collab_link_status reports %s token(s) for a user who was never minted one', n); end if;
+  execute 'reset role';
+  if has_function_privilege('anon', 'public.os_collab_link_status(uuid[])', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.os_collab_link_status(uuid[])', 'EXECUTE') then
+    failures := failures || 'L1: a client role can EXECUTE os_collab_link_status — a browser could probe who holds an outstanding token';
+  end if;
+  if not has_function_privilege('service_role', 'public.os_collab_link_status(uuid[])', 'EXECUTE') then
+    failures := failures || 'L1: service_role cannot EXECUTE os_collab_link_status — the list action cannot read link status';
+  end if;
+  raise notice 'L1: link-status reader answers service_role (0 tokens for the test user) and refuses anon/authenticated';
+
   -- ===== P3: revoke clears both axes, one audited action ===================
   execute 'set local role service_role';
   delete from public.os_entity_members where user_id = uid_p;
@@ -1238,10 +1255,10 @@ begin
     raise exception E'PROVISIONING-PATH VERIFICATION FAILED — % problem(s):\n%',
       array_length(failures, 1), array_to_string(failures, E'\n');
   end if;
-  raise notice 'ALL 7 PROVISIONING-PATH CASES PASSED';
+  raise notice 'ALL 8 PROVISIONING-PATH CASES PASSED';
 end
 $$;
 
 rollback;
 
-select 'collab_rls: all 48 cases passed (16 original + 4 grant model + 15 slice 1 + 6 domain guard + 7 provisioning path); transaction rolled back, no fixture survives' as result;
+select 'collab_rls: all 49 cases passed (16 original + 4 grant model + 15 slice 1 + 6 domain guard + 8 provisioning path); transaction rolled back, no fixture survives' as result;

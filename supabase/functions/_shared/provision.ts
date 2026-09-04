@@ -30,6 +30,7 @@ import {
   type ScopeCapability,
   type ScopeGrant,
 } from './scopeInput.ts';
+import { deriveLinkState, type CollabLinkState, type StoredLinkRow } from './linkStatus.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_SITE = 'https://dika-personal-os.vercel.app';
@@ -83,17 +84,74 @@ function linkTtlSeconds(): number | null {
  * clock would be the wrong trade.
  */
 async function mintedAt(admin: SupabaseClient, userId: string): Promise<string | null> {
-  // THROUGH AN RPC, NOT A DIRECT SELECT. PostgREST exposes `public` and not
-  // `auth`, so `.schema('auth').from('one_time_tokens')` would fail — and it
-  // would fail softly here, silently downgrading "GoTrue's timestamp" to this
-  // process's clock while every test still passed. The narrow SECURITY DEFINER
-  // reader from migration 20260809000072 is what makes the claim true.
+  const instants = await tokenMintInstants(admin, [userId]);
+  if (instants) return instants.get(userId) ?? null;
+  // Before 20260904000098: the single-user reader from 072. THROUGH AN RPC,
+  // NOT A DIRECT SELECT. PostgREST exposes `public` and not `auth`, so
+  // `.schema('auth').from('one_time_tokens')` would fail — and it would fail
+  // softly here, silently downgrading "GoTrue's timestamp" to this process's
+  // clock while every test still passed. The narrow SECURITY DEFINER reader
+  // is what makes the claim true.
   const { data, error } = await admin.rpc('os_collab_link_minted_at', {
     p_user_id: userId,
   });
   if (error || !data) return null;
   const parsed = Date.parse(data as string);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+/**
+ * GoTrue's mint instant for each user's OUTSTANDING magic-link token, in one
+ * call (os_collab_link_status, 20260904000098). A user absent from the map
+ * holds no unspent token — consumed, or never minted. NULL, the whole map,
+ * when the reader is not there yet, so a caller can fall back rather than
+ * read "nobody has a link" into an absence of the function.
+ */
+async function tokenMintInstants(
+  admin: SupabaseClient,
+  userIds: string[],
+): Promise<Map<string, string> | null> {
+  if (userIds.length === 0) return new Map();
+  const { data, error } = await admin.rpc('os_collab_link_status', { p_user_ids: userIds });
+  if (error) return null;
+  const instants = new Map<string, string>();
+  for (const row of (data ?? []) as { user_id: string; minted_at: string }[]) {
+    const parsed = Date.parse(row.minted_at);
+    if (Number.isFinite(parsed)) instants.set(row.user_id, new Date(parsed).toISOString());
+  }
+  return instants;
+}
+
+/**
+ * The links this app filed, by user. NULL when the table is not readable —
+ * before 20260809000071, or on any error: a status column that cannot be
+ * computed must not take the whole list down with it, so the reason goes to
+ * the function log and the list carries on with `unknown`.
+ */
+async function storedLinksByUser(admin: SupabaseClient): Promise<Map<string, StoredLinkRow> | null> {
+  const { data, error } = await admin
+    .from('os_collab_links')
+    .select('user_id, created_at, expires_at, used_at');
+  if (error) {
+    if (error.code !== '42P01' && error.code !== 'PGRST205') {
+      console.error('provision list: stored links unreadable:', error.message);
+    }
+    return null;
+  }
+  const byUser = new Map<string, StoredLinkRow>();
+  for (const row of data as {
+    user_id: string;
+    created_at: string;
+    expires_at: string | null;
+    used_at: string | null;
+  }[]) {
+    byUser.set(row.user_id, {
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+    });
+  }
+  return byUser;
 }
 
 function expiryFrom(createdAt: string | null): string | null {
@@ -774,25 +832,45 @@ export async function provisionList(admin: SupabaseClient): Promise<ProvisionOut
   // confident zero this app has rendered twice before.
   const scopeByUser = await scopeGrantsByUser(admin);
 
-  const users: Array<Record<string, unknown>> = [];
+  const accounts: User[] = [];
   let page = 1;
   for (;;) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
     if (error) return { ok: false, status: 500, error: 'Could not list users' };
-    for (const user of data.users) {
-      users.push({
-        userId: user.id,
-        email: user.email ?? '',
-        entityCodes: (byUser.get(user.id) ?? []).sort(),
-        projectIds: (projectsByUser.get(user.id) ?? []).sort(),
-        ...(scopeByUser ? { grants: scopeByUser.get(user.id) ?? [] } : {}),
-        lastSignInAt: user.last_sign_in_at ?? null,
-        createdAt: user.created_at ?? null,
-      });
-    }
+    accounts.push(...data.users);
     if (data.users.length < 200) break;
     page += 1;
   }
+
+  // Where each person's sign-in link stands (20260904000098): GoTrue's own
+  // token table through the definer reader, the row this app filed, and the
+  // configured window — derived in linkStatus.ts, never guessed. The reader
+  // being absent yields `unknown` for people with no filed row, which the
+  // dashboard renders as exactly that.
+  const instants = await tokenMintInstants(admin, accounts.map((user) => user.id));
+  const filed = await storedLinksByUser(admin);
+  const ttl = linkTtlSeconds();
+  const now = Date.now();
+
+  const users: Array<Record<string, unknown>> = accounts.map((user) => {
+    const link: CollabLinkState = deriveLinkState({
+      tokenMintedAt: instants ? (instants.get(user.id) ?? null) : undefined,
+      stored: filed?.get(user.id) ?? null,
+      lastSignInAt: user.last_sign_in_at ?? null,
+      ttlSeconds: ttl,
+      now,
+    });
+    return {
+      userId: user.id,
+      email: user.email ?? '',
+      entityCodes: (byUser.get(user.id) ?? []).sort(),
+      projectIds: (projectsByUser.get(user.id) ?? []).sort(),
+      ...(scopeByUser ? { grants: scopeByUser.get(user.id) ?? [] } : {}),
+      link,
+      lastSignInAt: user.last_sign_in_at ?? null,
+      createdAt: user.created_at ?? null,
+    };
+  });
   users.sort((a, b) => String(a.email).localeCompare(String(b.email)));
   await audit(admin, 'list', null, null);
   return { ok: true, body: { users } };

@@ -55,6 +55,8 @@
 --             and an UPDATE toward a metric; revoking membership cascades
 --   roles     anon reads nothing and cannot call the lookups; the owner
 --             (anon + x-app-key) reads everything
+--   edges     (097) a member reads the deps and edges of cells they can read
+--             and nothing else; the owner reads all three of each
 
 begin;
 
@@ -245,6 +247,30 @@ begin
     failures := failures || format('CATALOG: os_finish_line_grants carries %s owner policies keyed on os_key_valid alone, expected 4 (the read-only key must not enumerate who sees what)', n);
   end if;
 
+  -- Deps and edges (097): the member policy keys on the readable set, and the
+  -- entity-wide names from 040 are gone.
+  checks := checks + 1;
+  select coalesce(array_agg(policyname || '|' || cmd || '|' || roles::text order by policyname), '{}') as pols into rec
+    from pg_policies
+   where schemaname = 'public' and tablename = 'os_finish_line_deps'
+     and policyname not like 'require app key%';
+  if rec.pols <> array['member reads granted deps|SELECT|{authenticated}'] then
+    failures := failures || format('CATALOG: member policies on os_finish_line_deps are %s, expected exactly [member reads granted deps|SELECT|{authenticated}] (097)', rec.pols);
+  end if;
+  select coalesce(array_agg(policyname || '|' || cmd || '|' || roles::text order by policyname), '{}') as pols into rec
+    from pg_policies
+   where schemaname = 'public' and tablename = 'os_finish_line_item_projects'
+     and policyname not like 'require app key%';
+  if rec.pols <> array['member reads granted edges|SELECT|{authenticated}'] then
+    failures := failures || format('CATALOG: member policies on os_finish_line_item_projects are %s, expected exactly [member reads granted edges|SELECT|{authenticated}] (097)', rec.pols);
+  end if;
+  select count(*) into n from pg_policies
+   where schemaname = 'public'
+     and tablename in ('os_finish_line_deps', 'os_finish_line_item_projects')
+     and policyname like 'member reads granted%'
+     and qual !~ 'os_member_readable_cells';
+  if n <> 0 then failures := failures || format('CATALOG: %s deps/edges member policies do not key on os_member_readable_cells()', n); end if;
+
   -- History tables: no UPDATE or DELETE policy for anyone, owner included.
   -- os_research_* is deliberately NOT in this list: every one of those tables
   -- has carried the owner's four `require app key to …` policies, UPDATE and
@@ -296,6 +322,18 @@ begin
   checks := checks + 1;
   select coalesce(cardinality(public.os_member_granted_entities()), 0) into n;
   if n <> 5 then failures := failures || format('SCOPE A: os_member_granted_entities() has %s codes, expected 5 (a grant survives on every entity A holds)', n); end if;
+
+  -- Deps and edges follow the readable cell (097): the SAMB/A1 rows show;
+  -- the ASI/B1 rows (revoked) and the SAMB/O1 rows (parentless) do not.
+  checks := checks + 1;
+  select count(*) into n from public.os_finish_line_deps;
+  if n <> 1 then failures := failures || format('SCOPE A: reads %s dep rows, expected 1 (SAMB/A1 <- SAMB/A2 only)', n); end if;
+  select count(*) into n from public.os_finish_line_deps where cell_id = cell_samb_a1;
+  if n <> 1 then failures := failures || 'SCOPE A: the dep of readable SAMB/A1 is not visible'; end if;
+  select count(*) into n from public.os_finish_line_item_projects;
+  if n <> 1 then failures := failures || format('SCOPE A: reads %s edge rows, expected 1 (SAMB/A1 only)', n); end if;
+  select count(*) into n from public.os_finish_line_item_projects where cell_id in (cell_asi_b1, cell_samb_o1);
+  if n <> 0 then failures := failures || format('SCOPE A: %s edge row(s) of an unreadable cell visible (revoked or parentless)', n); end if;
 
   -- ===== 6. writes, as A ====================================================
   -- Read capability: the UPDATE matches nothing, the trigger never runs, no
@@ -396,6 +434,10 @@ begin
   if n <> expected then failures := failures || format('SCOPE C: reads %s items, expected all %s — structure still hangs off membership', n, expected); end if;
   select count(*) into n from public.os_finish_line_grants;
   if n <> 0 then failures := failures || format('SCOPE C: reads %s grant rows, expected 0', n); end if;
+  select count(*) into n from public.os_finish_line_deps;
+  if n <> 0 then failures := failures || format('SCOPE C: enrolled with no grant reads %s dep row(s), expected 0 (097)', n); end if;
+  select count(*) into n from public.os_finish_line_item_projects;
+  if n <> 0 then failures := failures || format('SCOPE C: enrolled with no grant reads %s edge row(s), expected 0 (097)', n); end if;
 
   -- ===== 10. the grants table, as A =========================================
   execute 'reset role';
@@ -488,6 +530,10 @@ begin
   if n2 <> n then failures := failures || format('OWNER: reads %s accounts, expected all %s', n2, n); end if;
   select count(*) into n from public.os_finish_line_grants;
   if n <> 11 then failures := failures || format('OWNER: reads %s grant rows, expected all 11 (A 9 + B 2)', n); end if;
+  select count(*) into n from public.os_finish_line_deps;
+  if n <> 3 then failures := failures || format('OWNER: reads %s dep rows, expected all 3', n); end if;
+  select count(*) into n from public.os_finish_line_item_projects;
+  if n <> 3 then failures := failures || format('OWNER: reads %s edge rows, expected all 3', n); end if;
 
   -- The owner grants C read on (SAMB, S1): the write the dashboard will make.
   checks := checks + 1;

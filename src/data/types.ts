@@ -1174,6 +1174,37 @@ export interface ScopeGrant {
 }
 
 /**
+ * A row of public.os_finish_line_grants as the repository reads it. The owner
+ * key reads every row; a collaborator JWT reads their own (RLS). Read-only
+ * from the client on purpose — the writes are provision-collaborator's
+ * grant-scope / revoke-scope, audited.
+ */
+export interface FinishLineGrant extends ScopeGrant {
+  userId: string;
+  createdAt: string;
+  /** 'owner', 'backfill', or a uuid — who wrote the row. */
+  createdBy: string;
+}
+
+/**
+ * Where one collaborator's sign-in link stands, as the provisioning function
+ * works it out from GoTrue's own token table (os_collab_link_status), the
+ * stored link row (os_collab_links) and the configured window
+ * (COLLAB_LINK_TTL_SECONDS). `unknown` is a real answer: the reader could not
+ * be reached, and the panel then falls back to what it can infer locally.
+ * `expiresAt` null under `live` means the window is not configured — never
+ * "does not expire".
+ */
+export type CollabLinkStatusKind = 'none' | 'live' | 'used' | 'expired' | 'unknown';
+
+export interface CollabLinkState {
+  status: CollabLinkStatusKind;
+  mintedAt: string | null;
+  expiresAt: string | null;
+  usedAt: string | null;
+}
+
+/**
  * ===========================================================================
  * THE FOUR AUDIT SOURCES, AS THE COLLABORATOR TRAIL READS THEM.
  * ===========================================================================

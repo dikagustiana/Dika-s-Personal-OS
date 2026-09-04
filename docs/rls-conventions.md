@@ -218,3 +218,8 @@ Rules that follow, each with the reason it exists:
   untouched and still hardcoded server-side.
 - **Accounts stay read-only for members**: one SELECT policy, no member
   INSERT/UPDATE/DELETE. The workbook owns the account columns.
+- **Deps and edges follow the readable set** (`20260904000097`): a member
+  reads `os_finish_line_deps` and `os_finish_line_item_projects` rows whose
+  `cell_id` is in `os_member_readable_cells()`, and nothing else. Before that
+  file both tables still answered by entity membership — one section of SAMB
+  showed every SAMB cell's derivation edges and project links by id.

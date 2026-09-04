@@ -169,17 +169,31 @@ Two migrations move collaborator access from "member of an entity" to
    265 → 245. Nothing else may be lost — the migration refuses otherwise.
 2. Apply `20260904000096_provision_scope_audit` (ledger name
    `provision_scope_audit`). It gives the audit log the two scope actions.
-3. **Only then** redeploy `provision-collaborator`. A build deployed before
+3. Apply `20260904000097_finish_line_edges_follow_grants` (ledger name
+   `finish_line_edges_follow_grants`): deps and edges follow the readable
+   cells instead of the entity.
+4. Apply `20260904000098_collab_link_status` (ledger name
+   `collab_link_status`): the set-returning token reader behind the link
+   status column. `os_collab_link_minted_at` stays.
+5. **Only then** redeploy `provision-collaborator`. A build deployed before
    step 2 keeps every old action working and fails `grant-scope` /
-   `revoke-scope` with "audit write failed" — loud, and fixed by step 2.
-4. Run against live, all read-only or self-rolling-back:
+   `revoke-scope` with "audit write failed" — loud, and fixed by step 2. A
+   build deployed before step 4 reports link status from the filed rows
+   alone and `unknown` where nothing was filed.
+6. Run against live, all read-only or self-rolling-back:
    `supabase/tests/rls_function_grants.sql`, `anon_definer_gates.sql`,
-   then `collab_rls.sql` (48 cases, everything inside it rolls back).
-5. In the panel, `list` now carries `grants` per person. Until the access
-   dashboard ships, the panel renders nothing new; a contributor's matrix
-   shows the cells their grants reach, and their account panel stops being
-   empty (mapped accounts under readable cells, plus the entity's unmapped
-   ones).
+   then `collab_rls.sql` (49 cases, everything inside it rolls back).
+7. Open **Akses** in the sidebar. One row per collaborator, one column per
+   (entity, section); every cell should read `W` for the people who were
+   enrolled before the migration (the backfill), `—` under MAM and KGR, and
+   the status column should agree with the Kolaborator panel's link line.
+   Click one cell from `W` to `—` and back to `R` and then `W`: three
+   audited rows appear in `private.os_provision_log` (`revoke-scope`,
+   `grant-scope` read, `grant-scope` write) and the cell ends on `W`.
+8. A contributor's matrix shows the cells their grants reach, and their
+   account panel stops being empty (mapped accounts under readable cells,
+   plus the entity's unmapped ones). On a section granted `read`, the cell
+   panel shows the read-only sentence and no editors.
 
 What the owner should expect to see differently:
 

@@ -64,6 +64,7 @@ export function CellDetailPanel({
   accountsFailure,
   viewerKind,
   canWrite,
+  readOnlyReason,
   isPending,
   onSetState,
   onSetNote,
@@ -90,8 +91,16 @@ export function CellDetailPanel({
   accountsFailure?: ReadFailure;
   /** Cosmetic gating only — the trigger re-decides from the credential. */
   viewerKind: 'owner' | 'contributor';
-  /** Whether THIS viewer may write THIS cell (contributor: own entity only). */
+  /** Whether THIS viewer may write THIS cell (contributor: a WRITE grant on
+   *  the cell's section since 20260904000095). */
   canWrite: boolean;
+  /**
+   * Why a contributor cannot write this cell, when they cannot. Rendered in
+   * place of the editors: a panel that silently has no buttons reads as a
+   * broken render, and a panel whose buttons fail with "Cell not found"
+   * reads as a bug — this is the sentence that makes it a rule.
+   */
+  readOnlyReason?: string;
   isPending: boolean;
   onSetState: (state: CellState) => void;
   onSetNote: (note: string | undefined) => void;
@@ -224,6 +233,14 @@ export function CellDetailPanel({
 
       {cell.note && noteDraft === null && (
         <p className="mt-2 text-[11px] leading-5 text-foreground-muted">{cell.note}</p>
+      )}
+
+      {/* A read grant, said out loud. The editors below simply do not mount,
+          and this line is what tells the person that is a rule, not a bug. */}
+      {!canWrite && readOnlyReason && (
+        <p className="mt-3 border-t border-border-subtle pt-3 text-[11px] leading-5 text-foreground-muted">
+          {readOnlyReason}
+        </p>
       )}
 
       {/* --- the editors: the cell's own two authored fields ----------------- */}

@@ -19,6 +19,10 @@
 --   cells      A1/A2/B1/O1 x SAMB, ARBI, ASI = 12, all `input`
 --   accounts   mapped and unmapped, per entity, plus one unmapped with no
 --              entity at all (readable by nobody but the owner)
+--   deps       SAMB/A1 <- SAMB/A2 · SAMB/O1 <- SAMB/A1 · ASI/B1 <- ASI/A1
+--   edges      SAMB/A1, ASI/B1 and SAMB/O1 each linked to one WORK project
+--              (for 20260904000097: a member reads the dep or edge of a cell
+--              they can read, and nothing else)
 
 do $$
 begin
@@ -82,4 +86,36 @@ values
   ('fixture ASI B1 account',    (select id from public.os_finish_line_cells where item_id = 'f1a70000-0000-4000-8000-000000000b03' and entity_code = 'ASI'), 'ASI', '9021', '9021'),
   -- No entity at all: readable by nobody but the owner (D3 has nothing to key on)
   ('fixture unmapped no entity', null, null, '9031', '9031')
+on conflict do nothing;
+
+-- Deps and edges, for 20260904000097. A dep is visible by its CELL (not its
+-- input); an edge by its cell. So for A after the scenario: the SAMB/A1 rows
+-- show, the ASI/B1 rows do not (revoked), the SAMB/O1 rows never do (D4).
+insert into public.os_projects (id, domain, title, type, status, milestones, engagement, sort_order)
+values ('c011ab00-0000-4000-8000-000000000000', 'work', 'Fixture WORK project 0', 'other', 'active', '[]', 'samb', 9000)
+on conflict (id) do nothing;
+
+with c as (
+  select item_id, entity_code, id from public.os_finish_line_cells
+  where item_id in ('f1a70000-0000-4000-8000-000000000b01', 'f1a70000-0000-4000-8000-000000000b02',
+                    'f1a70000-0000-4000-8000-000000000b03', 'f1a70000-0000-4000-8000-000000000b04')
+)
+insert into public.os_finish_line_deps (cell_id, input_id)
+select cell.id, input.id
+from (values
+  ('f1a70000-0000-4000-8000-000000000b01', 'SAMB', 'f1a70000-0000-4000-8000-000000000b02', 'SAMB'),
+  ('f1a70000-0000-4000-8000-000000000b04', 'SAMB', 'f1a70000-0000-4000-8000-000000000b01', 'SAMB'),
+  ('f1a70000-0000-4000-8000-000000000b03', 'ASI',  'f1a70000-0000-4000-8000-000000000b01', 'ASI')
+) as d(cell_item, cell_entity, input_item, input_entity)
+join c as cell  on cell.item_id  = d.cell_item::uuid  and cell.entity_code  = d.cell_entity
+join c as input on input.item_id = d.input_item::uuid and input.entity_code = d.input_entity
+on conflict do nothing;
+
+insert into public.os_finish_line_item_projects (cell_id, project_id)
+select c.id, 'c011ab00-0000-4000-8000-000000000000'::uuid
+from public.os_finish_line_cells c
+where (c.item_id, c.entity_code) in (
+  ('f1a70000-0000-4000-8000-000000000b01'::uuid, 'SAMB'),
+  ('f1a70000-0000-4000-8000-000000000b03'::uuid, 'ASI'),
+  ('f1a70000-0000-4000-8000-000000000b04'::uuid, 'SAMB'))
 on conflict do nothing;

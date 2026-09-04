@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
+import { AccessDashboard } from './views/work/AccessDashboard';
 import { Dashboard } from './views/work/Dashboard';
 import { FinishLineArea } from './views/work/FinishLineArea';
 import { isFinishLinePath } from './views/work/finishLineRoute';
@@ -56,6 +57,7 @@ export default function App() {
     else if (workView === 'week') view = <Week key="work" />;
     else if (workView === 'projects') view = <Projects key="work" />;
     else if (workView === 'finish-line') view = <FinishLineArea />;
+    else if (workView === 'access') view = <AccessDashboard />;
     else if (workView === 'monthly-close') view = <MonthlyClose />;
     else if (workView === 'escalations') view = <Escalations />;
     else view = <Dashboard />;

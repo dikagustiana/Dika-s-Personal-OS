@@ -273,6 +273,18 @@ writes write-on-every-section grants beside the membership, so a new
 collaborator's first sign-in is not an empty matrix. The pure input rules
 live in `supabase/functions/_shared/scopeInput.ts` and run under vitest.
 
+The owner edits scope on the **Akses** view (`AccessDashboard.tsx`): one row
+per person, one column per (entity, section), a click walks — → R → W → —
+with one audited call per step, optimistic and rolled back on failure. A
+person whose grants the function did not send renders "tidak bisa dicek",
+never a row of dashes. A contributor's matrix reads their own grant rows
+(`listFinishLineGrants`, `src/logic/cellCapability.ts`) so a read-only cell
+shows no editors and says why, instead of failing with "Cell not found".
+Deps and edges follow the same readable set (`20260904000097`). The link
+status beside each name comes from GoTrue's token table through
+`os_collab_link_status()` (`20260904000098`, service_role only) plus
+`COLLAB_LINK_TTL_SECONDS`; the derivation is `_shared/linkStatus.ts`.
+
 ---
 
 ## 7. Naming conventions actually in use

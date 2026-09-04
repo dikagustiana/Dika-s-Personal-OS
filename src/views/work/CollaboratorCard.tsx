@@ -3,6 +3,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  KeyRound,
   Link2,
   Lock,
   RefreshCw,
@@ -105,6 +106,7 @@ const CLOCK_TICK_MS = 30_000;
 
 export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] }) {
   const repository = useAppStore((state) => state.repository);
+  const setWorkView = useAppStore((state) => state.setWorkView);
   const [users, setUsers] = useState<ProvisionedUser[] | null>(null);
   const [workProjects, setWorkProjects] = useState<Project[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -425,15 +427,24 @@ export function CollaboratorCard({ entities }: { entities: FinishLineEntity[] })
               tautannya, kirim sendiri lewat WhatsApp. Aplikasi tidak pernah mengirim apa pun.
             </p>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setCreating((current) => !current)}
-            disabled={busy || sessionDead}
-          >
-            <UserPlus className="size-4" />
-            {creating ? 'Batal' : 'Tambah kolaborator'}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {/* Which SECTIONS each person reads or writes is decided on the
+                access dashboard, not here: this card enrols people and hands
+                over links, the matrix there is where scope is set. */}
+            <Button variant="ghost" size="sm" onClick={() => setWorkView('access')}>
+              <KeyRound className="size-4" />
+              Dashboard akses
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setCreating((current) => !current)}
+              disabled={busy || sessionDead}
+            >
+              <UserPlus className="size-4" />
+              {creating ? 'Batal' : 'Tambah kolaborator'}
+            </Button>
+          </div>
         </div>
 
         {sessionDead && (

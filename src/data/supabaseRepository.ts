@@ -91,6 +91,8 @@ import type {
   TaskStatus,
   WeeklyPlan,
   WebsiteCategory,
+  CollabLinkState,
+  FinishLineGrant,
   ScopeCapability,
   ScopeGrant,
 } from './types';
@@ -365,6 +367,13 @@ export interface ProvisionedUser {
    * array; the two are different facts.
    */
   grants?: ScopeGrant[];
+  /**
+   * Where the person's sign-in link stands, worked out server-side from
+   * GoTrue's token table and the configured window (20260904000098). Absent
+   * from a function build that predates it; `unknown` when the reader could
+   * not be reached. The dashboard falls back to its local inference for both.
+   */
+  link?: CollabLinkState;
   lastSignInAt: string | null;
   createdAt: string | null;
 }
@@ -2241,6 +2250,36 @@ class SupabaseRepository implements Repository {
         createdAt: row.created_at,
         expiresAt: row.expires_at,
         usedAt: row.used_at,
+      })),
+    );
+  }
+
+  async listFinishLineGrants(): Promise<ReadResult<FinishLineGrant>> {
+    // 42P01 / PGRST205 until 20260904000095 is applied — the expected state
+    // while this frontend is live and the migration is not. The matrix reads
+    // that as "membership still implies write" (the pre-095 rule), never as
+    // "nobody may write anything".
+    const { data, error } = await this.client
+      .from('os_finish_line_grants')
+      .select('user_id, entity_code, section_id, capability, created_at, created_by');
+    if (error) return readAbsence('listFinishLineGrants', error);
+    return okRows(
+      (
+        data as {
+          user_id: string;
+          entity_code: string;
+          section_id: string;
+          capability: ScopeCapability;
+          created_at: string;
+          created_by: string;
+        }[]
+      ).map((row) => ({
+        userId: row.user_id,
+        entityCode: row.entity_code,
+        sectionId: row.section_id,
+        capability: row.capability,
+        createdAt: row.created_at,
+        createdBy: row.created_by,
       })),
     );
   }
