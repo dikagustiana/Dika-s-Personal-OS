@@ -31,10 +31,12 @@
 -- is missing — so the two coexist by design until a later migration retires
 -- the old one deliberately. Its down file stays valid.
 --
--- NOT APPLIED. Idempotent. Apply after 20260904000096 and before redeploying
--- provision-collaborator; proposed ledger name `collab_link_status`. NEVER
--- apply with `supabase db push`, `migration up`, `db reset` or
--- `db remote commit`.
+-- APPLIED 2026-09-04 via the Supabase apply_migration tool (ledger name
+-- `collab_link_status`), before the provision-collaborator redeploy.
+-- Idempotent. Verified on live: EXECUTE is service_role only — anon and
+-- authenticated are both refused — and os_collab_link_minted_at(uuid) is
+-- still present as the fallback. NEVER apply with `supabase db push`,
+-- `migration up`, `db reset` or `db remote commit`.
 --
 -- Down-migration:
 -- supabase/migrations/down/20260904000098_collab_link_status_down.sql

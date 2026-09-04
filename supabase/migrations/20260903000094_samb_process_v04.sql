@@ -92,18 +92,23 @@
 -- no `on conflict do nothing`, so anything the guard did not foresee fails
 -- loudly instead of skipping.
 --
--- NOT APPLIED. This session has no database access.
--- APPLY BEFORE DEPLOY:
---   1. Confirm the pre-state on live: 15 SAMB gates, 30 steps, 118 needs,
---      46 bridge pairs, and no gate id in G16..G20. The guard checks the
---      same, but reading it first is cheaper than reading an exception.
---   2. Apply this file ONCE with the Supabase apply_migration tool, proposed
---      ledger name `samb_process_v04`. Read the notice it raises: the list
---      of skipped text updates is the owner's to-do, not a failure.
---   3. Merge the PR after the apply, so the fixture (20/33/131/51) and
---      production agree from the first deploy. Nothing in the frontend reads
---      these rows differently — the app renders whatever the tables hold —
---      so the order is about the tests telling the truth, not about a crash.
+-- APPLIED 2026-09-04 via the Supabase apply_migration tool, as TWO ledger
+-- entries: `samb_process_v04` (sections 0-5, the guard, the inserts and the
+-- structural post-condition) and `samb_process_v04_text_updates` (section 6,
+-- the 61 conditional updates). Splitting a repo file across ledger entries is
+-- normal here — the repo's filenames and the live ledger's versions are
+-- different numbering schemes (CLAUDE.md landmine 12), and several earlier
+-- files landed the same way.
+--
+-- The pre-state was confirmed first and matched exactly: 15 SAMB gates, 30
+-- steps, 118 needs, 46 bridge pairs, no gate in G16..G20. After the apply:
+-- 20 / 33 / 131 / 51, and ALL 61 TEXT UPDATES LANDED — nothing had been
+-- edited from the app, so nothing was skipped. Verified beyond the counts by
+-- checksumming the live rows against src/logic/process/sambProcessSeed.json:
+-- the five new gates, the three new steps (text and JSONB), and the thirteen
+-- new needs all match byte for byte, and the five bridge pairs resolve to
+-- Sales — General Trade, Sales — Logistic provider, and COGS — Logistic
+-- provider / Storing cost / Distribution cost.
 -- NEVER apply with `supabase db push`, `migration up`, `db reset` or
 -- `db remote commit` — this repo's filenames and the live ledger's versions
 -- are different numbering schemes, so any of those replays the entire

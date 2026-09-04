@@ -29,9 +29,12 @@
 -- working and fails the two new ones loudly ("audit write failed") — which is
 -- fail closed, the right direction.
 --
--- NOT APPLIED. Idempotent throughout. APPLY BEFORE DEPLOYING the
--- provision-collaborator function, after 20260904000095, proposed ledger name
--- `provision_scope_audit`. NEVER apply with `supabase db push`,
+-- APPLIED 2026-09-04 via the Supabase apply_migration tool (ledger name
+-- `provision_scope_audit`), after 20260904000095 and before the
+-- provision-collaborator redeploy. Idempotent throughout. Verified on live:
+-- the action check carries all eight names, the capability check is in place,
+-- os_provision_record is the 6-argument version and EXECUTE on it is
+-- service_role only. NEVER apply with `supabase db push`,
 -- `migration up`, `db reset` or `db remote commit` — the repo's filenames and
 -- the live ledger's versions are different numbering schemes and any of those
 -- replays from 0001_schema.sql against live data.

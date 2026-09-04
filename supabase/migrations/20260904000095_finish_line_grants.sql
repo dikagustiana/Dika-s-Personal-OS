@@ -94,24 +94,21 @@
 -- zero rows and never reaches the trigger.
 --
 -- ===========================================================================
--- NOT APPLIED. Idempotent throughout: create if not exists, create or
--- replace, policies dropped-if-exists before being recreated, backfill on
+-- APPLIED 2026-09-04 via the Supabase apply_migration tool (ledger name
+-- `finish_line_grants`). Idempotent throughout: create if not exists, create
+-- or replace, policies dropped-if-exists before being recreated, backfill on
 -- conflict do nothing. Safe to re-run.
 --
--- APPLY BEFORE DEPLOY:
---   1. Apply once via the Supabase apply_migration tool, proposed ledger name
---      `finish_line_grants`. Read the NOTICE lines: one per member, with the
---      cells they read before, the cells they read after, and the
---      parentless-metric cells D4 moved to owner-only.
---   2. Run supabase/tests/rls_function_grants.sql and
---      supabase/tests/anon_definer_gates.sql against live (both read-only).
---      Zero rows each.
---   3. Run supabase/tests/collab_rls.sql against live (everything inside it
---      rolls back). It now seeds grants for its synthetic members and asserts
---      the grant model.
---   Nothing in the frontend changes shape in this stage; a contributor's
---   matrix simply shows the cells their grants reach, and their account
---   panel stops being empty.
+-- WHAT THE APPLY MEASURED ON LIVE. 95 grant rows (19 memberships x 5
+-- sections), every one `write`, every one `created_by = 'backfill'`. The four
+-- `require app key to …` policies on cells and accounts were byte-identical
+-- before and after (section 9d proved it in-transaction). Readable cells per
+-- member went 371 -> 343, 371 -> 343 and 265 -> 245 — exactly the D4 delta of
+-- 4 parentless metrics x 7, 7 and 5 entities, and the only loss, because the
+-- post-condition in 9c refuses to commit on any other. Zero accounts hang off
+-- a parentless metric, so no account moved. Afterwards, against live:
+-- rls_function_grants.sql and anon_definer_gates.sql both returned zero rows
+-- with their audit-inert floors intact (1036 policy/role pairs).
 -- NEVER apply with `supabase db push`, `migration up`, `db reset` or
 -- `db remote commit` — this repo's filenames and the live ledger's versions
 -- are different numbering schemes, so any of those replays the entire

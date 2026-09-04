@@ -28,8 +28,11 @@
 -- evaluates it and the EXECUTE grant 095 gave authenticated is the only one
 -- needed — rls_function_grants.sql pins that on every replay.
 --
--- NOT APPLIED. Idempotent. Apply after 20260904000095; proposed ledger name
--- `finish_line_edges_follow_grants`. NEVER apply with `supabase db push`,
+-- APPLIED 2026-09-04 via the Supabase apply_migration tool (ledger name
+-- `finish_line_edges_follow_grants`), after 20260904000095. Idempotent.
+-- Verified on live: both tables carry exactly one member policy, each named
+-- `member reads granted …` and each keyed on os_member_readable_cells().
+-- NEVER apply with `supabase db push`,
 -- `migration up`, `db reset` or `db remote commit`.
 --
 -- Down-migration:
