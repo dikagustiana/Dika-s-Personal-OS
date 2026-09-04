@@ -23,11 +23,26 @@
 -- work+samb projects. (Since slice 1 the project count for this identity is
 -- asserted as ZERO — see case 5.)
 --
--- The 16 cases (§9 of the task):
+-- SINCE 20260904000095 (finish_line_grants) membership is the enrolment and
+-- os_finish_line_grants is the scope. Each synthetic member below is given a
+-- WRITE grant on every section of its entity — exactly what the backfill gave
+-- every live member — and two consequences run through the file: the cells a
+-- member reads are the entity's SECTIONED cells (the parentless metrics are
+-- owner-only, D4), and os_finish_line_accounts is no longer closed to members
+-- (the accounts under readable cells plus the entity's unmapped ones, D3).
+-- Cases 17-20 exercise the grant model itself. The file also runs on the
+-- throwaway cluster now, through scripts/grant-scope-tests.sh, with
+-- fixtures/collab_rls_fixture.sql supplying the projects and the KNI cell.
+--
+-- The 16 cases (§9 of the task), plus the four grant-model cases from 095:
 --   1  zero rows from every GROWTH table
 --   2  zero rows from entries, daily logs, weekly plans, IELTS, research
---   3  cells: only entity_code='ASI', count matches ASI exactly
---   4  zero rows from os_finish_line_accounts
+--   3  REWRITTEN AT 095: cells are exactly the ASI cells whose metric sits
+--      under a section — every section is granted, so that is every ASI
+--      cell except the parentless metrics' (D4), which must be invisible
+--   4  REWRITTEN AT 095: accounts are no longer closed — the count equals
+--      the accounts under readable cells plus the unmapped ASI accounts
+--      (D3), and nothing of another entity or of no entity
 --   5  REWRITTEN AT SLICE 1: this identity holds an entity grant and no
 --      project grant, so it now sees ZERO projects — the engagement-based
 --      policy this case used to describe was replaced in 20260804000045
@@ -44,6 +59,14 @@
 --   15 UPDATE/DELETE on history → rejected, and zero UPDATE/DELETE policies
 --      exist on it for anyone, including the owner
 --   16 anon with no header: zero rows everywhere, writes rejected
+--   17 a READ grant on cell_a's section: the cell still reads, UPDATE matches
+--      0 rows; restoring write writes again
+--   18 revoking that section removes its cells (and their accounts); the
+--      rest stays; re-granting restores the count
+--   19 membership with no grant at all: 0 cells, 0 accounts, UPDATE matches
+--      0 rows; the own membership row and the item structure still read
+--   20 a member cannot INSERT a grant row (42501); the section guard refuses
+--      a grant naming a metric (23514), RLS off
 
 begin;
 
@@ -51,26 +74,48 @@ do $$
 declare
   test_uid constant uuid := 'a11ce000-5afe-4000-8000-c0113b000001';
   failures text[] := '{}';
-  n bigint; expected bigint;
-  cell_a uuid; kni_cell uuid; asi_item uuid;
+  n bigint; expected bigint; cells_expected bigint; orphan bigint; under_sec bigint;
+  cell_a uuid; kni_cell uuid; asi_item uuid; sec_a uuid;
   v_state text; v_ak text; v_actor uuid; v_ca timestamptz;
   tbl text;
   member_visible constant text[] := array[
     'os_finish_line_cells','os_finish_line_items','os_finish_line_entities',
     'os_finish_line_account_map','os_finish_line_deps','os_finish_line_item_projects',
-    'os_projects','os_entity_members'];
+    'os_projects','os_entity_members',
+    -- since 095: accounts follow the grant (case 4), and a member reads
+    -- their own grant rows
+    'os_finish_line_accounts','os_finish_line_grants',
+    -- member-visible since 20260806000058 (own-entity rows) and 054
+    -- (references, for any member). An ASI member reads zero own-entity
+    -- process rows on live only because no ASI process is seeded; the
+    -- references table has carried a row every member can read, so this
+    -- block was red against live until these nine were listed.
+    'os_process_forms','os_process_gates','os_process_lanes','os_process_needs',
+    'os_process_phases','os_process_references','os_process_step_items',
+    'os_process_steps','os_process_tracks'];
 begin
-  -- ===== fixture, as postgres: synthetic user + ASI membership ==============
+  -- ===== fixture, as postgres: synthetic user + ASI membership + grants =====
   insert into auth.users (id, instance_id, aud, role, email)
   values (test_uid, '00000000-0000-0000-0000-000000000000',
           'authenticated', 'authenticated', 'rls-selftest@example.invalid');
   insert into public.os_entity_members (user_id, entity_code)
   values (test_uid, 'ASI');
+  -- Since 095 membership is the enrolment and grants are the scope: write on
+  -- every ASI section, which is what the backfill gave every live member.
+  -- The parentless metrics (D4) are reachable by no grant.
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  select test_uid, 'ASI', s.id, 'write', 'rls-selftest'
+    from public.os_finish_line_items s where s.kind = 'section';
 
-  select id, item_id into cell_a, asi_item
-    from public.os_finish_line_cells
-   where entity_code = 'ASI' and state = 'input'
-   order by id limit 1;
+  -- cell_a must sit UNDER A SECTION: a parentless metric's cell is owner-only
+  -- since 095, and picking one would fail every write case for the wrong
+  -- reason. sec_a is that section, for cases 17-20.
+  select c.id, c.item_id, i.parent_id into cell_a, asi_item, sec_a
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+    join public.os_finish_line_items s on s.id = i.parent_id and s.kind = 'section'
+   where c.entity_code = 'ASI' and c.state = 'input'
+   order by c.id limit 1;
   select id into kni_cell
     from public.os_finish_line_cells
    where entity_code = 'KNI' order by id limit 1;
@@ -83,7 +128,7 @@ begin
   perform set_config('request.jwt.claims',
     json_build_object('sub', test_uid, 'role', 'authenticated')::text, true);
 
-  -- ===== cases 1 + 2 + 4: zero rows from everything not member-visible =====
+  -- ===== cases 1 + 2: zero rows from everything not member-visible =========
   execute 'set local role authenticated';
   for tbl in
     select tablename from pg_tables
@@ -92,24 +137,69 @@ begin
   loop
     execute format('select count(*) from public.%I', tbl) into n;
     if n <> 0 then
-      failures := failures || format('case 1/2/4: %s returned % rows for a member', tbl, n);
+      failures := failures || format('case 1/2: %s returned %s rows for a member', tbl, n);
     end if;
   end loop;
-  raise notice 'cases 1/2/4: GROWTH, entries/logs/plans, accounts, history all empty for member';
+  raise notice 'cases 1/2: GROWTH, entries/logs/plans, history all empty for member';
 
   -- os_entity_members: exactly the one own row
   select count(*) into n from public.os_entity_members;
-  if n <> 1 then failures := failures || format('membership self-select: expected 1 row, got %', n); end if;
+  if n <> 1 then failures := failures || format('membership self-select: expected 1 row, got %s', n); end if;
 
-  -- ===== case 3: cells are exactly ASI's =====
+  -- ===== case 3 (rewritten at 095): cells are exactly ASI's SECTIONED ones =
+  -- Every ASI section is granted, so the member reads every ASI cell whose
+  -- metric has a parent section and NONE of the parentless metrics' (D4).
   execute 'reset role';
-  select count(*) into expected from public.os_finish_line_cells where entity_code = 'ASI';
+  select count(*) into cells_expected
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+    join public.os_finish_line_items s on s.id = coalesce(i.parent_id, i.id) and s.kind = 'section'
+   where c.entity_code = 'ASI';
+  select count(*) into orphan
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+   where c.entity_code = 'ASI' and i.parent_id is null;
+  if orphan = 0 then
+    failures := failures || 'case 3: no parentless ASI cell exists, so the D4 half of this case is vacuous — live or the fixture changed shape';
+  end if;
   execute 'set local role authenticated';
   select count(*) into n from public.os_finish_line_cells;
-  if n <> expected then failures := failures || format('case 3: member sees % cells, ASI has %', n, expected); end if;
+  if n <> cells_expected then failures := failures || format('case 3: member sees %s cells, ASI has %s under sections', n, cells_expected); end if;
   select count(*) into n from public.os_finish_line_cells where entity_code <> 'ASI';
-  if n <> 0 then failures := failures || format('case 3: % non-ASI cells visible', n); end if;
-  raise notice 'case 3: member sees exactly % ASI cells', expected;
+  if n <> 0 then failures := failures || format('case 3: %s non-ASI cells visible', n); end if;
+  select count(*) into n
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+   where i.parent_id is null;
+  if n <> 0 then failures := failures || format('case 3: %s parentless-metric cells visible — D4 says owner-only', n); end if;
+  raise notice 'case 3: member sees exactly % sectioned ASI cells and none of the % parentless ones', cells_expected, orphan;
+
+  -- ===== case 4 (rewritten at 095): accounts follow the grant ==============
+  -- Members read the accounts under their readable cells plus the unmapped
+  -- accounts of an entity they hold any grant on (D3). Nothing else: not an
+  -- account under a parentless metric, not an unmapped account of another
+  -- entity, not one with no entity at all.
+  execute 'reset role';
+  select count(*) into expected
+    from public.os_finish_line_accounts a
+   where a.cell_id in (
+           select c.id
+             from public.os_finish_line_cells c
+             join public.os_finish_line_items i on i.id = c.item_id
+             join public.os_finish_line_items s on s.id = coalesce(i.parent_id, i.id) and s.kind = 'section'
+            where c.entity_code = 'ASI')
+      or (a.cell_id is null and a.entity_code = 'ASI');
+  execute 'set local role authenticated';
+  select count(*) into n from public.os_finish_line_accounts;
+  if n <> expected then failures := failures || format('case 4: member sees %s accounts, expected %s (under readable ASI cells + unmapped ASI)', n, expected); end if;
+  select count(*) into n from public.os_finish_line_accounts a
+   where a.cell_id is null and a.entity_code is distinct from 'ASI';
+  if n <> 0 then failures := failures || format('case 4: %s unmapped accounts of another entity (or of no entity) visible', n); end if;
+  select count(*) into n from public.os_finish_line_accounts a
+   where a.cell_id is not null
+     and not exists (select 1 from public.os_finish_line_cells c where c.id = a.cell_id);
+  if n <> 0 then failures := failures || format('case 4: %s mapped accounts visible whose cell is not', n); end if;
+  raise notice 'case 4: member sees exactly % accounts — under readable cells, plus unmapped ASI (D3)', expected;
 
   -- ===== case 5 (rewritten at slice 1): entity grant alone = zero projects ==
   -- The engagement predicate died in 20260804000045; project read is a
@@ -117,7 +207,7 @@ begin
   -- project membership, so the correct count is zero — under the old policy
   -- it was every SAMB WORK project. Membership fails closed.
   select count(*) into n from public.os_projects;
-  if n <> 0 then failures := failures || format('case 5: % projects visible with zero project grants', n); end if;
+  if n <> 0 then failures := failures || format('case 5: %s projects visible with zero project grants', n); end if;
   raise notice 'case 5: zero project grants -> zero projects (engagement predicate is gone)';
 
   -- ===== case 7 first, while cell_a is still input: forbidden targets ======
@@ -136,7 +226,7 @@ begin
   -- ===== case 6: the allowed transition =====
   update public.os_finish_line_cells set state = 'figure' where id = cell_a;
   get diagnostics n = row_count;
-  if n <> 1 then failures := failures || format('case 6: expected 1 row updated, got %', n); end if;
+  if n <> 1 then failures := failures || format('case 6: expected 1 row updated, got %s', n); end if;
   execute 'reset role';
   select state, actor_kind, actor, changed_at into v_state, v_ak, v_actor, v_ca
     from public.os_finish_line_cells where id = cell_a;
@@ -146,7 +236,7 @@ begin
   select count(*) into n from public.os_finish_line_cell_history
    where cell_id = cell_a and from_state = 'input' and to_state = 'figure'
      and actor_kind = 'contributor' and actor = test_uid;
-  if n <> 1 then failures := failures || format('case 6: expected 1 history row, got %', n); end if;
+  if n <> 1 then failures := failures || format('case 6: expected 1 history row, got %s', n); end if;
   raise notice 'case 6: input -> figure succeeded; actor stamped; history row written';
   execute 'set local role authenticated';
 
@@ -164,7 +254,7 @@ begin
   -- ===== case 9: KNI cell invisible to an ASI member =====
   update public.os_finish_line_cells set note = 'cross-entity attempt' where id = kni_cell;
   get diagnostics n = row_count;
-  if n <> 0 then failures := failures || format('case 9: KNI update touched % rows', n); end if;
+  if n <> 0 then failures := failures || format('case 9: KNI update touched %s rows', n); end if;
   raise notice 'case 9: KNI cell update matched 0 rows';
 
   -- ===== case 10: entity_code / item_id changes rejected =====
@@ -201,7 +291,7 @@ begin
   execute 'reset role';
   select actor into v_actor from public.os_finish_line_cells where id = cell_a;
   if v_actor is distinct from test_uid then
-    failures := failures || format('case 11: spoofed actor survived as %', v_actor);
+    failures := failures || format('case 11: spoofed actor survived as %s', v_actor);
   end if;
   execute 'set local role authenticated';
   raise notice 'case 11: non-allowlisted column rejected; client-supplied actor overwritten by trigger';
@@ -239,7 +329,7 @@ begin
   if n <> 0 then failures := failures || 'case 12: entity DELETE touched rows'; end if;
   raise notice 'case 12: INSERT rejected (42501) and DELETE matched 0 rows on cells/items/entities';
 
-  -- ===== case 13: accounts fully closed =====
+  -- ===== case 13: accounts stay read-only for members (D6) =====
   begin
     insert into public.os_finish_line_accounts (account_name) values ('rls test account');
     failures := failures || 'case 13: account INSERT was allowed';
@@ -252,7 +342,7 @@ begin
   delete from public.os_finish_line_accounts where true;
   get diagnostics n = row_count;
   if n <> 0 then failures := failures || 'case 13: account DELETE touched rows'; end if;
-  raise notice 'case 13: accounts reject INSERT and match 0 rows for UPDATE/DELETE';
+  raise notice 'case 13: accounts reject INSERT and match 0 rows for UPDATE/DELETE — read-only for members (D6)';
 
   -- ===== case 14: projects read-only =====
   begin
@@ -287,8 +377,87 @@ begin
   select count(*) into n from pg_policies
    where schemaname = 'public' and tablename = 'os_finish_line_cell_history'
      and cmd in ('UPDATE', 'DELETE');
-  if n <> 0 then failures := failures || format('case 15: % UPDATE/DELETE policies exist on history — append-only broken', n); end if;
+  if n <> 0 then failures := failures || format('case 15: %s UPDATE/DELETE policies exist on history — append-only broken', n); end if;
   raise notice 'case 15: history append-only holds; zero UPDATE/DELETE policies exist for anyone';
+
+  -- ===== case 17 (095): a READ grant reads and does not write ==============
+  update public.os_finish_line_grants set capability = 'read'
+   where user_id = test_uid and entity_code = 'ASI' and section_id = sec_a;
+  execute 'set local role authenticated';
+  select count(*) into n from public.os_finish_line_cells where id = cell_a;
+  if n <> 1 then failures := failures || 'case 17: cell_a invisible under a read grant — read must still read'; end if;
+  update public.os_finish_line_cells set note = 'read grant should not write' where id = cell_a;
+  get diagnostics n = row_count;
+  if n <> 0 then failures := failures || format('case 17: UPDATE through a read grant matched %s row(s)', n); end if;
+  execute 'reset role';
+  update public.os_finish_line_grants set capability = 'write'
+   where user_id = test_uid and entity_code = 'ASI' and section_id = sec_a;
+  execute 'set local role authenticated';
+  update public.os_finish_line_cells set note = 'write grant writes again' where id = cell_a;
+  get diagnostics n = row_count;
+  if n <> 1 then failures := failures || format('case 17: UPDATE after restoring write matched %s row(s), expected 1', n); end if;
+  raise notice 'case 17: read grant reads cell_a and matches 0 rows on UPDATE; write restored writes again';
+
+  -- ===== case 18 (095): revoking a section removes its cells and accounts ==
+  execute 'reset role';
+  select count(*) into under_sec
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+   where c.entity_code = 'ASI' and coalesce(i.parent_id, i.id) = sec_a;
+  delete from public.os_finish_line_grants
+   where user_id = test_uid and entity_code = 'ASI' and section_id = sec_a;
+  execute 'set local role authenticated';
+  select count(*) into n from public.os_finish_line_cells where id = cell_a;
+  if n <> 0 then failures := failures || 'case 18: cell_a still visible after its section was revoked'; end if;
+  select count(*) into n from public.os_finish_line_cells;
+  if n <> cells_expected - under_sec then failures := failures || format('case 18: %s cells after revoking one section, expected %s', n, cells_expected - under_sec); end if;
+  select count(*) into n from public.os_finish_line_accounts where cell_id = cell_a;
+  if n <> 0 then failures := failures || format('case 18: %s accounts under cell_a still visible after the revoke', n); end if;
+  execute 'reset role';
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  values (test_uid, 'ASI', sec_a, 'write', 'rls-selftest');
+  execute 'set local role authenticated';
+  select count(*) into n from public.os_finish_line_cells;
+  if n <> cells_expected then failures := failures || format('case 18: %s cells after re-granting, expected %s', n, cells_expected); end if;
+  raise notice 'case 18: revoking one section removed its % cells; re-granting restored them', under_sec;
+
+  -- ===== case 19 (095): enrolled, no grant: nothing but structure ==========
+  execute 'reset role';
+  delete from public.os_finish_line_grants where user_id = test_uid;
+  select count(*) into expected from public.os_finish_line_items;
+  execute 'set local role authenticated';
+  select count(*) into n from public.os_finish_line_cells;
+  if n <> 0 then failures := failures || format('case 19: %s cells visible with a membership and no grant', n); end if;
+  select count(*) into n from public.os_finish_line_accounts;
+  if n <> 0 then failures := failures || format('case 19: %s accounts visible with a membership and no grant', n); end if;
+  select count(*) into n from public.os_entity_members;
+  if n <> 1 then failures := failures || format('case 19: %s membership rows visible, expected the own 1', n); end if;
+  select count(*) into n from public.os_finish_line_items;
+  if n <> expected then failures := failures || format('case 19: %s items visible, expected all %s — structure hangs off the enrolment', n, expected); end if;
+  update public.os_finish_line_cells set note = 'no grant' where id = cell_a;
+  get diagnostics n = row_count;
+  if n <> 0 then failures := failures || 'case 19: UPDATE matched a row with no grant'; end if;
+  raise notice 'case 19: membership without grants reads 0 cells and 0 accounts; own membership row and item structure still read';
+
+  -- ===== case 20 (095): no member write to grants; the section guard =======
+  begin
+    insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+    values (test_uid, 'ASI', sec_a, 'write', 'self');
+    failures := failures || 'case 20: a member INSERTed a grant row';
+  exception when others then
+    if sqlstate <> '42501' then failures := failures || format('case 20: member grant INSERT failed as %s, not RLS', sqlstate); end if;
+  end;
+  execute 'reset role';
+  begin
+    insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+    values (test_uid, 'ASI', asi_item, 'write', 'rls-selftest');
+    failures := failures || 'case 20: a grant naming a METRIC was accepted';
+  exception when others then
+    if sqlstate <> '23514' or sqlerrm not like '%kind = ''section''%' then
+      failures := failures || format('case 20: metric grant refused by the wrong layer: %s (%s)', sqlerrm, sqlstate);
+    end if;
+  end;
+  raise notice 'case 20: member cannot INSERT a grant (42501); the guard refuses a grant on a metric (23514)';
 
   -- ===== case 16: anon with no header, no claims =====
   perform set_config('request.jwt.claims', '{}', true);
@@ -297,7 +466,7 @@ begin
     select tablename from pg_tables where schemaname = 'public' and tablename like 'os\_%'
   loop
     execute format('select count(*) from public.%I', tbl) into n;
-    if n <> 0 then failures := failures || format('case 16: anon read % rows from %s', n, tbl); end if;
+    if n <> 0 then failures := failures || format('case 16: anon read %s rows from %s', n, tbl); end if;
   end loop;
   begin
     insert into public.os_finish_line_entities (code, label, sort_order) values ('ZZANON', 'x', 9998);
@@ -319,7 +488,7 @@ begin
     raise exception E'RLS VERIFICATION FAILED — % problem(s):\n%',
       array_length(failures, 1), array_to_string(failures, E'\n');
   end if;
-  raise notice 'ALL 16 CASES PASSED';
+  raise notice 'ALL 20 CASES PASSED';
 end
 $$;
 
@@ -375,19 +544,31 @@ declare
   member_visible constant text[] := array[
     'os_finish_line_cells','os_finish_line_items','os_finish_line_entities',
     'os_finish_line_account_map','os_finish_line_deps','os_finish_line_item_projects',
-    'os_projects','os_entity_members','os_project_members','os_tasks'];
+    'os_projects','os_entity_members','os_project_members','os_tasks',
+    'os_finish_line_accounts','os_finish_line_grants',
+    'os_process_forms','os_process_gates','os_process_lanes','os_process_needs',
+    'os_process_phases','os_process_references','os_process_step_items',
+    'os_process_steps','os_process_tracks'];
 begin
   -- ===== fixture, as postgres ==============================================
   insert into auth.users (id, instance_id, aud, role, email) values
     (uid_main, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-selftest-main@example.invalid'),
     (uid_foil, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'rls-selftest-foil@example.invalid');
   insert into public.os_entity_members (user_id, entity_code) values (uid_main, 'ASI');
+  -- 095: the entity axis is a grant per section now; write on all of ASI's.
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  select uid_main, 'ASI', s.id, 'write', 'rls-selftest'
+    from public.os_finish_line_items s where s.kind = 'section';
 
   select id into proj_granted from public.os_projects where domain = 'work' order by id limit 1;
   select id into proj_other   from public.os_projects where domain = 'work' order by id offset 1 limit 1;
   select id into proj_second  from public.os_projects where domain = 'work' order by id offset 2 limit 1;
-  select id into cell_asi from public.os_finish_line_cells
-   where entity_code = 'ASI' and state = 'input' order by id limit 1;
+  -- Under a section, as in block 1: a parentless metric's cell is owner-only.
+  select c.id into cell_asi
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+    join public.os_finish_line_items s on s.id = i.parent_id and s.kind = 'section'
+   where c.entity_code = 'ASI' and c.state = 'input' order by c.id limit 1;
   if proj_granted is null or proj_other is null or proj_second is null or cell_asi is null then
     raise exception 'slice-1 fixture: needed three WORK projects and an ASI input cell';
   end if;
@@ -583,8 +764,13 @@ begin
   raise notice 'case 11: task history invisible to members and append-only for everyone';
 
   -- ===== case 12: cells behave exactly as before slice 1 ===================
+  -- (sectioned ASI cells since 095 — the same expression block 1's case 3 uses)
   execute 'reset role';
-  select count(*) into expected from public.os_finish_line_cells where entity_code = 'ASI';
+  select count(*) into expected
+    from public.os_finish_line_cells c
+    join public.os_finish_line_items i on i.id = c.item_id
+    join public.os_finish_line_items s on s.id = coalesce(i.parent_id, i.id) and s.kind = 'section'
+   where c.entity_code = 'ASI';
   execute 'set local role authenticated';
   select count(*) into n from public.os_finish_line_cells;
   if n <> expected then failures := failures || format('case 12: member sees %s cells, ASI has %s', n, expected); end if;
@@ -706,7 +892,7 @@ do $$
 declare
   uid_g constant uuid := 'a11ce000-5afe-4000-8000-c0113b000004';
   failures text[] := '{}';
-  n bigint;
+  n bigint; expected bigint;
   proj_work uuid; proj_growth uuid;
   old_hash text;
 begin
@@ -801,6 +987,11 @@ begin
   execute 'reset role';
   update private.os_app_secret set key_hash = old_hash;
   perform set_config('request.headers', '{}', true);
+  -- Tasks already sitting in proj_work belong to earlier blocks of this same
+  -- transaction — slice 1 leaves its task_main in the first WORK project —
+  -- so "exactly the own task" is really "those plus one, and nothing from
+  -- the GROWTH project". Counted as postgres, before becoming the member.
+  select count(*) into expected from public.os_tasks where project_id = proj_work;
   perform set_config('request.jwt.claims',
     json_build_object('sub', uid_g, 'role', 'authenticated')::text, true);
   execute 'set local role authenticated';
@@ -812,7 +1003,9 @@ begin
   if n <> 1 then failures := failures || format('case 6: %s projects visible, expected 1', n); end if;
   insert into public.os_tasks (project_id, title) values (proj_work, 'domain-guard work task');
   select count(*) into n from public.os_tasks;
-  if n <> 1 then failures := failures || format('case 6: %s tasks visible, expected exactly the own WORK task', n); end if;
+  if n <> expected + 1 then failures := failures || format('case 6: %s tasks visible, expected %s (the tasks already in the WORK project plus the own one)', n, expected + 1); end if;
+  select count(*) into n from public.os_tasks where project_id <> proj_work;
+  if n <> 0 then failures := failures || format('case 6: %s task(s) visible outside the granted WORK project — the GROWTH task leaked', n); end if;
   execute 'reset role';
 
   -- ===== verdict =====
@@ -827,6 +1020,7 @@ $$;
 -- ===========================================================================
 -- PROVISIONING-PATH CASES — the Edge Function's SQL, replayed as its role.
 -- ===========================================================================
+-- (S1-S4 need 20260904000096: the two scope actions and their audit columns.)
 -- provision-collaborator runs as service_role. These cases replay the exact
 -- statements its grant-projects / revoke actions run, AS service_role, so
 -- the audited path is proven at the SQL surface without the owner
@@ -839,18 +1033,35 @@ $$;
 --      rows and ONE provision-log entry carrying every project id
 --   P2 a GROWTH grant as service_role is refused by the domain trigger —
 --      RLS is bypassed for this role; triggers are not
---   P3 revoke clears BOTH axes and writes one log row carrying both arrays
+--   S1 grant-scope (20260904000096): the upsert the function runs moves every
+--      ASI section to READ in place — no duplicate rows — and the audit row
+--      carries the entity, every section id and the capability
+--   S2 the same upsert moves ONE section back to WRITE; row count unchanged
+--   S3 revoke-scope removes exactly that one row; the audit row names it
+--   S4 the audit REFUSES a scope entry that cannot say what it granted —
+--      no sections, no capability, two entities, two sections on a revoke —
+--      and the log gains nothing from any of them (audit failed = action
+--      failed, at the SQL layer the function cannot get around)
+--   L1 the link-status reader (20260904000098): service_role calls it and
+--      gets no row for a user without a token; anon and authenticated cannot
+--      execute it at all — it must never let a browser probe who holds one
+--   P3 revoke clears BOTH axes and writes one log row carrying both arrays;
+--      the scope grants go with the membership through the 095 cascade
 do $$
 declare
   uid_p constant uuid := 'a11ce000-5afe-4000-8000-c0113b000007';
   failures text[] := '{}';
-  n bigint;
-  proj_a uuid; proj_b uuid; proj_g uuid;
+  n bigint; expected bigint;
+  proj_a uuid; proj_b uuid; proj_g uuid; sec_one uuid;
 begin
   insert into auth.users (id, instance_id, aud, role, email)
   values (uid_p, '00000000-0000-0000-0000-000000000000',
           'authenticated', 'authenticated', 'rls-selftest-provisioning@example.invalid');
   insert into public.os_entity_members (user_id, entity_code) values (uid_p, 'ASI');
+  -- 095: grants ride on the membership through a cascading FK; P3 proves it.
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  select uid_p, 'ASI', s.id, 'write', 'rls-selftest'
+    from public.os_finish_line_items s where s.kind = 'section';
   select id into proj_a from public.os_projects where domain = 'work'   order by id limit 1;
   select id into proj_b from public.os_projects where domain = 'work'   order by id offset 1 limit 1;
   select id into proj_g from public.os_projects where domain = 'growth' order by id limit 1;
@@ -895,6 +1106,128 @@ begin
   execute 'reset role';
   raise notice 'P2: GROWTH grant refused for service_role — triggers are not RLS';
 
+  -- ===== S1: grant-scope — every ASI section to READ, in place, audited ======
+  -- The function upserts on the (user, entity, section) key with no
+  -- ignoreDuplicates, so a capability change is an UPDATE of the same row.
+  select count(*) into expected from public.os_finish_line_items where kind = 'section';
+  select id into sec_one from public.os_finish_line_items where kind = 'section' order by id limit 1;
+  execute 'set local role service_role';
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  select uid_p, 'ASI', s.id, 'read', 'owner'
+    from public.os_finish_line_items s where s.kind = 'section'
+  on conflict (user_id, entity_code, section_id) do update set capability = excluded.capability;
+  perform public.os_provision_record(
+    p_action := 'grant-scope',
+    p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'],
+    p_section_ids := (select array_agg(id) from public.os_finish_line_items where kind = 'section'),
+    p_capability := 'read');
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected then failures := failures || format('S1: %s grant rows after the upsert, expected %s (one per section, no duplicates)', n, expected); end if;
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p and capability <> 'read';
+  if n <> 0 then failures := failures || format('S1: %s rows did not move to read', n); end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'grant-scope' and email = 'rls-selftest-provisioning@example.invalid'
+     and entity_codes = array['ASI'] and cardinality(section_ids) = expected and capability = 'read';
+  if n <> 1 then failures := failures || format('S1: %s grant-scope log rows carrying the entity, every section and the capability, expected 1', n); end if;
+  raise notice 'S1: grant-scope moved % sections to read in place and logged one row naming all of them', expected;
+
+  -- ===== S2: one section back to WRITE, same row =============================
+  execute 'set local role service_role';
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  values (uid_p, 'ASI', sec_one, 'write', 'owner')
+  on conflict (user_id, entity_code, section_id) do update set capability = excluded.capability;
+  perform public.os_provision_record(
+    p_action := 'grant-scope', p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'], p_section_ids := array[sec_one], p_capability := 'write');
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected then failures := failures || format('S2: row count changed to %s on a capability change', n); end if;
+  select count(*) into n from public.os_finish_line_grants
+   where user_id = uid_p and entity_code = 'ASI' and section_id = sec_one and capability = 'write';
+  if n <> 1 then failures := failures || 'S2: the one section did not move back to write'; end if;
+  raise notice 'S2: one section back to write, row count unchanged';
+
+  -- ===== S3: revoke-scope removes exactly that row ===========================
+  execute 'set local role service_role';
+  delete from public.os_finish_line_grants
+   where user_id = uid_p and entity_code = 'ASI' and section_id = sec_one;
+  perform public.os_provision_record(
+    p_action := 'revoke-scope', p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'], p_section_ids := array[sec_one]);
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected - 1 then failures := failures || format('S3: %s grant rows after revoke-scope, expected %s', n, expected - 1); end if;
+  select count(*) into n from public.os_entity_members where user_id = uid_p and entity_code = 'ASI';
+  if n <> 1 then failures := failures || 'S3: revoke-scope removed the membership — it must remove one grant only'; end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'revoke-scope' and email = 'rls-selftest-provisioning@example.invalid'
+     and entity_codes = array['ASI'] and section_ids = array[sec_one] and capability is null;
+  if n <> 1 then failures := failures || format('S3: %s revoke-scope log rows naming the one section, expected 1', n); end if;
+  raise notice 'S3: revoke-scope removed one row, kept the membership, logged the section';
+
+  -- ===== S4: the audit refuses an entry that cannot say what it granted =====
+  select count(*) into expected from private.os_provision_log;
+  execute 'set local role service_role';
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI']);
+    failures := failures || 'S4: a grant-scope entry with no sections and no capability was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: no-sections entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := array[sec_one]);
+    failures := failures || 'S4: a grant-scope entry with no capability was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: no-capability entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI', 'ARBI'],
+      p_section_ids := array[sec_one], p_capability := 'read');
+    failures := failures || 'S4: a grant-scope entry naming two entities was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: two-entity entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := array[sec_one], p_capability := 'admin');
+    failures := failures || 'S4: a grant-scope entry with capability admin was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: admin-capability entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'revoke-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := (select array_agg(id) from public.os_finish_line_items where kind = 'section'));
+    failures := failures || 'S4: a revoke-scope entry naming every section was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: multi-section revoke entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  execute 'reset role';
+  select count(*) into n from private.os_provision_log;
+  if n <> expected then failures := failures || format('S4: the log grew by %s row(s) from refused entries', n - expected); end if;
+  raise notice 'S4: five malformed scope entries refused; the log did not grow';
+
+  -- ===== L1: the link-status reader answers service_role only ==============
+  execute 'set local role service_role';
+  select count(*) into n from public.os_collab_link_status(array[uid_p]);
+  if n <> 0 then failures := failures || format('L1: os_collab_link_status reports %s token(s) for a user who was never minted one', n); end if;
+  execute 'reset role';
+  if has_function_privilege('anon', 'public.os_collab_link_status(uuid[])', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.os_collab_link_status(uuid[])', 'EXECUTE') then
+    failures := failures || 'L1: a client role can EXECUTE os_collab_link_status — a browser could probe who holds an outstanding token';
+  end if;
+  if not has_function_privilege('service_role', 'public.os_collab_link_status(uuid[])', 'EXECUTE') then
+    failures := failures || 'L1: service_role cannot EXECUTE os_collab_link_status — the list action cannot read link status';
+  end if;
+  raise notice 'L1: link-status reader answers service_role (0 tokens for the test user) and refuses anon/authenticated';
+
   -- ===== P3: revoke clears both axes, one audited action ===================
   execute 'set local role service_role';
   delete from public.os_entity_members where user_id = uid_p;
@@ -909,21 +1242,23 @@ begin
   if n <> 0 then failures := failures || format('P3: %s entity rows survive revoke', n); end if;
   select count(*) into n from public.os_project_members where user_id = uid_p;
   if n <> 0 then failures := failures || format('P3: %s project rows survive revoke', n); end if;
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> 0 then failures := failures || format('P3: %s grant rows survive the membership revoke — the cascade from 095 is missing', n); end if;
   select count(*) into n from private.os_provision_log
    where action = 'revoke' and email = 'rls-selftest-provisioning@example.invalid'
      and entity_codes = array['ASI'] and array_length(project_ids, 1) = 2;
   if n <> 1 then failures := failures || 'P3: revoke log row missing or missing an axis'; end if;
-  raise notice 'P3: revoke cleared both axes and logged both arrays in one action';
+  raise notice 'P3: revoke cleared both axes (grants cascaded with the membership) and logged both arrays in one action';
 
   -- ===== verdict =====
   if array_length(failures, 1) is not null then
     raise exception E'PROVISIONING-PATH VERIFICATION FAILED — % problem(s):\n%',
       array_length(failures, 1), array_to_string(failures, E'\n');
   end if;
-  raise notice 'ALL 3 PROVISIONING-PATH CASES PASSED';
+  raise notice 'ALL 8 PROVISIONING-PATH CASES PASSED';
 end
 $$;
 
 rollback;
 
-select 'collab_rls: all 40 cases passed (16 original + 15 slice 1 + 6 domain guard + 3 provisioning path); transaction rolled back, no fixture survives' as result;
+select 'collab_rls: all 49 cases passed (16 original + 4 grant model + 15 slice 1 + 6 domain guard + 8 provisioning path); transaction rolled back, no fixture survives' as result;

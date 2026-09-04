@@ -1,3 +1,5 @@
+import type { CollabLinkState } from './types';
+
 /**
  * WHERE A MINTED SIGN-IN LINK LIVES BETWEEN MINTING AND HANDOVER.
  *
@@ -306,6 +308,40 @@ export function collabLinkStatus(
     minutesLeft:
       held.expiresAt === null ? null : Math.max(0, Math.ceil((held.expiresAt - now) / 60_000)),
   };
+}
+
+/**
+ * The server's verdict (20260904000098: the provisioning function reads
+ * GoTrue's token table and the configured window) translated into the same
+ * status shape the panel renders, so one describeCollabLink serves both.
+ * Returns null for `unknown` — the caller then falls back to the local
+ * inference above rather than printing a guess.
+ */
+export function linkStatusFromState(
+  state: CollabLinkState,
+  now: number = Date.now(),
+): CollabLinkStatus | null {
+  switch (state.status) {
+    case 'unknown':
+      return null;
+    case 'none':
+      return { kind: 'none' };
+    case 'used':
+      return { kind: 'used', usedAt: state.usedAt ?? new Date(now).toISOString() };
+    case 'expired': {
+      const expiresAt = state.expiresAt ? Date.parse(state.expiresAt) : now;
+      return { kind: 'expired', expiresAt: Number.isFinite(expiresAt) ? expiresAt : now };
+    }
+    case 'live': {
+      const expiresAt = state.expiresAt ? Date.parse(state.expiresAt) : Number.NaN;
+      if (!Number.isFinite(expiresAt)) return { kind: 'live', expiresAt: null, minutesLeft: null };
+      return {
+        kind: 'live',
+        expiresAt,
+        minutesLeft: Math.max(0, Math.ceil((expiresAt - now) / 60_000)),
+      };
+    }
+  }
 }
 
 /** Local wall-clock HH:MM — the same shape the gate's lockout notice uses. */

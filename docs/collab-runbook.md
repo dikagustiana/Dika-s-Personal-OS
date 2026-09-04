@@ -156,3 +156,92 @@ links are single-use and short-lived (~1 hour).
    gains a `link` row (an action that has never run). After they open it:
    their row shows a `masuk …` timestamp, and they land on the ARBI column
    of the matrix — plus whatever projects E1 granted them.
+
+## F. The grant model (2026-09-04) — APPLIED, and what changed
+
+Collaborator access moved from "member of an entity" to
+"(person, entity, section, capability)". **All four migrations are applied to
+production and `provision-collaborator` is deployed at version 6.** The steps
+below are kept as the record of what was done and what to check; nothing in
+them is outstanding except the two items under "Still outstanding".
+
+1. Apply `20260904000095_finish_line_grants` with the `apply_migration` tool
+   (ledger name `finish_line_grants`). Read its NOTICE lines: one per member,
+   with the cells they read before, after, and the parentless-metric cells
+   that become owner-only (D4). Expected on live: 371 → 343, 371 → 343,
+   265 → 245. Nothing else may be lost — the migration refuses otherwise.
+2. Apply `20260904000096_provision_scope_audit` (ledger name
+   `provision_scope_audit`). It gives the audit log the two scope actions.
+3. Apply `20260904000097_finish_line_edges_follow_grants` (ledger name
+   `finish_line_edges_follow_grants`): deps and edges follow the readable
+   cells instead of the entity.
+4. Apply `20260904000098_collab_link_status` (ledger name
+   `collab_link_status`): the set-returning token reader behind the link
+   status column. `os_collab_link_minted_at` stays.
+5. **Only then** redeploy `provision-collaborator`. A build deployed before
+   step 2 keeps every old action working and fails `grant-scope` /
+   `revoke-scope` with "audit write failed" — loud, and fixed by step 2. A
+   build deployed before step 4 reports link status from the filed rows
+   alone and `unknown` where nothing was filed.
+6. Run against live, all read-only or self-rolling-back:
+   `supabase/tests/rls_function_grants.sql`, `anon_definer_gates.sql`,
+   then `collab_rls.sql` (49 cases, everything inside it rolls back).
+7. Open **Akses** in the sidebar. One row per collaborator, one column per
+   (entity, section); every cell should read `W` for the people who were
+   enrolled before the migration (the backfill), `—` under MAM and KGR, and
+   the status column should agree with the Kolaborator panel's link line.
+   Click one cell from `W` to `—` and back to `R` and then `W`: three
+   audited rows appear in `private.os_provision_log` (`revoke-scope`,
+   `grant-scope` read, `grant-scope` write) and the cell ends on `W`.
+8. A contributor's matrix shows the cells their grants reach, and their
+   account panel stops being empty (mapped accounts under readable cells,
+   plus the entity's unmapped ones). On a section granted `read`, the cell
+   panel shows the read-only sentence and no editors.
+
+### What the apply actually measured (2026-09-04)
+
+- 95 grant rows: 19 memberships × 5 sections, every one `write`, every one
+  `created_by = 'backfill'`. Nobody lost a section they held.
+- Readable cells per member: 371 → 343, 371 → 343, 265 → 245. That is the D4
+  delta and nothing else — the migration's post-condition refuses to commit on
+  any other loss, and it held. No account moved (zero accounts hang off a
+  parentless metric).
+- The four `require app key to …` policies on cells and accounts are
+  byte-identical before and after.
+- Against live afterwards: `rls_function_grants.sql` and
+  `anon_definer_gates.sql` both zero rows, audit-inert floors intact (1036
+  policy/role pairs).
+- `provision-collaborator` v6 smoke-tested live: no `x-app-key` answers 401 on
+  both an old action and `grant-scope` (the gate runs before the body),
+  `OPTIONS` answers 200, `GET` answers 405.
+
+### Still outstanding
+
+1. **`COLLAB_LINK_TTL_SECONDS` is not set on the function.** Nothing reachable
+   from an agent session sets function secrets. Until the owner sets it in
+   Supabase → Edge Functions → provision-collaborator → Secrets, a live link
+   honestly reports `masa berlaku tidak diketahui` instead of inventing a
+   countdown. Set it to match the project's OTP window (Authentication →
+   Sign In / Up → Email OTP expiry), currently expected to be 86400.
+2. **`supabase/tests/collab_rls.sql` has not been run against live.** It is
+   safe by construction (everything inside it rolls back) but it makes real
+   writes inside its transaction, and the MCP SQL tool's transaction semantics
+   could not be verified from the agent session — so it was run on the
+   throwaway cluster only (49 cases green). Run it in the SQL editor as
+   postgres when convenient; zero findings expected.
+3. **Merge PR #102** to put the Akses view on Vercel. Until then the live
+   frontend is the pre-grant build, which works unchanged against the new
+   schema — it simply does not offer the dashboard.
+
+What the owner should expect to see differently:
+
+- Members no longer read the four parentless metrics (COGS / Sales × Poultry
+  processing / Poultry trading). Owner-only until a migration gives those
+  metrics a section.
+- `create` for an existing address adds the entity **and** write grants on
+  every section — and still mints a fresh link, which kills the one being
+  held. To add an entity to someone without touching their link, use
+  `grant-scope` (it enrols on the way in).
+- `revoke` removes membership on both axes; the scope grants go with it
+  through the cascading FK, and the response reports how many
+  (`removedGrants`; null means the grants table was not readable).

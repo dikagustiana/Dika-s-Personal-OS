@@ -24,6 +24,7 @@ import type {
   FinishLineDep,
   FinishLineEdge,
   FinishLineEntity,
+  FinishLineGrant,
   FinishLineItem,
   Milestone,
   OrphanMilestone,
@@ -55,6 +56,7 @@ import {
   type Resolution,
 } from '../../logic/finishLine';
 import { accountsByCell, accountsWithNoEntity } from '../../logic/finishLineAccounts';
+import { isCellWritable } from '../../logic/cellCapability';
 import { closingConditionsForItem, type ClosingConditions } from '../../logic/processModel';
 import { isSupabaseConfigured } from '../../data/supabaseRepository';
 import { useAppStore } from '../../store/appStore';
@@ -158,8 +160,8 @@ export function FinishLine({
   // contributor, whose world is their cells and the note beside them.
   const isOwnerViewer = viewer.kind === 'owner';
   const contributorEntities = viewer.kind === 'contributor' ? viewer.entityCodes : null;
-  const canWriteCell = (cell: FinishLineCell): boolean =>
-    isOwnerViewer || (contributorEntities?.includes(cell.entityCode) ?? false);
+  // canWriteCell is defined below itemsById: since 20260904000095 it reads
+  // the person's own grant rows, not just their entity list.
 
   /**
    * Reads are held as RESULTS, not arrays: a card that counts problems has to
@@ -198,6 +200,10 @@ export function FinishLine({
   // says COULD NOT CHECK rather than showing an empty list that would read as
   // "nothing is shared".
   const [shareLinks, setShareLinks] = useState<ReadResult<ShareLink>>(unread);
+  // The viewer's own scope rows (20260904000095). Owner: every row, unused
+  // here. Contributor: what decides which cells offer editors — a read grant
+  // must read as read-only BEFORE the click, not as "Cell not found" after.
+  const [grants, setGrants] = useState<ReadResult<FinishLineGrant>>(unread);
   // The process register (§8.1) — READ relation only: it feeds the
   // "Kondisi tutup dari proses" block in the cell panel and never writes a
   // cell state. Its tables ship after this frontend, so a missing relation
@@ -236,6 +242,7 @@ export function FinishLine({
       loadedProcessNeeds,
       loadedProcessSteps,
       loadedProcessStepItems,
+      loadedGrants,
     ] = await Promise.all([
       repository.listFinishLineItems(),
       repository.listFinishLineCells(),
@@ -258,6 +265,7 @@ export function FinishLine({
       repository.listProcessNeeds(),
       repository.listProcessSteps(),
       repository.listProcessStepItems(),
+      repository.listFinishLineGrants(),
     ]);
     setItems(loadedItems);
     setCells(loadedCells);
@@ -273,6 +281,7 @@ export function FinishLine({
     setProcessNeeds(loadedProcessNeeds);
     setProcessSteps(loadedProcessSteps);
     setProcessStepItems(loadedProcessStepItems);
+    setGrants(loadedGrants);
     setLoaded(true);
   }, [repository]);
 
@@ -297,6 +306,7 @@ export function FinishLine({
       setProcessNeeds(failure);
       setProcessSteps(failure);
       setProcessStepItems(failure);
+      setGrants(failure);
       setLoaded(true);
     });
   }, [load]);
@@ -318,6 +328,25 @@ export function FinishLine({
   );
   const summary = useMemo(() => summarizeMatrix(matrix), [matrix]);
   const itemsById = useMemo(() => new Map(itemRows.map((i) => [i.id, i])), [itemRows]);
+
+  /**
+   * COSMETIC GATING ONLY — the policy and the trigger re-decide from the
+   * credential. The owner writes anywhere. A contributor writes a cell when
+   * their own grant rows say WRITE on the cell's section for its entity
+   * (the client copy of os_member_writable_cells()). Before 095 is applied
+   * the grants relation is missing and membership still implies write, which
+   * is exactly what the database enforces in that window; a read that FAILED
+   * fails closed, because offering an editor that will be refused is worse
+   * than offering none.
+   */
+  const canWriteCell = (cell: FinishLineCell): boolean => {
+    if (isOwnerViewer) return true;
+    if (!(contributorEntities?.includes(cell.entityCode) ?? false)) return false;
+    if (grants.ok) return isCellWritable(grants.rows, itemsById, cell);
+    return grants.reason === 'missing-relation';
+  };
+  const READ_ONLY_REASON =
+    'Akses baca saja: section ini diberikan ke kamu tanpa hak tulis. Perubahan state dan catatan di sel ini hanya bisa dibuat pemilik, atau setelah pemilik membuka tulis di dashboard akses.';
   const openCell = openCellId ? context.cellsById.get(openCellId) : undefined;
 
   /**
@@ -691,6 +720,11 @@ export function FinishLine({
                               accountsFailure={loaded && !accounts.ok ? accounts : undefined}
                               viewerKind={viewer.kind}
                               canWrite={canWriteCell(cell)}
+                              readOnlyReason={
+                                viewer.kind === 'contributor' && !canWriteCell(cell)
+                                  ? READ_ONLY_REASON
+                                  : undefined
+                              }
                               isPending={isPending}
                               onSetState={(next) => void saveCellState(cell.id, next)}
                               onSetNote={(note) => void saveCellNote(cell.id, note)}

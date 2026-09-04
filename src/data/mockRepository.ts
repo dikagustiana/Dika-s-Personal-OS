@@ -36,6 +36,7 @@ import type {
   FinishLineDep,
   FinishLineEdge,
   FinishLineEntity,
+  FinishLineGrant,
   FinishLineItem,
   OrphanMilestone,
   ProcessFormDef,
@@ -1431,6 +1432,57 @@ export class MockRepository implements Repository {
       return; // the (user_id, signed_in_at) unique constraint, mirrored.
     }
     this.signInLog.push({ userId, signedInAt });
+  }
+
+  /**
+   * The grant model (20260904000095), mirrored. `null` means the backfill
+   * shape: a contributor viewer holds WRITE on every section of each entity
+   * it carries — exactly what the migration wrote for every live member —
+   * and the owner reads no rows, because the mock has no membership table to
+   * derive them from. Tests that need a read-only or partial shape seed rows
+   * through setFinishLineGrants and the seeded rows replace the derivation.
+   */
+  private finishLineGrants: FinishLineGrant[] | null = null;
+  /** Test seam: false simulates 20260904000095 not applied (42P01). */
+  private finishLineGrantsTableExists = true;
+
+  /** Mock-only: the grant rows as the owner wrote them. */
+  setFinishLineGrants(rows: FinishLineGrant[]): void {
+    this.finishLineGrants = clone(rows);
+  }
+
+  /** Mock-only: simulate the grants table being absent. */
+  setFinishLineGrantsTableExists(present: boolean): void {
+    this.finishLineGrantsTableExists = present;
+  }
+
+  async listFinishLineGrants(): Promise<ReadResult<FinishLineGrant>> {
+    if (!this.finishLineGrantsTableExists) {
+      return readAbsence('listFinishLineGrants', { code: '42P01' });
+    }
+    const viewer = this.viewer;
+    if (this.finishLineGrants !== null) {
+      // `member reads own grants`, mirrored: a contributor sees their rows.
+      const rows =
+        viewer.kind === 'contributor'
+          ? this.finishLineGrants.filter((row) => row.userId === viewer.userId)
+          : this.finishLineGrants;
+      return okRows(clone(rows));
+    }
+    if (viewer.kind !== 'contributor') return okRows([]);
+    const sections = this.finishLineItems.filter((item) => item.kind === 'section');
+    return okRows(
+      viewer.entityCodes.flatMap((entityCode) =>
+        sections.map((section) => ({
+          userId: viewer.userId,
+          entityCode,
+          sectionId: section.id,
+          capability: 'write' as const,
+          createdAt: '2026-09-04T00:00:00.000Z',
+          createdBy: 'backfill',
+        })),
+      ),
+    );
   }
 
   async listSignInLog(): Promise<ReadResult<SignInEvent>> {

@@ -11,6 +11,7 @@ import {
   Focus,
   Globe,
   GraduationCap,
+  KeyRound,
   LayoutDashboard,
   Megaphone,
   Lock,
@@ -47,6 +48,9 @@ const workNav: Array<{ id: WorkView; label: string; short: string; icon: typeof 
   // register all live behind this. They are the same subject — the target
   // and the road to it — so they are not separate rail entries.
   { id: 'finish-line', label: 'Finish line', short: 'Finish', icon: Flag },
+  // Who reads and writes which section of which entity. Sits beside the
+  // Finish line because that is the thing it grants access to.
+  { id: 'access', label: 'Akses', short: 'Akses', icon: KeyRound },
   { id: 'monthly-close', label: 'Monthly close', short: 'Close', icon: RefreshCw },
   { id: 'escalations', label: 'Escalations', short: 'Escalate', icon: Megaphone },
 ];

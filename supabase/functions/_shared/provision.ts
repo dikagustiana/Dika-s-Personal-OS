@@ -1,6 +1,7 @@
 // Core provisioning actions for collaborator access — create, link, revoke,
-// list — extracted so the owner-gated wrapper (provision-collaborator) stays
-// a thin door and the logic itself is a single copy.
+// list, grant-projects, revoke-project, grant-scope, revoke-scope — extracted
+// so the owner-gated wrapper (provision-collaborator) stays a thin door and
+// the logic itself is a single copy.
 //
 // EVERYTHING HERE RUNS WITH THE SERVICE ROLE AND BYPASSES RLS. It is the most
 // privileged code path in the app, and it is treated accordingly:
@@ -8,12 +9,28 @@
 //     never appears in src/, in a bundle, in a migration, or in the repo.
 //   - Inputs are validated HERE, not in the wrappers, so no wrapper can
 //     forget: emails must be well-formed, every entity code must exist in
-//     os_finish_line_entities, and the role is hardcoded 'contributor'.
+//     os_finish_line_entities, every section id must be an item of kind
+//     'section' (scopeInput.ts holds the pure rules), and the role is
+//     hardcoded 'contributor' — no request ever carries one.
+//   - Since 20260904000095 membership is the ENROLMENT and
+//     os_finish_line_grants (user, entity, section, capability) is the SCOPE.
+//     create writes write-on-every-section grants beside the membership,
+//     grant-scope / revoke-scope edit single rows, revoke lets the cascading
+//     FK take the grants with the membership, and list reports them.
 //   - No table name, column name, or predicate is ever taken from a request.
 //   - NO EMAIL IS EVER SENT. generateLink mints the token without sending;
 //     the owner hands the link over out of band. That is the entire design.
 
 import { createClient, type SupabaseClient, type User } from 'jsr:@supabase/supabase-js@2';
+import {
+  parseGrantScope,
+  parseRevokeScope,
+  sortScopeGrants,
+  UUID_RE,
+  type ScopeCapability,
+  type ScopeGrant,
+} from './scopeInput.ts';
+import { deriveLinkState, type CollabLinkState, type StoredLinkRow } from './linkStatus.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEFAULT_SITE = 'https://dika-personal-os.vercel.app';
@@ -67,17 +84,74 @@ function linkTtlSeconds(): number | null {
  * clock would be the wrong trade.
  */
 async function mintedAt(admin: SupabaseClient, userId: string): Promise<string | null> {
-  // THROUGH AN RPC, NOT A DIRECT SELECT. PostgREST exposes `public` and not
-  // `auth`, so `.schema('auth').from('one_time_tokens')` would fail — and it
-  // would fail softly here, silently downgrading "GoTrue's timestamp" to this
-  // process's clock while every test still passed. The narrow SECURITY DEFINER
-  // reader from migration 20260809000072 is what makes the claim true.
+  const instants = await tokenMintInstants(admin, [userId]);
+  if (instants) return instants.get(userId) ?? null;
+  // Before 20260904000098: the single-user reader from 072. THROUGH AN RPC,
+  // NOT A DIRECT SELECT. PostgREST exposes `public` and not `auth`, so
+  // `.schema('auth').from('one_time_tokens')` would fail — and it would fail
+  // softly here, silently downgrading "GoTrue's timestamp" to this process's
+  // clock while every test still passed. The narrow SECURITY DEFINER reader
+  // is what makes the claim true.
   const { data, error } = await admin.rpc('os_collab_link_minted_at', {
     p_user_id: userId,
   });
   if (error || !data) return null;
   const parsed = Date.parse(data as string);
   return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+}
+
+/**
+ * GoTrue's mint instant for each user's OUTSTANDING magic-link token, in one
+ * call (os_collab_link_status, 20260904000098). A user absent from the map
+ * holds no unspent token — consumed, or never minted. NULL, the whole map,
+ * when the reader is not there yet, so a caller can fall back rather than
+ * read "nobody has a link" into an absence of the function.
+ */
+async function tokenMintInstants(
+  admin: SupabaseClient,
+  userIds: string[],
+): Promise<Map<string, string> | null> {
+  if (userIds.length === 0) return new Map();
+  const { data, error } = await admin.rpc('os_collab_link_status', { p_user_ids: userIds });
+  if (error) return null;
+  const instants = new Map<string, string>();
+  for (const row of (data ?? []) as { user_id: string; minted_at: string }[]) {
+    const parsed = Date.parse(row.minted_at);
+    if (Number.isFinite(parsed)) instants.set(row.user_id, new Date(parsed).toISOString());
+  }
+  return instants;
+}
+
+/**
+ * The links this app filed, by user. NULL when the table is not readable —
+ * before 20260809000071, or on any error: a status column that cannot be
+ * computed must not take the whole list down with it, so the reason goes to
+ * the function log and the list carries on with `unknown`.
+ */
+async function storedLinksByUser(admin: SupabaseClient): Promise<Map<string, StoredLinkRow> | null> {
+  const { data, error } = await admin
+    .from('os_collab_links')
+    .select('user_id, created_at, expires_at, used_at');
+  if (error) {
+    if (error.code !== '42P01' && error.code !== 'PGRST205') {
+      console.error('provision list: stored links unreadable:', error.message);
+    }
+    return null;
+  }
+  const byUser = new Map<string, StoredLinkRow>();
+  for (const row of data as {
+    user_id: string;
+    created_at: string;
+    expires_at: string | null;
+    used_at: string | null;
+  }[]) {
+    byUser.set(row.user_id, {
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      usedAt: row.used_at,
+    });
+  }
+  return byUser;
 }
 
 function expiryFrom(createdAt: string | null): string | null {
@@ -195,7 +269,68 @@ async function projectGrants(admin: SupabaseClient, userId: string): Promise<str
   return (data as { project_id: string }[]).map((row) => row.project_id);
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+interface ScopeGrantRow {
+  user_id?: string;
+  entity_code: string;
+  section_id: string;
+  capability: ScopeCapability;
+}
+
+function toScopeGrant(row: ScopeGrantRow): ScopeGrant {
+  return { entityCode: row.entity_code, sectionId: row.section_id, capability: row.capability };
+}
+
+/**
+ * The third axis: the (entity, section, capability) rows that decide which
+ * cells and accounts this person reads and writes since 20260904000095.
+ * Throws when unreadable — every caller of this one is about to report the
+ * result of a write, and a write whose outcome cannot be read back has not
+ * been confirmed.
+ */
+async function scopeGrants(admin: SupabaseClient, userId: string): Promise<ScopeGrant[]> {
+  const { data, error } = await admin
+    .from('os_finish_line_grants')
+    .select('entity_code, section_id, capability')
+    .eq('user_id', userId);
+  if (error) throw new Error(`scope grant read failed: ${error.message}`);
+  return sortScopeGrants((data as ScopeGrantRow[]).map(toScopeGrant));
+}
+
+/**
+ * Every grant, grouped by user, for `list` and for the count a full revoke
+ * reports. NULL — not an empty map — when the table is not there yet (the
+ * window between deploying this build and applying 095): the panel must read
+ * "not known", never "nobody holds a grant". Same two codes the frontend's
+ * ReadResult treats as a missing relation.
+ */
+async function scopeGrantsByUser(
+  admin: SupabaseClient,
+): Promise<Map<string, ScopeGrant[]> | null> {
+  const { data, error } = await admin
+    .from('os_finish_line_grants')
+    .select('user_id, entity_code, section_id, capability');
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') return null;
+    throw new Error(`scope grant read failed: ${error.message}`);
+  }
+  const byUser = new Map<string, ScopeGrant[]>();
+  for (const row of data as Required<ScopeGrantRow>[]) {
+    byUser.set(row.user_id, [...(byUser.get(row.user_id) ?? []), toScopeGrant(row)]);
+  }
+  for (const [userId, grants] of byUser) byUser.set(userId, sortScopeGrants(grants));
+  return byUser;
+}
+
+/** Every section id — what a whole-entity grant is spelled out over, one row
+ *  per section, because D2 allows no wildcard row. */
+async function allSectionIds(admin: SupabaseClient): Promise<string[]> {
+  const { data, error } = await admin
+    .from('os_finish_line_items')
+    .select('id')
+    .eq('kind', 'section');
+  if (error) throw new Error(`section read failed: ${error.message}`);
+  return (data as { id: string }[]).map((row) => row.id);
+}
 
 async function generateAppLink(
   admin: SupabaseClient,
@@ -209,19 +344,46 @@ async function generateAppLink(
   return appLink(site, hashed);
 }
 
+type AuditAction =
+  | 'create'
+  | 'link'
+  | 'revoke'
+  | 'list'
+  | 'grant-projects'
+  | 'revoke-project'
+  | 'grant-scope'
+  | 'revoke-scope';
+
+interface AuditScope {
+  sectionIds: string[];
+  /** Null for a revoke, which removes whatever capability was held. */
+  capability: ScopeCapability | null;
+}
+
 async function audit(
   admin: SupabaseClient,
-  action: 'create' | 'link' | 'revoke' | 'list' | 'grant-projects' | 'revoke-project',
+  action: AuditAction,
   email: string | null,
   entityCodes: string[] | null,
   projectIds: string[] | null = null,
+  scope: AuditScope | null = null,
 ): Promise<void> {
-  const { error } = await admin.rpc('os_provision_record', {
+  // The two scope arguments are sent ONLY when a scope is being recorded. A
+  // build deployed ahead of 20260904000096 therefore keeps every older action
+  // working against the 4-argument os_provision_record, and fails the scope
+  // actions loudly here — fail closed, in the direction that costs one retry
+  // after the migration lands rather than an unrecorded grant.
+  const args: Record<string, unknown> = {
     p_action: action,
     p_email: email,
     p_entity_codes: entityCodes,
     p_project_ids: projectIds,
-  });
+  };
+  if (scope) {
+    args.p_section_ids = scope.sectionIds;
+    args.p_capability = scope.capability;
+  }
+  const { error } = await admin.rpc('os_provision_record', args);
   // An unlogged provisioning action must not succeed silently.
   if (error) throw new Error(`audit write failed: ${error.message}`);
 }
@@ -274,18 +436,46 @@ export async function provisionCreate(
     return { ok: false, status: 500, error: `membership grant failed: ${memberError.message}` };
   }
 
+  // Since 20260904000095 membership alone opens no cell. Create keeps its
+  // pre-095 meaning — "this person now sees these entities" — by writing a
+  // WRITE grant on every section of each requested entity, exactly what the
+  // backfill wrote for the people who were already here. ignoreDuplicates: a
+  // grant the owner has since narrowed to read is not widened by a repeat
+  // create for the same address. Written BEFORE the link is minted, so a
+  // failure here leaves the person's current link alive.
+  const sections = await allSectionIds(admin);
+  const grantRows = requested.flatMap((code) =>
+    sections.map((sectionId) => ({
+      user_id: user.id,
+      entity_code: code,
+      section_id: sectionId,
+      capability: 'write',
+      created_by: 'owner',
+    })),
+  );
+  if (grantRows.length > 0) {
+    const { error: grantError } = await admin
+      .from('os_finish_line_grants')
+      .upsert(grantRows, { onConflict: 'user_id,entity_code,section_id', ignoreDuplicates: true });
+    if (grantError) {
+      return { ok: false, status: 500, error: `scope grant failed: ${grantError.message}` };
+    }
+  }
+
   const link = await generateAppLink(admin, email, site);
   const createdAt = await mintedAt(admin, user.id);
   const expires = expiryFrom(createdAt);
   await rememberLink(admin, user.id, link, createdAt, expires);
   const granted = await memberships(admin, user.id);
-  await audit(admin, 'create', email, granted);
+  const grants = await scopeGrants(admin, user.id);
+  await audit(admin, 'create', email, granted, null, { sectionIds: sections, capability: 'write' });
   return {
     ok: true,
     body: {
       userId: user.id,
       email,
       entityCodes: granted,
+      grants,
       link,
       expiry: LINK_EXPIRY_NOTE,
       // Both may be null: GoTrue's row could not be read, or the OTP window
@@ -340,6 +530,10 @@ export async function provisionRevoke(
   if (!user) return { ok: false, status: 404, error: 'No such user' };
   const before = await memberships(admin, user.id);
   const beforeProjects = await projectGrants(admin, user.id);
+  // Counted before the membership goes: the grants ride on it through the
+  // cascading FK from 095, so there is nothing to delete here and no second
+  // call that could be skipped. Null when the table is not there yet.
+  const beforeGrants = (await scopeGrantsByUser(admin))?.get(user.id) ?? null;
   const { error } = await admin.from('os_entity_members').delete().eq('user_id', user.id);
   if (error) return { ok: false, status: 500, error: `revoke failed: ${error.message}` };
   // BOTH AXES, server-side, one action. Leaving the project axis to the
@@ -371,6 +565,8 @@ export async function provisionRevoke(
       email,
       removedEntityCodes: before,
       removedProjectIds: beforeProjects,
+      // Null means "not known" (pre-095), never zero.
+      removedGrants: beforeGrants === null ? null : beforeGrants.length,
     },
   };
 }
@@ -462,6 +658,153 @@ export async function provisionRevokeProject(
   return { ok: true, body: { userId: user.id, email, projectIds: remaining } };
 }
 
+/**
+ * Grants one person one or more SECTIONS of one entity, at one capability, in
+ * one audited action — the write behind a click on the access dashboard and
+ * behind "grant every section". Upsert on the (user, entity, section) key, so
+ * the same action also moves a section between read and write; nothing here
+ * ever deletes a row.
+ *
+ * ENROLS ON THE WAY IN. A grant requires its membership (FK, 095), and the only
+ * other way to enrol an existing collaborator on a further entity is `create`,
+ * which also mints a link — and minting KILLS the link they are holding. So a
+ * grant on an entity the person is not yet enrolled in writes the membership
+ * row first, role hardcoded 'contributor', and says so in the response.
+ * Membership alone opens nothing since 095; the enrolment is bookkeeping, the
+ * grant is the access.
+ *
+ * The pre-checks buy a clean 400. THE BOUNDARY IS THE DATABASE: the section
+ * guard trigger refuses a non-section id for this service role exactly as for
+ * everyone, and the FK refuses a grant without its membership.
+ */
+export async function provisionGrantScope(
+  admin: SupabaseClient,
+  rawEmail: unknown,
+  rawEntityCode: unknown,
+  rawSectionIds: unknown,
+  rawCapability: unknown,
+): Promise<ProvisionOutcome> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { ok: false, status: 400, error: 'A well-formed email is required' };
+  const parsed = parseGrantScope(rawEntityCode, rawSectionIds, rawCapability);
+  if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+  const { entityCode, sectionIds: requested, capability } = parsed.value;
+
+  const user = await findUserByEmail(admin, email);
+  if (!user) return { ok: false, status: 404, error: 'No such user — provision them first' };
+
+  const { data: entityRow, error: entityError } = await admin
+    .from('os_finish_line_entities')
+    .select('code')
+    .eq('code', entityCode)
+    .maybeSingle();
+  if (entityError) return { ok: false, status: 500, error: 'Could not read entities' };
+  if (!entityRow) return { ok: false, status: 400, error: `Unknown entity code: ${entityCode}` };
+
+  const { data: itemRows, error: itemError } = await admin
+    .from('os_finish_line_items')
+    .select('id, kind')
+    .in('id', requested);
+  if (itemError) return { ok: false, status: 500, error: 'Could not read sections' };
+  const kindOf = new Map(
+    (itemRows as { id: string; kind: string }[]).map((row) => [row.id.toLowerCase(), row.kind]),
+  );
+  const notSections = requested.filter((id) => kindOf.get(id) !== 'section');
+  if (notSections.length > 0) {
+    return {
+      ok: false,
+      status: 400,
+      error: `Not sections (a grant names a section, never a metric or a note): ${notSections.join(', ')}`,
+    };
+  }
+
+  const enrolledBefore = await memberships(admin, user.id);
+  const enrolled = !enrolledBefore.includes(entityCode);
+  if (enrolled) {
+    // Idempotent on the composite PK; role is hardcoded server-side.
+    const { error: memberError } = await admin
+      .from('os_entity_members')
+      .upsert([{ user_id: user.id, entity_code: entityCode, role: 'contributor' }], {
+        onConflict: 'user_id,entity_code',
+        ignoreDuplicates: true,
+      });
+    if (memberError) {
+      return { ok: false, status: 500, error: `membership grant failed: ${memberError.message}` };
+    }
+  }
+
+  const rows = requested.map((sectionId) => ({
+    user_id: user.id,
+    entity_code: entityCode,
+    section_id: sectionId,
+    capability,
+    created_by: 'owner',
+  }));
+  // No ignoreDuplicates: an existing row takes the new capability.
+  const { error: grantError } = await admin
+    .from('os_finish_line_grants')
+    .upsert(rows, { onConflict: 'user_id,entity_code,section_id' });
+  if (grantError) return { ok: false, status: 500, error: `scope grant failed: ${grantError.message}` };
+
+  await audit(admin, 'grant-scope', email, [entityCode], null, { sectionIds: requested, capability });
+  return {
+    ok: true,
+    body: {
+      userId: user.id,
+      email,
+      entityCode,
+      enrolled,
+      grants: await scopeGrants(admin, user.id),
+    },
+  };
+}
+
+/**
+ * Removes one (entity, section) grant, audited. The membership stays — it is
+ * the enrolment, and with no grant left on the entity it opens structure and
+ * nothing else — as does every other grant. The full `revoke` is the action
+ * that removes a person.
+ */
+export async function provisionRevokeScope(
+  admin: SupabaseClient,
+  rawEmail: unknown,
+  rawEntityCode: unknown,
+  rawSectionId: unknown,
+): Promise<ProvisionOutcome> {
+  const email = normalizeEmail(rawEmail);
+  if (!email) return { ok: false, status: 400, error: 'A well-formed email is required' };
+  const parsed = parseRevokeScope(rawEntityCode, rawSectionId);
+  if (!parsed.ok) return { ok: false, status: 400, error: parsed.error };
+  const { entityCode, sectionId } = parsed.value;
+
+  const user = await findUserByEmail(admin, email);
+  if (!user) return { ok: false, status: 404, error: 'No such user' };
+
+  const { data: removedRows, error } = await admin
+    .from('os_finish_line_grants')
+    .delete()
+    .eq('user_id', user.id)
+    .eq('entity_code', entityCode)
+    .eq('section_id', sectionId)
+    .select('section_id');
+  if (error) return { ok: false, status: 500, error: `scope revoke failed: ${error.message}` };
+
+  await audit(admin, 'revoke-scope', email, [entityCode], null, {
+    sectionIds: [sectionId],
+    capability: null,
+  });
+  return {
+    ok: true,
+    body: {
+      userId: user.id,
+      email,
+      entityCode,
+      removed: (removedRows ?? []).length,
+      grants: await scopeGrants(admin, user.id),
+    },
+  };
+}
+
 export async function provisionList(admin: SupabaseClient): Promise<ProvisionOutcome> {
   const { data: memberRows, error: memberError } = await admin
     .from('os_entity_members')
@@ -483,24 +826,51 @@ export async function provisionList(admin: SupabaseClient): Promise<ProvisionOut
     projectsByUser.set(row.user_id, [...(projectsByUser.get(row.user_id) ?? []), row.project_id]);
   }
 
-  const users: Array<Record<string, unknown>> = [];
+  // The scope axis rides the same list. `grants` is OMITTED, not emptied,
+  // while the table is not there yet: an absent field reads "not known" and
+  // an empty array reads "nobody holds anything", and the second is the
+  // confident zero this app has rendered twice before.
+  const scopeByUser = await scopeGrantsByUser(admin);
+
+  const accounts: User[] = [];
   let page = 1;
   for (;;) {
     const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
     if (error) return { ok: false, status: 500, error: 'Could not list users' };
-    for (const user of data.users) {
-      users.push({
-        userId: user.id,
-        email: user.email ?? '',
-        entityCodes: (byUser.get(user.id) ?? []).sort(),
-        projectIds: (projectsByUser.get(user.id) ?? []).sort(),
-        lastSignInAt: user.last_sign_in_at ?? null,
-        createdAt: user.created_at ?? null,
-      });
-    }
+    accounts.push(...data.users);
     if (data.users.length < 200) break;
     page += 1;
   }
+
+  // Where each person's sign-in link stands (20260904000098): GoTrue's own
+  // token table through the definer reader, the row this app filed, and the
+  // configured window — derived in linkStatus.ts, never guessed. The reader
+  // being absent yields `unknown` for people with no filed row, which the
+  // dashboard renders as exactly that.
+  const instants = await tokenMintInstants(admin, accounts.map((user) => user.id));
+  const filed = await storedLinksByUser(admin);
+  const ttl = linkTtlSeconds();
+  const now = Date.now();
+
+  const users: Array<Record<string, unknown>> = accounts.map((user) => {
+    const link: CollabLinkState = deriveLinkState({
+      tokenMintedAt: instants ? (instants.get(user.id) ?? null) : undefined,
+      stored: filed?.get(user.id) ?? null,
+      lastSignInAt: user.last_sign_in_at ?? null,
+      ttlSeconds: ttl,
+      now,
+    });
+    return {
+      userId: user.id,
+      email: user.email ?? '',
+      entityCodes: (byUser.get(user.id) ?? []).sort(),
+      projectIds: (projectsByUser.get(user.id) ?? []).sort(),
+      ...(scopeByUser ? { grants: scopeByUser.get(user.id) ?? [] } : {}),
+      link,
+      lastSignInAt: user.last_sign_in_at ?? null,
+      createdAt: user.created_at ?? null,
+    };
+  });
   users.sort((a, b) => String(a.email).localeCompare(String(b.email)));
   await audit(admin, 'list', null, null);
   return { ok: true, body: { users } };

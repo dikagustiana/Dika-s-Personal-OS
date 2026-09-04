@@ -60,6 +60,7 @@ policies in this schema:
 |---|---|---|
 | `os_finish_line_*` member policies (`20260804000040`) | `to authenticated` | No |
 | `os_process_*` member policies (`20260806000058`) | *(none)* → `to public` | **Yes** |
+| grant-derived policies on `os_finish_line_cells` / `os_finish_line_accounts` / `os_finish_line_grants` (`20260904000095`) | `to authenticated` | No |
 
 Note also that the owner's own requests run as **`anon`** with an `x-app-key`
 header, not as `authenticated`. "Only contributors are affected" is almost
@@ -79,7 +80,12 @@ zero rows.
 
 As of the last audit: 4 functions appear in RLS predicates — `os_key_valid`,
 `os_read_key_valid`, `os_member_entities`, `os_member_projects` — across 509
-(policy, role) pairs, with **zero violations**.
+(policy, role) pairs, with **zero violations**. `20260904000095` adds three
+more — `os_member_readable_cells`, `os_member_writable_cells`,
+`os_member_granted_entities` — executable by `authenticated` only and named
+only by `to authenticated` policies, so no `anon` grant is needed or given.
+`scripts/grant-scope-tests.sh` revokes one of those grants as a negative
+control and asserts this check goes red.
 
 ---
 
@@ -156,6 +162,20 @@ count. The suite ends by revoking the `anon` grant and asserting that it goes
 It is deliberately not part of `pnpm test`: CI has no Postgres, and a suite
 that silently skips reports green for work it did not do.
 
+```bash
+scripts/grant-scope-tests.sh
+```
+
+Same cluster, for the grant model (`20260904000095`). It applies the
+migration's down file to restore membership-scoped reads, counts each
+contributor's readable cells **as that contributor**, re-applies the
+migration, counts again, and asserts *after = before − parentless-metric
+cells* for every member. Then `supabase/tests/finish_line_grants.sql` pins the
+per-identity numbers (reads, writes, accounts, the section guard, the
+membership cascade), three negative controls must each turn it red, and
+`collab_rls.sql` — the file the owner runs against live after applying — runs
+against the same cluster first.
+
 ### A known gap it exposes
 
 The replay needs stand-in rows because **`os_finish_line_items` and
@@ -164,3 +184,42 @@ live's 55 items and 5 entities were written from outside the repo, and the
 process seeds reference 22 of those item uuids as literals. A from-scratch
 replay therefore cannot reproduce live without scaffolding. The script
 generates the minimum by reading the seeds, and says so when it runs.
+
+---
+
+## 6. Scope is a grant row, not a membership row
+
+Since `20260904000095`, `os_entity_members` is the **enrolment** and
+`os_finish_line_grants` — `(user, entity, section, capability)` — is the
+**scope**. A membership with no grant reads structure (items, entities, the
+process tables) and no cell, no account. Grants require their membership
+through a cascading FK, so revoking the membership takes the grants with it.
+
+Rules that follow, each with the reason it exists:
+
+- **Member policies on cells and accounts derive from the grant functions**
+  (`os_member_readable_cells()`, `os_member_writable_cells()`,
+  `os_member_granted_entities()`), never from `os_member_entities()`. A policy
+  written against membership silently widens every read-only or partial grant
+  back to the whole entity; `scripts/grant-scope-tests.sh` re-adds exactly
+  that policy as a negative control and asserts the suite goes red.
+- **`section_id` is NOT NULL and names a `kind = 'section'` item** (trigger
+  `os_finish_line_grants_section_guard`). A wildcard row would let the access
+  dashboard show a scope the database does not literally hold; a grant on a
+  metric would grant nothing and look correct.
+- **A metric with no parent section is reachable by no grant.** The cell join
+  is `grant.section_id = coalesce(item.parent_id, item.id)`, so a parentless
+  metric resolves to itself, which the guard refuses. The four such metrics on
+  live (COGS / Sales × Poultry processing / Poultry trading) are owner-only
+  until the owner decides otherwise — by a migration, not by a shadow section.
+- **A new section is granted to nobody.** Fail closed, like every other
+  absence. "Grant every section" is a panel action, never an implicit default.
+- **`capability` lives on the grant row.** `os_entity_members.role` is
+  untouched and still hardcoded server-side.
+- **Accounts stay read-only for members**: one SELECT policy, no member
+  INSERT/UPDATE/DELETE. The workbook owns the account columns.
+- **Deps and edges follow the readable set** (`20260904000097`): a member
+  reads `os_finish_line_deps` and `os_finish_line_item_projects` rows whose
+  `cell_id` is in `os_member_readable_cells()`, and nothing else. Before that
+  file both tables still answered by entity membership — one section of SAMB
+  showed every SAMB cell's derivation edges and project links by id.

@@ -36,6 +36,12 @@ export type WorkView =
   // target, the process is the road to it, and splitting them into sidebar
   // entries reduced that relationship to a hyperlink. See FinishLineArea.
   | 'finish-line'
+  // The access dashboard: who may read or write which section of which
+  // entity, and where each person's sign-in link stands. Owner-only in the
+  // nav (a contributor's nav never offers it) and owner-only in the data —
+  // every read and write behind it is the owner-key-gated provisioning
+  // function or an owner-only table.
+  | 'access'
   | 'monthly-close'
   | 'escalations';
 export type GrowthView =

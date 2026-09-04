@@ -15,6 +15,7 @@ import type {
   CellHistoryEntry,
   CellState,
   CollabLink,
+  FinishLineGrant,
   DailyLog,
   DanglingLink,
   Domain,
@@ -415,6 +416,20 @@ export interface Repository {
    * treats as "no stored links" and falls back to its tab-local copy.
    */
   listCollabLinks(): Promise<ReadResult<CollabLink>>;
+
+  /**
+   * The scope rows (20260904000095). Owner key: every row. Collaborator JWT:
+   * their own rows only, by RLS — what the matrix reads to tell a read grant
+   * from a write grant BEFORE a click, so a read-only person's first hint is
+   * a panel without editors rather than "Cell not found". READ ONLY FROM HERE
+   * ON PURPOSE: grants are written through provision-collaborator's
+   * grant-scope / revoke-scope and audited there; a client that could write
+   * this table could grant itself.
+   *
+   * Returns missing-relation before the migration is applied, which the
+   * matrix treats as "membership still implies write" — the pre-095 rule.
+   */
+  listFinishLineGrants(): Promise<ReadResult<FinishLineGrant>>;
 
   listSignInLog(): Promise<ReadResult<SignInEvent>>;
   listCellHistory(): Promise<ReadResult<CellHistoryEntry>>;
