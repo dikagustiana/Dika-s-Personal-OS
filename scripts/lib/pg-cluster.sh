@@ -92,8 +92,8 @@ pgc_bootstrap() {
 # Everything the migrations expect from a Supabase project and nothing more:
 # three roles, the `extensions` and `auth` schemas, auth.uid() reading the
 # same GUC PostgREST sets, and a stand-in auth.users carrying only the columns
-# the migrations actually reference. Roles are cluster-wide, so this is
-# written to survive being run twice.
+# the migrations and the SQL suites actually reference. Roles are
+# cluster-wide, so this is written to survive being run twice.
 pgc_shim() {
   cat > "$WORK/shim.sql" <<'SQL'
 do $$
@@ -104,6 +104,11 @@ begin
     then create role authenticated nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'service_role')
     then create role service_role nologin; end if;
+  -- Supabase's service_role carries BYPASSRLS; that is what lets the edge
+  -- functions write past every policy. collab_rls.sql's provisioning-path
+  -- cases replay their SQL as that role and depend on it — without the
+  -- attribute P1 dies on os_project_members' RLS instead of proving anything.
+  alter role service_role bypassrls;
 end
 $$;
 
@@ -134,7 +139,13 @@ create table if not exists auth.users (
   encrypted_password text default '',
   last_sign_in_at    timestamptz,
   raw_user_meta_data jsonb default '{}'::jsonb,
-  created_at         timestamptz default now()
+  created_at         timestamptz default now(),
+  -- GoTrue's own bookkeeping, as nullable stand-ins: collab_rls.sql inserts
+  -- its synthetic users with instance_id / aud / role set, the way a row on
+  -- live looks, so that file runs here as well as against the live project.
+  instance_id        uuid,
+  aud                text,
+  role               text
 );
 
 -- Stand-in for GoTrue's token ledger: 20260809000072 reads user_id,

@@ -60,6 +60,8 @@ scripts/role-read-tests.sh        # per-role reads, RLS fn grants, definer gates
 scripts/lab-epistemic-tests.sh    # the epistemic gates, both identities
 scripts/lab-boundary-tests.sh
 scripts/seed-guard-tests.sh
+scripts/grant-scope-tests.sh      # the grant model: backfill measured as each contributor,
+                                  # per-identity reads/writes, 3 negative controls, collab_rls.sql
 ```
 
 House convention for every file in `supabase/tests/`: **zero rows returned
@@ -236,6 +238,30 @@ offline and permission-denied on every surface.
 because both directions are needed and a per-row query would be one round trip
 per opened panel. Follow this where the row counts justify it; do not
 generalise it to large tables.
+
+### Collaborator access to the Finish line is a grant row, not a membership
+
+Since `20260904000095`, `os_entity_members` is the **enrolment** and
+`os_finish_line_grants` — `(user_id, entity_code, section_id, capability)` —
+is the **scope**. Membership alone reads structure (items, entities, process
+tables) and **no cell and no account**; cells come from grants through
+`os_member_readable_cells()` / `os_member_writable_cells()`, accounts follow
+their cell plus the entity's unmapped ones (`os_member_granted_entities()`).
+`write` includes `read`. A grant requires its membership (cascading FK), so
+revoking the membership takes the grants with it.
+
+Fixed decisions, not open questions: the unit of scope is the **section**
+(never the cell, never the project, never `os_finish_line_item_projects`);
+`section_id` is NOT NULL and must be a `kind = 'section'` item (trigger
+guard) — no wildcard row; a **new section is granted to nobody**; the **four
+parentless metrics** (COGS / Sales × Poultry processing / Poultry trading)
+resolve to themselves in the cell join and are therefore reachable by no
+grant — owner-only until a migration says otherwise; `capability` lives on
+the grant row and `os_entity_members.role` stays untouched; accounts stay
+read-only for members. Never write a member policy on cells or accounts
+against `os_member_entities()` again — `scripts/grant-scope-tests.sh` re-adds
+that exact policy as a negative control and asserts the suite goes red. Full
+reasoning: `docs/rls-conventions.md` §6.
 
 ---
 
