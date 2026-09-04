@@ -58,9 +58,15 @@ gates_of()  { count "select count(*) from public.os_process_gates where entity_c
 # SAMB/ARBI pair would have quietly stayed green while a third seed went
 # untested. Adding the next entity is one line.
 #
-# KGR points at 61, not 60: v0.2 replaced v0.1 in place, so 60 is history and
-# re-running it would refuse against 38 rows for the wrong reason. Whenever a
-# seed is superseded, this row moves to the file that defines the live shape.
+# KGR points at 88, the last file that shaped its live chain — not at 60 (v0.1,
+# replaced in place by 61) and no longer at 61 either: v0.2 was retracked to
+# RPA/TRADING by 87 and joined by the ten-step trading chain of 88, so a full
+# replay leaves 48 steps, 130 needs and 15 phases, and 61's own guard
+# (`count = 38`) does not fire against that shape any more. 88 refuses cleanly
+# whenever a KGR TRADING step exists, which is the refusal this section can
+# still prove; what 61 does against the live shape is exercised BY NAME in
+# section 1b, because hiding it would be worse than a red. Whenever a seed is
+# superseded, this row moves to the file that defines the live shape.
 #
 # SAMB's counts are what a FULL replay leaves behind, not what its seed file
 # inserts: 20260806000051 still seeds 30/118/15 and still refuses on re-run,
@@ -70,7 +76,7 @@ gates_of()  { count "select count(*) from public.os_process_gates where entity_c
 ENTITIES=(
   "SAMB 20260806000051_samb_process_seed 33 131 7 6 20"
   "ARBI 20260806000053_arbi_process_seed 23 112 7 6 12"
-  "KGR  20260807000061_kgr_process_seed_v2 38 117 10 9 42"
+  "KGR  20260820000088_kgr_trading_seed 48 130 15 9 42"
 )
 
 echo ""
@@ -116,7 +122,7 @@ guard_refuses() {
     RC=1
   else
     echo "ok    re-running the $entity seed aborts with the guard's own message"
-    printf '      %s\n' "$(printf '%s' "$out" | grep -io 'Rantai proses .* sudah terseed[^"]*' | head -1 | cut -c1-96)…"
+    printf '      %s\n' "$(printf '%s' "$out" | grep -io 'Rantai [^"]* sudah terseed[^"]*' | head -1 | cut -c1-96)…"
   fi
 
   # The whole point. An abort that still left rows behind would be worse than
@@ -137,6 +143,39 @@ for row in "${ENTITIES[@]}"; do
   read -r code file _rest <<<"$row"
   guard_refuses "$code" "$MIG/$file.sql"
 done
+
+# ---------------------------------------------------------------------------
+# 1b. THE v0.2 SEED (61) NO LONGER REFUSES AGAINST THE LIVE SHAPE. NAMED, NOT HIDDEN.
+# ---------------------------------------------------------------------------
+# 61 guards on `count = 38` — exactly the v0.2 shape it seeds. Since 87/88 a
+# full replay leaves 48 KGR steps, so re-running 61 passes its own guard,
+# deletes every KGR row and reseeds v0.2: the trading chain and the sourcing
+# retrack vanish with no error. A RESET rather than a duplicate, and a real
+# hazard for anyone who re-runs an applied file against live. 61 is an applied
+# one-shot and is never edited retroactively, so this harness cannot make it
+# refuse; it can only keep the fact visible. This runs 61 against the live
+# shape and reports what happened as a `note` — not a FAIL, the file is
+# history and behaves exactly as written — then re-applies 87 and 88 so every
+# later section sees the real replay again, which doubles as proof that 87
+# and 88 can be re-applied from the v0.2 state. The day 61 is retired or
+# regains a guard that fires, the note flips to `ok` and this section can go.
+echo ""
+echo "==> re-running the KGR v0.2 seed (61) against the live 87/88 shape"
+out=$(psql_capture "-f $MIG/20260807000061_kgr_process_seed_v2.sql")
+if [ -n "$(printf '%s' "$out" | grep -i 'sekali pakai')" ]; then
+  echo "ok    61 refuses against the live shape — its guard fires again; revisit section 1b"
+else
+  echo "note  61 does NOT refuse against the live shape: KGR reset to steps=$(steps_of KGR) needs=$(needs_of KGR) phases=$(phases_of KGR) — known since 87/88; never re-run an applied file against live"
+  if ! out=$(psql_capture "-f $MIG/20260820000087_kgr_retrack_sourcing.sql"); then
+    echo "FAIL  87 did not re-apply from the v0.2 shape:"; printf '%s\n' "$out" | head -6 | sed 's/^/      /'; RC=1
+  elif ! out=$(psql_capture "-f $MIG/20260820000088_kgr_trading_seed.sql"); then
+    echo "FAIL  88 did not re-apply after 87:"; printf '%s\n' "$out" | head -6 | sed 's/^/      /'; RC=1
+  elif [ "$(steps_of KGR)" = "48" ] && [ "$(needs_of KGR)" = "130" ] && [ "$(phases_of KGR)" = "15" ]; then
+    echo "ok    87 + 88 restored the live KGR shape: steps=48 needs=130 phases=15"
+  else
+    echo "FAIL  87 + 88 did not restore the live shape: steps=$(steps_of KGR) needs=$(needs_of KGR) phases=$(phases_of KGR)"; RC=1
+  fi
+fi
 
 # ---------------------------------------------------------------------------
 # 2. THE GUARD IS A GATE, NOT A WALL: down-seed then reseed must work.
