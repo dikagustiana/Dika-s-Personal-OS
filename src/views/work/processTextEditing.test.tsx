@@ -8,7 +8,7 @@
  * carries `slot` would still round-trip fine; it would just have moved a box
  * to another column, silently, and the pinned counts would quietly stop
  * being the pinned ones. So every save is inspected for its key set, and the
- * two counts (30 boxes, 12 handoff markers) are re-asserted AFTER an edit.
+ * two counts (33 boxes, 15 handoff markers) are re-asserted AFTER an edit.
  *
  * Three failure modes get their own tests because each one loses work:
  *   - a malformed coa line must STOP the save, not disappear from it;
@@ -224,7 +224,7 @@ function renderSwimlane(options?: { failStepWrite?: boolean; historyTableMissing
   return render(<FinishLineSwimlane onClearItemFilter={noop} onOpenMatrix={noop} />);
 }
 
-async function waitForCanvas(container: HTMLElement, boxes = 30) {
+async function waitForCanvas(container: HTMLElement, boxes = 33) {
   await waitFor(() => {
     expect(container.querySelectorAll('[data-step-label]').length).toBe(boxes);
   });
@@ -613,10 +613,10 @@ describe('§C.5 kind and status can only be set to a value the CHECK accepts', (
 // --- editing must not move the diagram --------------------------------------
 
 describe('§C.9 the pinned SAMB numbers survive an edit', () => {
-  it('30 boxes and 12 handoff markers, before and after saving text', async () => {
+  it('33 boxes and 15 handoff markers, before and after saving text', async () => {
     const { container } = renderSwimlane();
     const panel = await openStep(container);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(12);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(15);
 
     fireEvent.click(within(panel).getByRole('button', { name: 'Edit teks' }));
     type(field(panel, 'Nama step'), 'Nama yang jauh lebih panjang daripada sebelumnya');
@@ -625,16 +625,16 @@ describe('§C.9 the pinned SAMB numbers survive an edit', () => {
     await waitFor(() => expect(recorder.steps).toHaveLength(1));
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]')).toHaveLength(30);
+      expect(container.querySelectorAll('[data-step-label]')).toHaveLength(33);
     });
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(12);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(15);
     // Per-track counts too: the split walks `track`, which no patch can name.
     fireEvent.click(screen.getByRole('button', { name: 'TRADE' }));
-    await waitForCanvas(container, 19);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(6);
+    await waitForCanvas(container, 21);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(8);
     fireEvent.click(screen.getByRole('button', { name: 'LP' }));
-    await waitForCanvas(container, 20);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(7);
+    await waitForCanvas(container, 23);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(9);
   });
 
   it('never reaches os_finish_line_* — not a cell, not a milestone, not an account', async () => {

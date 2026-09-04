@@ -159,7 +159,7 @@ describe('§B.4.4 / §B.4.5 absent or empty renders nothing at all', () => {
       await waitForLoaded();
       // The rest of the page renders normally.
       await waitFor(() => {
-        expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+        expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
       });
       expect(screen.queryByRole('button', { name: /Referensi/ })).toBeNull();
       expect(screen.queryByText(/Referensi/)).toBeNull();

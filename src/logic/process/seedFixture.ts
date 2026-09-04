@@ -46,15 +46,15 @@ export const STEP_ITEM_MAP: Array<{
   section: string;
   stepLabels: string[];
 }> = [
-  { itemId: '634e675f-4681-4307-b831-6cad1e7d80fa', row: 'Sales — General Trade', section: 'Laba rugi', stepLabels: ['2', '10', '18a', '19'] },
+  { itemId: '634e675f-4681-4307-b831-6cad1e7d80fa', row: 'Sales — General Trade', section: 'Laba rugi', stepLabels: ['2', '10', '18a', '18c', '19'] },
   // 18b joins 1/20/21 via migration 20260806000056, not via the seed: 18b's
   // driver is "SJ terselesaikan per klien → konfirmasi konsumsi layanan", and
   // that confirmation is what feeds measurement at 20 and revenue at 21.
-  { itemId: '2b7394bf-92f4-4900-b2a6-03353dbe6d98', row: 'Sales — Logistic provider', section: 'Laba rugi', stepLabels: ['1', '18b', '20', '21'] },
+  { itemId: '2b7394bf-92f4-4900-b2a6-03353dbe6d98', row: 'Sales — Logistic provider', section: 'Laba rugi', stepLabels: ['1', '18b', '20', '21', '27'] },
   { itemId: '2e4c8392-8c03-488b-b30c-d633b5b00ea3', row: 'COGS — General Trade', section: 'Laba rugi', stepLabels: ['7a', '9'] },
-  { itemId: '768beb21-1151-4a1f-924a-c1c3f5001348', row: 'COGS — Logistic provider', section: 'Laba rugi', stepLabels: ['5', '6b', '7b', '20', '21'] },
-  { itemId: '10b151a5-5c45-454c-a13b-ffbc786ec645', row: 'Storing cost', section: 'Laba rugi', stepLabels: ['6a', '8', '9', '13', '14', '15a'] },
-  { itemId: '7d040e4a-7bf4-425a-b171-a46245d8158c', row: 'Distribution cost', section: 'Laba rugi', stepLabels: ['15a', '16', '17'] },
+  { itemId: '768beb21-1151-4a1f-924a-c1c3f5001348', row: 'COGS — Logistic provider', section: 'Laba rugi', stepLabels: ['5', '6b', '7b', '20', '21', '28'] },
+  { itemId: '10b151a5-5c45-454c-a13b-ffbc786ec645', row: 'Storing cost', section: 'Laba rugi', stepLabels: ['6a', '8', '9', '13', '14', '15a', '28'] },
+  { itemId: '7d040e4a-7bf4-425a-b171-a46245d8158c', row: 'Distribution cost', section: 'Laba rugi', stepLabels: ['15a', '16', '17', '28'] },
   { itemId: '390d42f8-4add-4f23-b59f-1c8aed3bc5e1', row: 'Commercials and support', section: 'Laba rugi', stepLabels: ['19', '23', '24'] },
   { itemId: '8f95868d-0cdd-4590-beb0-244777dad99e', row: 'Revenue / CBM', section: 'Unit economics', stepLabels: ['3', '7a'] },
   { itemId: '1054d85e-83b7-4ae9-bdd6-1aa48bbde597', row: 'Pallet utilisation', section: 'Unit economics', stepLabels: ['8', '9', '16'] },

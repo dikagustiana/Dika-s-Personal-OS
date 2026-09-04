@@ -191,7 +191,7 @@ describe('§6 lintas entitas — the two chains stay apart', () => {
     }
   });
 
-  it('(Storing cost, SAMB) is fed by 6 steps; (Storing cost, ARBI) by 6 DIFFERENT steps', () => {
+  it('(Storing cost, SAMB) is fed by 7 steps; (Storing cost, ARBI) by 6 DIFFERENT steps', () => {
     const samb = closingConditionsForItem(
       STORING_COST,
       'SAMB',
@@ -206,9 +206,11 @@ describe('§6 lintas entitas — the two chains stay apart', () => {
       combinedNeeds,
       combinedSteps,
     );
-    expect(samb?.stepCount).toBe(6);
+    // SAMB gained its seventh feeder in v0.4: step 28 books the carve-out
+    // that leaves Storing cost at close.
+    expect(samb?.stepCount).toBe(7);
     expect(arbi?.stepCount).toBe(6);
-    // The step sets differ even where labels overlap: SAMB 6a/8/9/13/14/15a
+    // The step sets differ even where labels overlap: SAMB 6a/8/9/13/14/15a/28
     // versus ARBI 6/7/8/9/13/14 — resolved by step id, which carries the
     // entity, never by label.
     const sambLabels = new Set(
@@ -225,7 +227,7 @@ describe('§6 lintas entitas — the two chains stay apart', () => {
         .filter((step) => step?.entityCode === 'ARBI')
         .map((step) => step?.label),
     );
-    expect([...sambLabels].sort()).toEqual(['13', '14', '15a', '6a', '8', '9']);
+    expect([...sambLabels].sort()).toEqual(['13', '14', '15a', '28', '6a', '8', '9']);
     expect([...arbiLabels].sort()).toEqual(['13', '14', '6', '7', '8', '9']);
   });
 

@@ -13,7 +13,7 @@
  *      repository fallback) renders SAMB exactly as before PLUS one visible
  *      notice line — and nothing reaches the console.
  *   7. Entity binds ACROSS the two tabs while jalur does not: LP picked on
- *      the swimlane leaves the register at Semua with all 118 rows; ARBI
+ *      the swimlane leaves the register at Semua with all 131 rows; ARBI
  *      picked on the register carries into the swimlane.
  *
  * Fixtures are both seed fixtures — what migrations 51 and 53 insert.
@@ -204,15 +204,15 @@ describe('§6.2 switching entity redraws the arrows from the new boxes', () => {
     expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(12);
 
     // Switch to SAMB via the picker — the arrows must re-derive AND
-    // re-measure: 30 boxes, and not one coordinate in ARBI space.
+    // re-measure: 33 boxes, and not one coordinate in ARBI space.
     fireEvent.click(screen.getByRole('button', { name: 'SAMB' }));
-    await waitForBoxes(container, 30);
+    await waitForBoxes(container, 33);
     await waitFor(() => {
       const xs = wireXs(container);
       expect(xs.length).toBeGreaterThan(0);
       expect(xs.every((x) => x < ARBI_X_BASE)).toBe(true);
     });
-    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(12);
+    expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(15);
   });
 
   it('ARBI Forward: 21 boxes 8 markers · Reverse: 8 boxes 4 markers', async () => {
@@ -235,7 +235,7 @@ describe('§6.2 switching entity redraws the arrows from the new boxes', () => {
 describe('§6.4 each entity offers its own tracks and nothing else', () => {
   it('SAMB shows Semua/TRADE/LP; ARBI shows Semua/FORWARD/REVERSE', async () => {
     const { container } = renderSwimlane(bothEntitiesRepository());
-    await waitForBoxes(container, 30);
+    await waitForBoxes(container, 33);
     expect(screen.getByRole('button', { name: 'TRADE' })).toBeDefined();
     expect(screen.getByRole('button', { name: 'LP' })).toBeDefined();
     expect(screen.queryByRole('button', { name: 'FORWARD' })).toBeNull();
@@ -251,16 +251,16 @@ describe('§6.4 each entity offers its own tracks and nothing else', () => {
 });
 
 describe('§6.7 entity binds across the tabs; jalur does not', () => {
-  it('LP picked on the swimlane leaves the register at Semua with all 118 rows', async () => {
+  it('LP picked on the swimlane leaves the register at Semua with all 131 rows', async () => {
     const swimlane = renderSwimlane(bothEntitiesRepository());
-    await waitForBoxes(swimlane.container, 30);
+    await waitForBoxes(swimlane.container, 33);
     fireEvent.click(screen.getByRole('button', { name: 'LP' }));
-    await waitForBoxes(swimlane.container, 20);
+    await waitForBoxes(swimlane.container, 23);
     swimlane.unmount();
 
     const needs = renderNeeds(bothEntitiesRepository());
     await waitFor(() => {
-      expect(screen.getByText('118 baris')).toBeDefined();
+      expect(screen.getByText('131 baris')).toBeDefined();
     });
     const semua = screen.getByRole('button', { name: 'Semua' });
     expect(semua.getAttribute('aria-pressed')).toBe('true');
@@ -270,7 +270,7 @@ describe('§6.7 entity binds across the tabs; jalur does not', () => {
   it('ARBI picked on the register carries into the swimlane', async () => {
     const needs = renderNeeds(bothEntitiesRepository());
     await waitFor(() => {
-      expect(screen.getByText('118 baris')).toBeDefined();
+      expect(screen.getByText('131 baris')).toBeDefined();
     });
     fireEvent.click(screen.getByRole('button', { name: 'ARBI' }));
     await waitFor(() => {
@@ -287,32 +287,32 @@ describe('§6.7 entity binds across the tabs; jalur does not', () => {
   it('an active jalur filter on the register SAYS how many rows it hides', async () => {
     renderNeeds(bothEntitiesRepository());
     await waitFor(() => {
-      expect(screen.getByText('118 baris')).toBeDefined();
+      expect(screen.getByText('131 baris')).toBeDefined();
     });
     fireEvent.click(screen.getByRole('button', { name: 'LP' }));
-    // SAMB LP scope holds 82 of 118 — the other 36 must be DECLARED, not
+    // SAMB LP scope holds 94 of 131 — the other 37 must be DECLARED, not
     // silently absent from the request list.
     await waitFor(() => {
-      expect(screen.getByText('82 baris')).toBeDefined();
+      expect(screen.getByText('94 baris')).toBeDefined();
     });
-    expect(screen.getByText(/36 baris di luar jalur ini disembunyikan/)).toBeDefined();
+    expect(screen.getByText(/37 baris di luar jalur ini disembunyikan/)).toBeDefined();
   });
 });
 
 describe('§6.5 the pre-52 window renders SAMB plus one notice, console clean', () => {
-  it('draws the 30 SAMB boxes with TRADE/LP buttons and the multi-entity notice', async () => {
+  it('draws the 33 SAMB boxes with TRADE/LP buttons and the multi-entity notice', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(noop);
     const warn = vi.spyOn(console, 'warn').mockImplementation(noop);
     try {
       const { container } = renderSwimlane(pre52Repository());
-      await waitForBoxes(container, 30);
+      await waitForBoxes(container, 33);
       await waitFor(() => {
         expect(container.querySelectorAll('svg path[marker-end]').length).toBeGreaterThan(0);
       });
       expect(screen.getByText(/Fitur multi-entitas belum aktif/)).toBeDefined();
       expect(screen.getByRole('button', { name: 'TRADE' })).toBeDefined();
       expect(screen.getByRole('button', { name: 'LP' })).toBeDefined();
-      expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(12);
+      expect(container.querySelectorAll('[data-handoff-marker]').length).toBe(15);
       expect(error).not.toHaveBeenCalled();
       expect(warn).not.toHaveBeenCalled();
     } finally {
@@ -321,10 +321,10 @@ describe('§6.5 the pre-52 window renders SAMB plus one notice, console clean', 
     }
   });
 
-  it('the register renders all 118 rows with the same notice', async () => {
+  it('the register renders all 131 rows with the same notice', async () => {
     renderNeeds(pre52Repository());
     await waitFor(() => {
-      expect(screen.getByText('118 baris')).toBeDefined();
+      expect(screen.getByText('131 baris')).toBeDefined();
     });
     expect(screen.getByText(/Fitur multi-entitas belum aktif/)).toBeDefined();
   });

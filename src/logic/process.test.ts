@@ -1,8 +1,9 @@
 /**
  * Tests over the REAL seed (sambProcessSeed.json — the source migration
- * 20260806000051 was generated from), because the DoD counts are properties
- * of that data: 30 steps and 12 handoffs are facts about the SAMB chain, not
- * about synthetic fixtures. THERE ARE NO FIGURES ANYWHERE IN THIS FILE.
+ * 20260806000051 was generated from, raised to v0.4 by 20260903000094),
+ * because the DoD counts are properties of that data: 33 steps and 15
+ * handoffs are facts about the SAMB chain, not about synthetic fixtures.
+ * THERE ARE NO FIGURES ANYWHERE IN THIS FILE.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -44,12 +45,12 @@ const tracks = fixtureTracks();
 const shared = sharedTrackCodes(tracks);
 
 describe('§10.2 the seed counts are exact — mismatches mean the seed was misread', () => {
-  it('carries 6 lanes, 7 phases, 15 gates, 30 steps, 118 needs', () => {
+  it('carries 6 lanes, 7 phases, 20 gates, 33 steps, 131 needs', () => {
     expect(lanes).toHaveLength(6);
     expect(phases).toHaveLength(7);
-    expect(gates).toHaveLength(15);
-    expect(steps).toHaveLength(30);
-    expect(needs).toHaveLength(118);
+    expect(gates).toHaveLength(20);
+    expect(steps).toHaveLength(33);
+    expect(needs).toHaveLength(131);
   });
 
   it('gives every lane a description and marks exactly KLIEN as external', () => {
@@ -59,7 +60,7 @@ describe('§10.2 the seed counts are exact — mismatches mean the seed was misr
   });
 
   it('keeps step labels unique — the label is the identity', () => {
-    expect(new Set(steps.map((step) => step.label)).size).toBe(30);
+    expect(new Set(steps.map((step) => step.label)).size).toBe(33);
   });
 });
 
@@ -88,13 +89,16 @@ describe('§10.3 phases tile slot 1..max(slot) exactly once', () => {
   });
 });
 
-describe('§10.4 every gate reference resolves; three gates are deliberately unused', () => {
+describe('§10.4 every gate reference resolves; six gates are deliberately unused', () => {
   it('finds no unknown gate id on any step', () => {
     expect(unknownGateRefs(steps, gates)).toEqual([]);
   });
 
-  it('leaves exactly G03, G07 and G09 unreferenced — kept for numbering, never deleted', () => {
-    expect(unusedGates(steps, gates)).toEqual(['G03', 'G07', 'G09']);
+  // v0.4 attached G09 to the new step 18c and added G16–G20, of which only
+  // G20 hangs off a box (27). G16–G19 are cited inside driver text and keep
+  // the numbering aligned with the register outside the app.
+  it('leaves exactly G03, G07, G16, G17, G18 and G19 unreferenced — kept for numbering, never deleted', () => {
+    expect(unusedGates(steps, gates)).toEqual(['G03', 'G07', 'G16', 'G17', 'G18', 'G19']);
   });
 });
 
@@ -103,24 +107,24 @@ describe('§6.5 the walks are unambiguous and the filters produce the pinned cou
     expect(duplicateChainSlots(steps, tracks)).toEqual([]);
   });
 
-  it('walks 19 TRADE steps and 20 LP steps in slot order', () => {
-    expect(chainFor(steps, 'TRADE', shared)).toHaveLength(19);
-    expect(chainFor(steps, 'LP', shared)).toHaveLength(20);
+  it('walks 21 TRADE steps and 23 LP steps in slot order', () => {
+    expect(chainFor(steps, 'TRADE', shared)).toHaveLength(21);
+    expect(chainFor(steps, 'LP', shared)).toHaveLength(23);
   });
 
-  it('Semua: 30 steps visible, 12 handoffs after label dedupe', () => {
-    expect(visibleSteps(steps, 'ALL', shared)).toHaveLength(30);
-    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(12);
+  it('Semua: 33 steps visible, 15 handoffs after label dedupe', () => {
+    expect(visibleSteps(steps, 'ALL', shared)).toHaveLength(33);
+    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(15);
   });
 
-  it('Trade: 19 steps, 6 handoffs', () => {
-    expect(visibleSteps(steps, 'TRADE', shared)).toHaveLength(19);
-    expect(handoffs(deriveEdges(steps, 'TRADE', tracks))).toHaveLength(6);
+  it('Trade: 21 steps, 8 handoffs', () => {
+    expect(visibleSteps(steps, 'TRADE', shared)).toHaveLength(21);
+    expect(handoffs(deriveEdges(steps, 'TRADE', tracks))).toHaveLength(8);
   });
 
-  it('LP: 20 steps, 7 handoffs', () => {
-    expect(visibleSteps(steps, 'LP', shared)).toHaveLength(20);
-    expect(handoffs(deriveEdges(steps, 'LP', tracks))).toHaveLength(7);
+  it('LP: 23 steps, 9 handoffs', () => {
+    expect(visibleSteps(steps, 'LP', shared)).toHaveLength(23);
+    expect(handoffs(deriveEdges(steps, 'LP', tracks))).toHaveLength(9);
   });
 
   it('deduplicates the shared spine: 12→13 is one edge in Semua though both walks carry it', () => {
@@ -135,9 +139,11 @@ describe('§6.5 the walks are unambiguous and the filters produce the pinned cou
     expect(into8.map((edge) => edge.from.label).sort()).toEqual(['7a', '7b']);
   });
 
-  it('emerges divergence: step 17 sends two arrows, to 18a and 18b', () => {
+  // Three since v0.4: 18c (returns, KEDUANYA) shares slot 15 with the two
+  // POD boxes, so every walk fans from 17 into its own POD step AND 18c.
+  it('emerges divergence: step 17 sends three arrows, to 18a, 18b and 18c', () => {
     const outOf17 = deriveEdges(steps, 'ALL', tracks).filter((edge) => edge.from.label === '17');
-    expect(outOf17.map((edge) => edge.to.label).sort()).toEqual(['18a', '18b']);
+    expect(outOf17.map((edge) => edge.to.label).sort()).toEqual(['18a', '18b', '18c']);
   });
 
   it('flags a duplicated slot when a step is forced onto an occupied one', () => {
@@ -149,13 +155,15 @@ describe('§6.5 the walks are unambiguous and the filters produce the pinned cou
 });
 
 describe('§10.7 stacked cells — parallel branches and same-slot tracks, never duplicates', () => {
-  it('stacks the six pinned cells PLUS the two chain heads sharing SALES slot 1', () => {
+  it('stacks the six pinned cells PLUS the two chain heads sharing SALES slot 1 PLUS the two v0.4 FINANCE pairs', () => {
     // The DoD names six stacked cells, but the seed itself puts both chain
     // heads — 1 (LP) and 2 (TRADE) — in SALES slot 1, and §6.4's rule (same
     // slot + same lane ⇒ stacked) admits exactly one rendering for that.
     // Same phenomenon as 19/20 and 21/23: different tracks on one slot.
     // Asserting six would mean asserting something the seed contradicts;
-    // the deviation is recorded in the PR.
+    // the deviation is recorded in the PR. v0.4 adds two more of the same
+    // kind: 27 (LP) beside the shared 24 at slot 19, and 28 (shared) beside
+    // 26 (LP) at slot 21 — a branch step and a shared step in one cell.
     const cells = groupCells(visibleSteps(steps, 'ALL', shared));
     const stacked = [...cells.entries()]
       .filter(([, group]) => group.length > 1)
@@ -168,6 +176,8 @@ describe('§10.7 stacked cells — parallel branches and same-slot tracks, never
       [cellKey('FLEET', 15)]: ['18a', '18b'],
       [cellKey('FINANCE', 16)]: ['19', '20'],
       [cellKey('FINANCE', 17)]: ['21', '23'],
+      [cellKey('FINANCE', 19)]: ['24', '27'],
+      [cellKey('FINANCE', 21)]: ['26', '28'],
     });
   });
 
@@ -182,20 +192,20 @@ describe('§10.7 stacked cells — parallel branches and same-slot tracks, never
 });
 
 describe('§6.8 the stats line follows the jalur filter', () => {
-  it('counts all 118 needs in Semua', () => {
+  it('counts all 131 needs in Semua', () => {
     const stats = processStats(steps, needs, 'ALL', tracks);
-    expect(stats).toMatchObject({ visible: 30, total: 30, handoffCount: 12, needCount: 118 });
+    expect(stats).toMatchObject({ visible: 33, total: 33, handoffCount: 15, needCount: 131 });
     expect(stats.needBelum).toBe(needs.filter((need) => need.status === 'BELUM').length);
   });
 
   it('narrows the need count to the visible steps for a single track', () => {
     const trade = processStats(steps, needs, 'TRADE', tracks);
     const lp = processStats(steps, needs, 'LP', tracks);
-    expect(trade.visible).toBe(19);
-    expect(lp.visible).toBe(20);
-    expect(trade.needCount + lp.needCount).toBeGreaterThan(118); // KEDUANYA counted in both
-    expect(trade.needCount).toBeLessThan(118);
-    expect(lp.needCount).toBeLessThan(118);
+    expect(trade.visible).toBe(21);
+    expect(lp.visible).toBe(23);
+    expect(trade.needCount + lp.needCount).toBeGreaterThan(131); // KEDUANYA counted in both
+    expect(trade.needCount).toBeLessThan(131);
+    expect(lp.needCount).toBeLessThan(131);
   });
 
   it('keeps KEDUANYA steps visible under both single-track filters', () => {

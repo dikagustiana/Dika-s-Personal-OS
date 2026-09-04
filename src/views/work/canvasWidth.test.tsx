@@ -129,7 +129,7 @@ function renderSwimlane() {
   );
 }
 
-async function waitForCanvas(container: HTMLElement, boxes = 30) {
+async function waitForCanvas(container: HTMLElement, boxes = 33) {
   await waitFor(() => {
     expect(container.querySelectorAll('[data-step-label]').length).toBe(boxes);
   });
@@ -213,18 +213,18 @@ describe('§5.2 prose stays inside the measure', () => {
 // --- the numbers that must not move ---------------------------------------
 
 describe('§5.4.7 the pinned numbers survive the wider container', () => {
-  it('SAMB: 30 boxes, 12 handoff markers, and the per-track splits', async () => {
+  it('SAMB: 33 boxes, 15 handoff markers, and the per-track splits', async () => {
     const { container } = renderSwimlane();
-    await waitForCanvas(container, 30);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(12);
+    await waitForCanvas(container, 33);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(15);
 
     fireEvent.click(screen.getByRole('button', { name: 'TRADE' }));
-    await waitForCanvas(container, 19);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(6);
+    await waitForCanvas(container, 21);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(8);
 
     fireEvent.click(screen.getByRole('button', { name: 'LP' }));
-    await waitForCanvas(container, 20);
-    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(7);
+    await waitForCanvas(container, 23);
+    expect(container.querySelectorAll('[data-handoff-marker]')).toHaveLength(9);
   });
 
   /**

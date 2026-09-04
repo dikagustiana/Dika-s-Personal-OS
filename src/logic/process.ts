@@ -104,7 +104,7 @@ export function visibleSteps(
  * chain, and the same rule flips the control back on with no code change.
  *
  * At 80%, on the three chains as seeded today:
- *   SAMB  Trade 19/30 (63%) · LP 20/30 (67%)          → shown
+ *   SAMB  Trade 21/33 (64%) · LP 23/33 (70%)          → shown
  *   ARBI  Forward 21/23 (91%) · Reverse 8/23 (35%)    → shown
  *   KGR   RPA 38/48 (79%) · Trading 23/48 (48%)       → shown
  * KGR's RPA sits one point under the ceiling — deliberately stated, not an
@@ -427,9 +427,9 @@ export function unknownGateRefs(steps: ProcessStep[], gates: ProcessGate[]): str
 }
 
 /**
- * Gates no step references. SAMB's G03/G07/G09 and ARBI's B12 land here BY
- * DESIGN — they keep the numbering aligned with the blocker registers
- * outside the app.
+ * Gates no step references. SAMB's G03/G07 and G16–G19 (v0.4 blockers cited
+ * inside driver text, hung on no box) and ARBI's B12 land here BY DESIGN —
+ * they keep the numbering aligned with the blocker registers outside the app.
  */
 export function unusedGates(steps: ProcessStep[], gates: ProcessGate[]): string[] {
   const used = new Set(steps.map((step) => step.gateId).filter(Boolean));

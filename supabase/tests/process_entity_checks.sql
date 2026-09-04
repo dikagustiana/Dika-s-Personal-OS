@@ -1,5 +1,6 @@
 -- Standing checks for the entity-aware process schema (52, plus the form and
--- phase-track columns of 86) and the seeds: 51 SAMB, 53 ARBI, 61 KGR v0.2
+-- phase-track columns of 86) and the seeds: 51 SAMB (raised to v0.4 by 94:
+-- +5 gates, +3 steps, +13 needs, +5 bridge pairs), 53 ARBI, 61 KGR v0.2
 -- (which replaced 60's v0.1), retracked to sourcing mode by 87 and joined by
 -- the trading chain of 88. Same contract as integrity_checks.sql: every query
 -- returns ZERO ROWS when healthy; a hit names what drifted. Read-only; no
@@ -14,14 +15,17 @@ select 'count drift: ' || entity_code || ' ' || what as problem
 from (
   select 'SAMB' as entity_code, 'lanes'  as what, (select count(*) from public.os_process_lanes  where entity_code = 'SAMB') as n, 6  as expected
   union all select 'SAMB', 'phases', (select count(*) from public.os_process_phases where entity_code = 'SAMB'), 7
-  union all select 'SAMB', 'gates',  (select count(*) from public.os_process_gates  where entity_code = 'SAMB'), 15
-  union all select 'SAMB', 'steps',  (select count(*) from public.os_process_steps  where entity_code = 'SAMB'), 30
-  union all select 'SAMB', 'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'SAMB'), 118
-  -- 46, not the seed's 45: migration 20260806000056 records the SAMB 18b →
-  -- `Sales — Logistic provider` pair that was applied live from another
-  -- session. A cluster with the seed but without 56 reports 45 here, and that
-  -- is a real drift worth a row — it means the replay is incomplete.
-  union all select 'SAMB', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'SAMB'), 46
+  -- 20 / 33 / 131 since 20260903000094 (v0.4): the seed's 15 / 30 / 118 plus
+  -- G16..G20, steps 18c / 27 / 28 and their thirteen needs.
+  union all select 'SAMB', 'gates',  (select count(*) from public.os_process_gates  where entity_code = 'SAMB'), 20
+  union all select 'SAMB', 'steps',  (select count(*) from public.os_process_steps  where entity_code = 'SAMB'), 33
+  union all select 'SAMB', 'needs',  (select count(*) from public.os_process_needs n join public.os_process_steps s on s.id = n.step_id where s.entity_code = 'SAMB'), 131
+  -- 51 = the seed's 45 + the 18b → `Sales — Logistic provider` pair that
+  -- 20260806000056 records (applied live from another session) + the five
+  -- pairs 94 adds for 18c / 27 / 28. A cluster with the seed but without 56
+  -- reports 50 here, without 94 reports 46 — both real drifts worth a row,
+  -- because either means the replay is incomplete.
+  union all select 'SAMB', 'bridge', (select count(*) from public.os_process_step_items i join public.os_process_steps s on s.id = i.step_id where s.entity_code = 'SAMB'), 51
   union all select 'ARBI', 'lanes',  (select count(*) from public.os_process_lanes  where entity_code = 'ARBI'), 6
   union all select 'ARBI', 'phases', (select count(*) from public.os_process_phases where entity_code = 'ARBI'), 7
   union all select 'ARBI', 'gates',  (select count(*) from public.os_process_gates  where entity_code = 'ARBI'), 12

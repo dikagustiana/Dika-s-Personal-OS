@@ -3,7 +3,7 @@
  * §6.6 / §10.9 IN THE DOM — the two things no pure logic test can reach.
  *
  * THE SILENT FAILURE. If measurement fails, nothing throws. computeWires gets
- * an empty rect map, returns no wires, and the swimlane renders 30 boxes with
+ * an empty rect map, returns no wires, and the swimlane renders 33 boxes with
  * no arrows — a diagram that looks deliberate and is wrong. Every other test
  * in this feature feeds computeWires rects that already exist, so none of
  * them can see this. Only rendering the real component against a real (if
@@ -155,7 +155,7 @@ describe('§6.6 the silent-failure guard actually fires', () => {
     // The boxes render — that is the whole danger. Without the warning this
     // is a complete-looking swimlane that has quietly lost every arrow.
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+      expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
     });
     await waitFor(() => {
       expect(screen.getByText(WARNING)).toBeDefined();
@@ -168,7 +168,7 @@ describe('§6.6 the silent-failure guard actually fires', () => {
     const { container } = renderSwimlane(seededRepository());
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+      expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
     });
     await waitFor(() => {
       expect(screen.getByText(WARNING)).toBeDefined();
@@ -180,7 +180,7 @@ describe('§6.6 the silent-failure guard actually fires', () => {
     const { container } = renderSwimlane(seededRepository());
 
     await waitFor(() => {
-      expect(container.querySelectorAll('[data-step-label]').length).toBe(30);
+      expect(container.querySelectorAll('[data-step-label]').length).toBe(33);
     });
     await waitFor(() => {
       expect(container.querySelectorAll('svg path[marker-end]').length).toBeGreaterThan(0);

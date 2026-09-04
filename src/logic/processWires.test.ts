@@ -80,11 +80,11 @@ const compact = () => 96;
 const tall = (step: ProcessStep) =>
   120 + step.docs.length * 34 + step.drivers.length * 30 + step.coa.length * 26;
 
-describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack', () => {
-  it('produces exactly 12 capsules in Semua — one per handoff', () => {
+describe('§10.5 the full seed draws 15 HANDOFF capsules and none of them stack', () => {
+  it('produces exactly 15 capsules in Semua — one per handoff', () => {
     const wires = computeWires(toWireEdges('ALL'), buildRects('ALL', compact));
-    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(12);
-    expect(wires.filter((wire) => wire.capsule)).toHaveLength(12);
+    expect(handoffs(deriveEdges(steps, 'ALL', tracks))).toHaveLength(15);
+    expect(wires.filter((wire) => wire.capsule)).toHaveLength(15);
   });
 
   it.each([['ALL'], ['TRADE'], ['LP']] as const)(
@@ -106,7 +106,7 @@ describe('§10.5 the full seed draws 12 HANDOFF capsules and none of them stack'
     const capsules = computeWires(toWireEdges('ALL'), buildRects('ALL', tall)).flatMap((wire) =>
       wire.capsule ? [wire.capsule] : [],
     );
-    expect(capsules).toHaveLength(12);
+    expect(capsules).toHaveLength(15);
     for (let a = 0; a < capsules.length; a += 1) {
       for (let b = a + 1; b < capsules.length; b += 1) {
         const dx = Math.abs(capsules[a].x - capsules[b].x);
@@ -210,9 +210,10 @@ describe('§10.8 arrows land on box edges, in every mode', () => {
     const into8 = wires.filter((wire) => wire.key.endsWith('>8'));
     const outOf17 = wires.filter((wire) => wire.key.startsWith('17>'));
     expect(into8).toHaveLength(2);
-    expect(outOf17).toHaveLength(2);
+    // Three since v0.4: 18a, 18b and the returns step 18c share slot 15.
+    expect(outOf17).toHaveLength(3);
     expect(into8[0].y2).not.toBe(into8[1].y2);
-    expect(outOf17[0].y1).not.toBe(outOf17[1].y1);
+    expect(new Set(outOf17.map((wire) => wire.y1)).size).toBe(3);
   });
 
   it('draws a straight line when the ends are level, an elbow otherwise', () => {
@@ -247,14 +248,14 @@ describe('§2 the ?item pre-filter dims, it never filters — arrows survive it'
   // anyone ever narrows the render to the highlighted set, the box count and
   // the wire count both drop here, and the diagram would lose arrows without
   // throwing anything.
-  it('lights 4 of 30 steps and still lays out all 30 boxes', () => {
+  it('lights 5 of 33 steps and still lays out all 33 boxes', () => {
     const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
-    expect([...lit].sort()).toEqual(['10', '18a', '19', '2']);
-    expect(steps.length - lit.size).toBe(26);
-    expect(buildRects('ALL', compact).size).toBe(30);
+    expect([...lit].sort()).toEqual(['10', '18a', '18c', '19', '2']);
+    expect(steps.length - lit.size).toBe(28);
+    expect(buildRects('ALL', compact).size).toBe(33);
   });
 
-  it('leaves every wire and all 12 capsules intact under the highlight', () => {
+  it('leaves every wire and all 15 capsules intact under the highlight', () => {
     const rects = buildRects('ALL', compact);
     const plain = computeWires(toWireEdges('ALL'), rects);
     const lit = stepLabelsForItem(SALES_GENERAL_TRADE, stepItems, steps);
@@ -266,7 +267,7 @@ describe('§2 the ?item pre-filter dims, it never filters — arrows survive it'
     const underHighlight = computeWires(toWireEdges('ALL'), highlightedRects);
 
     expect(underHighlight.map((wire) => wire.key)).toEqual(plain.map((wire) => wire.key));
-    expect(underHighlight.filter((wire) => wire.capsule)).toHaveLength(12);
+    expect(underHighlight.filter((wire) => wire.capsule)).toHaveLength(15);
   });
 
   // The counterfactual: what the diagram would look like if the highlight DID
@@ -277,7 +278,7 @@ describe('§2 the ?item pre-filter dims, it never filters — arrows survive it'
     const litOnly = new Map(
       [...buildRects('ALL', compact)].filter(([label]) => lit.has(label)),
     );
-    expect(litOnly.size).toBe(4);
+    expect(litOnly.size).toBe(5);
     expect(computeWires(toWireEdges('ALL'), litOnly).length).toBeLessThan(
       computeWires(toWireEdges('ALL'), buildRects('ALL', compact)).length,
     );
@@ -295,8 +296,11 @@ describe('§2 the ?item pre-filter dims, it never filters — arrows survive it'
  * over their whole run in opposite directions.
  *
  * These tests pin the counted result, both entities, both densities. The
- * number is computed by countWireCrossings rather than eyeballed, and it has
- * to keep going down, never up.
+ * number is computed by countWireCrossings rather than eyeballed, and a
+ * ROUTING change has to keep it going down, never up. A SEED change moves it
+ * for its own reasons: v0.4 (20260903000094) added six edges and two more
+ * stacked FINANCE cells and SAMB Semua went 3 → 5 — re-measured, not
+ * eyeballed, and the single-track views stayed at zero.
  */
 function laneLayout(lanes: ReturnType<typeof fixtureLanes>) {
   return new Map(
@@ -352,9 +356,10 @@ const DENSITIES = [
 ] as const;
 
 describe('§7.3 the counted crossing result', () => {
-  // Measured on this seed with the shared-midpoint routing this replaced.
-  it('SAMB Semua falls from 5 to 3, and both survivors are true inversions', () => {
-    expect(countWireCrossings(samb.wires('ALL', compact))).toBe(3);
+  // 5 → 3 on the v0.3 seed when the shared-midpoint routing was replaced;
+  // 5 again on the v0.4 seed, whose six new edges bring their own inversions.
+  it('SAMB Semua measures 5 on the v0.4 seed (3 on v0.3 after the corridor rewrite)', () => {
+    expect(countWireCrossings(samb.wires('ALL', compact))).toBe(5);
   });
 
   it('ARBI Semua falls from 2 to 1', () => {
@@ -369,7 +374,7 @@ describe('§7.3 the counted crossing result', () => {
   });
 
   it.each(DENSITIES)('holds at the same counts in %s density', (_name, heightOf) => {
-    expect(countWireCrossings(samb.wires('ALL', heightOf))).toBe(3);
+    expect(countWireCrossings(samb.wires('ALL', heightOf))).toBe(5);
     expect(countWireCrossings(arbi.wires('ALL', heightOf))).toBe(1);
   });
 
@@ -394,25 +399,27 @@ describe('§7.3 the counted crossing result', () => {
 });
 
 describe('§7.2 what the rewrite was not allowed to touch', () => {
-  it('leaves the edge set and the handoff counts exactly where they were', () => {
-    expect(samb.wires('ALL', compact)).toHaveLength(32);
-    expect(samb.wires('ALL', compact).filter((wire) => wire.capsule)).toHaveLength(12);
-    expect(samb.wires('TRADE', compact).filter((wire) => wire.capsule)).toHaveLength(6);
-    expect(samb.wires('LP', compact).filter((wire) => wire.capsule)).toHaveLength(7);
+  it('leaves the edge set and the handoff counts exactly where the seed puts them', () => {
+    // v0.4: 32 → 38 wires, 12/6/7 → 15/8/9 handoffs (the 18c fan crosses
+    // FLEET → WAREHOUSE → FINANCE on both walks).
+    expect(samb.wires('ALL', compact)).toHaveLength(38);
+    expect(samb.wires('ALL', compact).filter((wire) => wire.capsule)).toHaveLength(15);
+    expect(samb.wires('TRADE', compact).filter((wire) => wire.capsule)).toHaveLength(8);
+    expect(samb.wires('LP', compact).filter((wire) => wire.capsule)).toHaveLength(9);
     expect(arbi.wires('FORWARD', compact).filter((wire) => wire.capsule)).toHaveLength(8);
     expect(arbi.wires('REVERSE', compact).filter((wire) => wire.capsule)).toHaveLength(4);
   });
 
-  it('keeps convergence and divergence readable — 8 takes two in, 17 sends two out', () => {
+  it('keeps convergence and divergence readable — 8 takes two in, 17 sends three out', () => {
     const wires = samb.wires('ALL', compact);
     const into8 = wires.filter((wire) => wire.key.endsWith('>8'));
     const outOf17 = wires.filter((wire) => wire.key.startsWith('17>'));
     expect(into8).toHaveLength(2);
-    expect(outOf17).toHaveLength(2);
-    // Distinct corridors as well as distinct anchors, so the two legs of a
-    // fork are separable for their whole length rather than only at the box.
+    expect(outOf17).toHaveLength(3);
+    // Distinct corridors as well as distinct anchors, so the legs of a fork
+    // are separable for their whole length rather than only at the box.
     expect(into8[0].mid).not.toBe(into8[1].mid);
-    expect(outOf17[0].mid).not.toBe(outOf17[1].mid);
+    expect(new Set(outOf17.map((wire) => wire.mid)).size).toBe(3);
   });
 
   it.each(DENSITIES)('stacks no handoff capsule, both chains, %s density', (_name, heightOf) => {
