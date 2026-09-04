@@ -91,6 +91,8 @@ import type {
   TaskStatus,
   WeeklyPlan,
   WebsiteCategory,
+  ScopeCapability,
+  ScopeGrant,
 } from './types';
 
 // Env-gated configuration. Both values ship in the client bundle by design;
@@ -354,6 +356,15 @@ export interface ProvisionedUser {
   entityCodes: string[];
   /** Project grants (the second axis), listed by the same gated call. */
   projectIds: string[];
+  /**
+   * The scope axis (20260904000095): which sections of which entity this
+   * person reads or writes. ABSENT — not empty — when the function could not
+   * read the grants table (a build deployed ahead of the migration, or a
+   * function build that predates the axis). A surface that renders this must
+   * show "not known" for undefined and only ever "—" for a genuinely empty
+   * array; the two are different facts.
+   */
+  grants?: ScopeGrant[];
   lastSignInAt: string | null;
   createdAt: string | null;
 }
@@ -373,6 +384,15 @@ export interface ProvisionLinkResult {
   expiresAt?: string;
   removedEntityCodes?: string[];
   removedProjectIds?: string[];
+  /** Grants that went with the membership on a full revoke; null = not known. */
+  removedGrants?: number | null;
+  /** grant-scope / revoke-scope: the entity acted on and the person's grants after. */
+  entityCode?: string;
+  grants?: ScopeGrant[];
+  /** grant-scope: whether the person was enrolled on the entity by this call. */
+  enrolled?: boolean;
+  /** revoke-scope: how many grant rows the call removed (0 or 1). */
+  removed?: number;
   users?: ProvisionedUser[];
   error?: string;
   retryAfter?: number;
@@ -392,7 +412,19 @@ export async function provisionCollaborator(
     // table write from the panel, whose session state the writes must not
     // silently depend on.
     | { action: 'grant-projects'; email: string; projectIds: string[] }
-    | { action: 'revoke-project'; email: string; projectId: string },
+    | { action: 'revoke-project'; email: string; projectId: string }
+    // The scope axis (20260904000095). One entity, one or more SECTIONS, one
+    // capability per call; write includes read. A grant on an entity the
+    // person is not enrolled in enrols them (role hardcoded server-side) —
+    // it never mints a link, so it never kills the one they are holding.
+    | {
+        action: 'grant-scope';
+        email: string;
+        entityCode: string;
+        sectionIds: string[];
+        capability: ScopeCapability;
+      }
+    | { action: 'revoke-scope'; email: string; entityCode: string; sectionId: string },
 ): Promise<ProvisionLinkResult> {
   return edgeFunctionCall<ProvisionLinkResult>('provision-collaborator', {
     method: 'POST',

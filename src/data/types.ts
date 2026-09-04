@@ -1158,6 +1158,22 @@ export interface CollabLink {
 }
 
 /**
+ * One row of public.os_finish_line_grants (migration 20260904000095), as the
+ * provisioning function reports it: which SECTION of which entity a person may
+ * read or write. `write` includes `read`. Since that migration membership is
+ * only the enrolment — these rows are the scope, and a member with none reads
+ * no cell and no account. The vocabulary is mirrored, by test, in
+ * supabase/functions/_shared/scopeInput.ts.
+ */
+export type ScopeCapability = 'read' | 'write';
+
+export interface ScopeGrant {
+  entityCode: string;
+  sectionId: string;
+  capability: ScopeCapability;
+}
+
+/**
  * ===========================================================================
  * THE FOUR AUDIT SOURCES, AS THE COLLABORATOR TRAIL READS THEM.
  * ===========================================================================

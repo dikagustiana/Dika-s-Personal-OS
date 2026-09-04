@@ -1020,6 +1020,7 @@ $$;
 -- ===========================================================================
 -- PROVISIONING-PATH CASES — the Edge Function's SQL, replayed as its role.
 -- ===========================================================================
+-- (S1-S4 need 20260904000096: the two scope actions and their audit columns.)
 -- provision-collaborator runs as service_role. These cases replay the exact
 -- statements its grant-projects / revoke actions run, AS service_role, so
 -- the audited path is proven at the SQL surface without the owner
@@ -1032,13 +1033,23 @@ $$;
 --      rows and ONE provision-log entry carrying every project id
 --   P2 a GROWTH grant as service_role is refused by the domain trigger —
 --      RLS is bypassed for this role; triggers are not
---   P3 revoke clears BOTH axes and writes one log row carrying both arrays
+--   S1 grant-scope (20260904000096): the upsert the function runs moves every
+--      ASI section to READ in place — no duplicate rows — and the audit row
+--      carries the entity, every section id and the capability
+--   S2 the same upsert moves ONE section back to WRITE; row count unchanged
+--   S3 revoke-scope removes exactly that one row; the audit row names it
+--   S4 the audit REFUSES a scope entry that cannot say what it granted —
+--      no sections, no capability, two entities, two sections on a revoke —
+--      and the log gains nothing from any of them (audit failed = action
+--      failed, at the SQL layer the function cannot get around)
+--   P3 revoke clears BOTH axes and writes one log row carrying both arrays;
+--      the scope grants go with the membership through the 095 cascade
 do $$
 declare
   uid_p constant uuid := 'a11ce000-5afe-4000-8000-c0113b000007';
   failures text[] := '{}';
-  n bigint;
-  proj_a uuid; proj_b uuid; proj_g uuid;
+  n bigint; expected bigint;
+  proj_a uuid; proj_b uuid; proj_g uuid; sec_one uuid;
 begin
   insert into auth.users (id, instance_id, aud, role, email)
   values (uid_p, '00000000-0000-0000-0000-000000000000',
@@ -1092,6 +1103,114 @@ begin
   execute 'reset role';
   raise notice 'P2: GROWTH grant refused for service_role — triggers are not RLS';
 
+  -- ===== S1: grant-scope — every ASI section to READ, in place, audited ======
+  -- The function upserts on the (user, entity, section) key with no
+  -- ignoreDuplicates, so a capability change is an UPDATE of the same row.
+  select count(*) into expected from public.os_finish_line_items where kind = 'section';
+  select id into sec_one from public.os_finish_line_items where kind = 'section' order by id limit 1;
+  execute 'set local role service_role';
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  select uid_p, 'ASI', s.id, 'read', 'owner'
+    from public.os_finish_line_items s where s.kind = 'section'
+  on conflict (user_id, entity_code, section_id) do update set capability = excluded.capability;
+  perform public.os_provision_record(
+    p_action := 'grant-scope',
+    p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'],
+    p_section_ids := (select array_agg(id) from public.os_finish_line_items where kind = 'section'),
+    p_capability := 'read');
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected then failures := failures || format('S1: %s grant rows after the upsert, expected %s (one per section, no duplicates)', n, expected); end if;
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p and capability <> 'read';
+  if n <> 0 then failures := failures || format('S1: %s rows did not move to read', n); end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'grant-scope' and email = 'rls-selftest-provisioning@example.invalid'
+     and entity_codes = array['ASI'] and cardinality(section_ids) = expected and capability = 'read';
+  if n <> 1 then failures := failures || format('S1: %s grant-scope log rows carrying the entity, every section and the capability, expected 1', n); end if;
+  raise notice 'S1: grant-scope moved % sections to read in place and logged one row naming all of them', expected;
+
+  -- ===== S2: one section back to WRITE, same row =============================
+  execute 'set local role service_role';
+  insert into public.os_finish_line_grants (user_id, entity_code, section_id, capability, created_by)
+  values (uid_p, 'ASI', sec_one, 'write', 'owner')
+  on conflict (user_id, entity_code, section_id) do update set capability = excluded.capability;
+  perform public.os_provision_record(
+    p_action := 'grant-scope', p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'], p_section_ids := array[sec_one], p_capability := 'write');
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected then failures := failures || format('S2: row count changed to %s on a capability change', n); end if;
+  select count(*) into n from public.os_finish_line_grants
+   where user_id = uid_p and entity_code = 'ASI' and section_id = sec_one and capability = 'write';
+  if n <> 1 then failures := failures || 'S2: the one section did not move back to write'; end if;
+  raise notice 'S2: one section back to write, row count unchanged';
+
+  -- ===== S3: revoke-scope removes exactly that row ===========================
+  execute 'set local role service_role';
+  delete from public.os_finish_line_grants
+   where user_id = uid_p and entity_code = 'ASI' and section_id = sec_one;
+  perform public.os_provision_record(
+    p_action := 'revoke-scope', p_email := 'rls-selftest-provisioning@example.invalid',
+    p_entity_codes := array['ASI'], p_section_ids := array[sec_one]);
+  execute 'reset role';
+  select count(*) into n from public.os_finish_line_grants where user_id = uid_p;
+  if n <> expected - 1 then failures := failures || format('S3: %s grant rows after revoke-scope, expected %s', n, expected - 1); end if;
+  select count(*) into n from public.os_entity_members where user_id = uid_p and entity_code = 'ASI';
+  if n <> 1 then failures := failures || 'S3: revoke-scope removed the membership — it must remove one grant only'; end if;
+  select count(*) into n from private.os_provision_log
+   where action = 'revoke-scope' and email = 'rls-selftest-provisioning@example.invalid'
+     and entity_codes = array['ASI'] and section_ids = array[sec_one] and capability is null;
+  if n <> 1 then failures := failures || format('S3: %s revoke-scope log rows naming the one section, expected 1', n); end if;
+  raise notice 'S3: revoke-scope removed one row, kept the membership, logged the section';
+
+  -- ===== S4: the audit refuses an entry that cannot say what it granted =====
+  select count(*) into expected from private.os_provision_log;
+  execute 'set local role service_role';
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI']);
+    failures := failures || 'S4: a grant-scope entry with no sections and no capability was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: no-sections entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := array[sec_one]);
+    failures := failures || 'S4: a grant-scope entry with no capability was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: no-capability entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI', 'ARBI'],
+      p_section_ids := array[sec_one], p_capability := 'read');
+    failures := failures || 'S4: a grant-scope entry naming two entities was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: two-entity entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'grant-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := array[sec_one], p_capability := 'admin');
+    failures := failures || 'S4: a grant-scope entry with capability admin was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: admin-capability entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  begin
+    perform public.os_provision_record(
+      p_action := 'revoke-scope', p_email := 'x@example.invalid', p_entity_codes := array['ASI'],
+      p_section_ids := (select array_agg(id) from public.os_finish_line_items where kind = 'section'));
+    failures := failures || 'S4: a revoke-scope entry naming every section was accepted';
+  exception when check_violation then null;
+    when others then failures := failures || format('S4: multi-section revoke entry refused by the wrong layer: %s', sqlerrm);
+  end;
+  execute 'reset role';
+  select count(*) into n from private.os_provision_log;
+  if n <> expected then failures := failures || format('S4: the log grew by %s row(s) from refused entries', n - expected); end if;
+  raise notice 'S4: five malformed scope entries refused; the log did not grow';
+
   -- ===== P3: revoke clears both axes, one audited action ===================
   execute 'set local role service_role';
   delete from public.os_entity_members where user_id = uid_p;
@@ -1119,10 +1238,10 @@ begin
     raise exception E'PROVISIONING-PATH VERIFICATION FAILED — % problem(s):\n%',
       array_length(failures, 1), array_to_string(failures, E'\n');
   end if;
-  raise notice 'ALL 3 PROVISIONING-PATH CASES PASSED';
+  raise notice 'ALL 7 PROVISIONING-PATH CASES PASSED';
 end
 $$;
 
 rollback;
 
-select 'collab_rls: all 44 cases passed (16 original + 4 grant model + 15 slice 1 + 6 domain guard + 3 provisioning path); transaction rolled back, no fixture survives' as result;
+select 'collab_rls: all 48 cases passed (16 original + 4 grant model + 15 slice 1 + 6 domain guard + 7 provisioning path); transaction rolled back, no fixture survives' as result;

@@ -156,3 +156,40 @@ links are single-use and short-lived (~1 hour).
    gains a `link` row (an action that has never run). After they open it:
    their row shows a `masuk …` timestamp, and they land on the ARBI column
    of the matrix — plus whatever projects E1 granted them.
+
+## F. The grant model (2026-09-04) — apply order and what changes
+
+Two migrations move collaborator access from "member of an entity" to
+"(person, entity, section, capability)". Neither is applied yet.
+
+1. Apply `20260904000095_finish_line_grants` with the `apply_migration` tool
+   (ledger name `finish_line_grants`). Read its NOTICE lines: one per member,
+   with the cells they read before, after, and the parentless-metric cells
+   that become owner-only (D4). Expected on live: 371 → 343, 371 → 343,
+   265 → 245. Nothing else may be lost — the migration refuses otherwise.
+2. Apply `20260904000096_provision_scope_audit` (ledger name
+   `provision_scope_audit`). It gives the audit log the two scope actions.
+3. **Only then** redeploy `provision-collaborator`. A build deployed before
+   step 2 keeps every old action working and fails `grant-scope` /
+   `revoke-scope` with "audit write failed" — loud, and fixed by step 2.
+4. Run against live, all read-only or self-rolling-back:
+   `supabase/tests/rls_function_grants.sql`, `anon_definer_gates.sql`,
+   then `collab_rls.sql` (48 cases, everything inside it rolls back).
+5. In the panel, `list` now carries `grants` per person. Until the access
+   dashboard ships, the panel renders nothing new; a contributor's matrix
+   shows the cells their grants reach, and their account panel stops being
+   empty (mapped accounts under readable cells, plus the entity's unmapped
+   ones).
+
+What the owner should expect to see differently:
+
+- Members no longer read the four parentless metrics (COGS / Sales × Poultry
+  processing / Poultry trading). Owner-only until a migration gives those
+  metrics a section.
+- `create` for an existing address adds the entity **and** write grants on
+  every section — and still mints a fresh link, which kills the one being
+  held. To add an entity to someone without touching their link, use
+  `grant-scope` (it enrols on the way in).
+- `revoke` removes membership on both axes; the scope grants go with it
+  through the cascading FK, and the response reports how many
+  (`removedGrants`; null means the grants table was not readable).

@@ -40,7 +40,7 @@ manager. CI installs with `--frozen-lockfile`.
 pnpm install          # --frozen-lockfile in CI
 pnpm dev
 pnpm typecheck        # tsc -b --force
-pnpm test:run         # vitest, 87 files / 1590 tests
+pnpm test:run         # vitest, 89 files / 1621 tests
 pnpm build            # tsc -b && vite build — production build must succeed
 ```
 
@@ -262,6 +262,16 @@ read-only for members. Never write a member policy on cells or accounts
 against `os_member_entities()` again — `scripts/grant-scope-tests.sh` re-adds
 that exact policy as a negative control and asserts the suite goes red. Full
 reasoning: `docs/rls-conventions.md` §6.
+
+The owner writes grants only through `provision-collaborator` (service role,
+owner-key gated): `grant-scope` (one entity, several sections, one
+capability; enrols the person on the entity if needed, never mints a link)
+and `revoke-scope` (one row). Both are audited to `private.os_provision_log`
+with `section_ids` and `capability` (`20260904000096`), and the audit
+function refuses a scope entry that cannot say what it granted. `create`
+writes write-on-every-section grants beside the membership, so a new
+collaborator's first sign-in is not an empty matrix. The pure input rules
+live in `supabase/functions/_shared/scopeInput.ts` and run under vitest.
 
 ---
 
