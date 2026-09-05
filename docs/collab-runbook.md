@@ -214,24 +214,45 @@ them is outstanding except the two items under "Still outstanding".
 - `provision-collaborator` v6 smoke-tested live: no `x-app-key` answers 401 on
   both an old action and `grant-scope` (the gate runs before the body),
   `OPTIONS` answers 200, `GET` answers 405.
+- The frontend carrying the Akses view is on production: PR #102 merged as
+  `8a23bb2`, and the live bundle answers with the same stamp
+  (`curl` recipe in `deploy/README.md`), so the deploy was Vercel's own Git
+  integration and not a manual upload.
 
 ### Still outstanding
 
 1. **`COLLAB_LINK_TTL_SECONDS` is not set on the function.** Nothing reachable
-   from an agent session sets function secrets. Until the owner sets it in
-   Supabase → Edge Functions → provision-collaborator → Secrets, a live link
-   honestly reports `masa berlaku tidak diketahui` instead of inventing a
-   countdown. Set it to match the project's OTP window (Authentication →
-   Sign In / Up → Email OTP expiry), currently expected to be 86400.
+   from an agent session sets function secrets: the Supabase MCP server
+   exposes `deploy_edge_function`, `get_edge_function` and
+   `list_edge_functions`, and nothing that writes an environment variable.
+   Until the owner sets it, a live link reports `masa berlaku tidak diketahui`
+   rather than inventing a countdown — that is the designed behaviour on an
+   unset window, not a defect.
+
+   **Do not guess the number.** It has to equal the project's own OTP window,
+   or the column states a deadline GoTrue does not honour, and a link shown as
+   live hours after it died is the exact failure this status exists to
+   prevent. Read it at Authentication → Sign In / Up → Email → *Email OTP
+   Expiration*, then add `COLLAB_LINK_TTL_SECONDS` with that number under
+   Project Settings → Edge Functions → Secrets.
+
+   It has never been set, and the value cannot be recovered from the data
+   either: both rows of `os_collab_links` (minted 2026-08-11 and 2026-08-20)
+   carry `expires_at = null`, which only happens when `linkTtlSeconds()`
+   returns null. Confirm the fix on the Akses view — the unspent 20-August
+   link should stop reading "masa berlaku tidak diketahui" and name an hour.
+   If it still does not, redeploy the function once: a secret added after a
+   deploy is not guaranteed to reach an instance that is already warm.
+
 2. **`supabase/tests/collab_rls.sql` has not been run against live.** It is
-   safe by construction (everything inside it rolls back) but it makes real
-   writes inside its transaction, and the MCP SQL tool's transaction semantics
-   could not be verified from the agent session — so it was run on the
-   throwaway cluster only (49 cases green). Run it in the SQL editor as
-   postgres when convenient; zero findings expected.
-3. **Merge PR #102** to put the Akses view on Vercel. Until then the live
-   frontend is the pre-grant build, which works unchanged against the new
-   schema — it simply does not offer the dashboard.
+   safe by construction — one transaction ending in `rollback` — but it makes
+   real writes inside that transaction (synthetic `auth.users` rows, cell
+   updates), and the MCP SQL tool's transaction semantics could not be
+   verified from the agent session, so it was run on the throwaway cluster
+   only (49 cases green). Run it by pasting the whole file into the SQL editor
+   as `postgres` in one go, so the `rollback` is part of the same batch as the
+   `begin`; zero rows expected.
+
 
 What the owner should expect to see differently:
 
