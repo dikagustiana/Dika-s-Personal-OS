@@ -26,7 +26,7 @@ working software, then quality, then speed — in that order.**
 | Content | MDX for IELTS method pages | `content/ielts/**` |
 | Deploy | Vercel SPA rewrite | `vercel.json` |
 
-~77k LOC across 263 `.ts`/`.tsx` files. Node 20+.
+~85k LOC across 290 `.ts`/`.tsx` files. Node 20+.
 
 **pnpm only.** `package-lock.json` is gitignored deliberately — an npm lockfile
 is not a second opinion, it is the residue of running the wrong package
@@ -40,7 +40,7 @@ manager. CI installs with `--frozen-lockfile`.
 pnpm install          # --frozen-lockfile in CI
 pnpm dev
 pnpm typecheck        # tsc -b --force
-pnpm test:run         # vitest, 89 files / 1621 tests
+pnpm test:run         # vitest, 94 files / 1667 tests
 pnpm build            # tsc -b && vite build — production build must succeed
 ```
 
