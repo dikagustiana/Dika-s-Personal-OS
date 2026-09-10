@@ -235,7 +235,7 @@ export class MockEventSource implements EventSource {
     ]));
     this.at(70, () => this.error('agent-backend-2', 22, 'Unit tests failed: 3 assertions in jwt_parser_test'));
     if (this.opts.includeUnknownState !== false) {
-      this.at(100, () => this.unknown('agent-video', 10, 'OFFICE_DANCING'));
+      this.at(100, () => this.unknown('agent-video', 20, 'OFFICE_DANCING'));
     }
     this.at(125, () => this.collaborate(`collab-${loop}-release-gate`, ['agent-qa-lead', 'agent-security'], 30, [
       'Reviewing open blockers',
@@ -263,13 +263,19 @@ export class MockEventSource implements EventSource {
     this.planAfter(plan, Math.max(0, arrival - Date.now()) + 3500, () => this.tick(plan));
   }
 
+  /**
+   * Call a group into a meeting room. Everyone walks there first, so the
+   * meeting lasts `seconds` after the LAST arrival — otherwise a far desk
+   * would make an agent arrive as the meeting ends.
+   */
   private collaborate(groupId: string, agentIds: string[], seconds: number, subtasks: string[]): void {
     const plans = agentIds.map((id) => this.pause(id)).filter((p): p is AgentPlan => p !== null);
+    let lastArrival = Date.now();
     const send = (subtask: string) => {
       for (const plan of plans) {
         const task = plan.task as ActiveTask;
         task.tokens += 300 + Math.round(this.rng() * 500);
-        this.scheduler.emit(
+        const arrival = this.scheduler.emit(
           this.sem(plan, 'collaborating', {
             taskId: task.taskId,
             title: task.title,
@@ -279,11 +285,13 @@ export class MockEventSource implements EventSource {
             groupId,
           }),
         );
+        lastArrival = Math.max(lastArrival, arrival);
       }
     };
     send(subtasks[0]);
-    subtasks.slice(1).forEach((s, i) => this.at(((i + 1) * seconds) / subtasks.length, () => send(s)));
-    this.at(seconds, () => {
+    const startOffset = (lastArrival - Date.now()) / 1000;
+    subtasks.slice(1).forEach((s, i) => this.at(startOffset + ((i + 1) * seconds) / subtasks.length, () => send(s)));
+    this.at(startOffset + seconds, () => {
       for (const plan of plans) this.resume(plan);
     });
   }

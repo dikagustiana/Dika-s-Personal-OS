@@ -3,13 +3,21 @@
 // Engineering desk (sit, type) → meeting chair (stand and talk, then sit and
 // talk) → carry a document to the output terminal → back to the lounge.
 // It is NOT stream data and is never mounted unless the dev toggle is on; the
-// HUD shows a banner while it runs (B-1).
+// scene shows a banner while it runs (B-1).
 import { useEffect, useMemo, useRef } from 'react';
-import { freeTilesOfZone, furnitureOfType } from '@/core/layout/campus';
-import { CAMPUS } from '@/core/layout/campus';
+import { CAMPUS, freeTilesOfZone, furnitureOfType } from '@/core/layout/campus';
 import type { AnchorName, FurnitureType } from '@/core/layout/types';
 import { Avatar } from './Avatar';
-import { getOrCreateRuntime, placeAtHex, removeRuntime, sitAt, standAtAnchor, walkTo, type AvatarMode, type AvatarRuntime } from './avatarRuntime';
+import {
+  getOrCreateRuntime,
+  placeAtHex,
+  removeRuntime,
+  sitAt,
+  standAtAnchor,
+  walkTo,
+  type AvatarActivity,
+  type AvatarRuntime,
+} from './avatarRuntime';
 
 export const TEST_AGENT_ID = '__test-drive__';
 
@@ -19,9 +27,9 @@ declare global {
     __bcTestDrive?: {
       pause(): void;
       resume(): void;
-      sitAt(type: FurnitureType, index: number, mode?: 'sit' | 'talkSit', zoneId?: string): void;
-      standAt(type: FurnitureType, index: number, anchor?: AnchorName, mode?: AvatarMode, zoneId?: string): void;
-      mode(m: AvatarMode): void;
+      sitAt(type: FurnitureType, index: number, activity?: AvatarActivity, zoneId?: string): void;
+      standAt(type: FurnitureType, index: number, anchor?: AnchorName, activity?: AvatarActivity, zoneId?: string): void;
+      set(patch: Partial<Pick<AvatarRuntime, 'pose' | 'activity' | 'carrying' | 'alert' | 'alertText'>>): void;
       runtime(): AvatarRuntime;
     };
   }
@@ -55,41 +63,43 @@ export function AvatarTestDrive() {
     let paused = false;
     const steps: Step[] = [
       (rt, next) => {
-        rt.mode = 'stand';
+        rt.pose = 'stand';
+        rt.activity = 'idle';
         wait(1500, next, T);
       },
-      (rt, next) => walkTo(rt, desk.hex, 'anchor_sit', 'walk', next),
+      (rt, next) => walkTo(rt, desk.hex, 'anchor_sit', next),
       (rt, next) => {
-        sitAt(rt, desk, 'sit');
+        sitAt(rt, desk, 'typing');
         wait(6000, next, T);
       },
       (rt, next) => {
         standAtAnchor(rt, desk, 'anchor_stand');
         wait(700, next, T);
       },
-      (rt, next) => walkTo(rt, chair.hex, 'anchor_sit', 'walk', next),
+      (rt, next) => walkTo(rt, chair.hex, 'anchor_sit', next),
       (rt, next) => {
-        rt.mode = 'talkStand';
+        rt.activity = 'talking';
         wait(4000, next, T);
       },
       (rt, next) => {
-        sitAt(rt, chair, 'talkSit');
+        sitAt(rt, chair, 'talking');
         wait(5000, next, T);
       },
       (rt, next) => {
         standAtAnchor(rt, chair, 'anchor_stand');
         wait(500, next, T);
       },
-      (rt, next) => walkTo(rt, terminal.hex, 'anchor_deliver', 'carry', next),
+      (rt, next) => walkTo(rt, terminal.hex, 'anchor_deliver', next, { carrying: true }),
       (rt, next) => {
-        rt.mode = 'deliver';
+        rt.activity = 'delivering';
         wait(2500, next, T);
       },
       (rt, next) => {
-        rt.mode = 'stand';
+        rt.activity = 'idle';
+        rt.carrying = false;
         wait(800, next, T);
       },
-      (rt, next) => walkTo(rt, lounge[3], 'anchor_stand', 'walk', next),
+      (rt, next) => walkTo(rt, lounge[3], 'anchor_stand', next),
     ];
     let i = 0;
     const run = () => {
@@ -110,17 +120,15 @@ export function AvatarTestDrive() {
         paused = false;
         run();
       },
-      sitAt: (type, index, mode = 'sit', zoneId) => {
+      sitAt: (type, index, activity = 'typing', zoneId) => {
         const f = furnitureOfType(CAMPUS, type, zoneId)[index];
-        if (f) sitAt(runtime, f, mode);
+        if (f) sitAt(runtime, f, activity);
       },
-      standAt: (type, index, anchor = 'anchor_stand', mode = 'stand', zoneId) => {
+      standAt: (type, index, anchor = 'anchor_stand', activity = 'idle', zoneId) => {
         const f = furnitureOfType(CAMPUS, type, zoneId)[index];
-        if (f) standAtAnchor(runtime, f, anchor, mode);
+        if (f) standAtAnchor(runtime, f, anchor, activity);
       },
-      mode: (m) => {
-        runtime.mode = m;
-      },
+      set: (patch) => Object.assign(runtime, patch),
       runtime: () => runtime,
     };
     run();
@@ -133,5 +141,12 @@ export function AvatarTestDrive() {
     };
   }, [runtime, desk, chair, terminal, lounge]);
 
-  return <Avatar runtime={runtime} label="TEST DRIVE" department="Engineering Bay" badge={{ text: 'SCRIPTED — NOT STREAM DATA', color: '#ffb547' }} />;
+  return (
+    <Avatar
+      runtime={runtime}
+      label="TEST DRIVE"
+      department="Engineering Bay"
+      badges={[{ text: 'SCRIPTED — NOT STREAM DATA', color: '#ffb547' }]}
+    />
+  );
 }

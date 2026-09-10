@@ -1,6 +1,7 @@
 'use client';
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useRef } from 'react';
+import { useAgentStore } from '@/stores/agentStore';
 import { useUiStore, type PerfSample } from '@/stores/uiStore';
 
 declare global {
@@ -10,7 +11,7 @@ declare global {
 }
 
 /** Frame-rate meter. Publishes once a second; the raw fps history is exposed on window for scripted measurement. */
-export function PerfMeter({ agentCount = 0 }: { agentCount?: number }) {
+export function PerfMeter() {
   const gl = useThree((s) => s.gl);
   const frames = useRef(0);
   const acc = useRef(0);
@@ -33,7 +34,7 @@ export function PerfMeter({ agentCount = 0 }: { agentCount?: number }) {
         frameMs: Math.round((1000 / Math.max(fps, 1e-3)) * 10) / 10,
         drawCalls: gl.info.render.calls,
         triangles: gl.info.render.triangles,
-        agents: agentCount,
+        agents: Object.keys(useAgentStore.getState().agents).length,
       };
       history.current.push(sample.fps);
       if (history.current.length > 120) history.current.shift();

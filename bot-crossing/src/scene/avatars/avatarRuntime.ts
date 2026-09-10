@@ -1,18 +1,24 @@
 'use client';
 // Per-avatar runtime state: where it is, where it is walking, what pose it
 // holds. Plain objects mutated per frame, outside React (C-5). The stream
-// decides *what* an avatar is doing; this only carries out the motion.
+// decides *what* an avatar is doing (reconcile.ts); this only carries out the
+// motion and never changes state on its own (B-1).
 import { hexKey, hexToWorld, worldToHex, type HexCoord } from '@/core/hex/hex';
 import { CAMPUS } from '@/core/layout/campus';
 import { anchorWorldPose } from '@/core/layout/resolve';
 import type { AnchorName, FurniturePlacement } from '@/core/layout/types';
 import { WALK_SPEED_MPS } from '@/core/movement/movement';
-import { advanceFollow, angleDelta, planTrip, startFollow, type FollowState } from '@/core/movement/pathFollow';
+import { advanceFollow, angleDelta, pathLength, planTrip, startFollow, type FollowState } from '@/core/movement/pathFollow';
 import { campusGraph } from '@/core/pathfinding/campusGraph';
 import { FLOOR_Y } from '../runtime';
 import { RIG } from './rig';
 
-export type AvatarMode = 'stand' | 'walk' | 'sit' | 'talkSit' | 'talkStand' | 'carry' | 'deliver' | 'error' | 'unknown';
+/** Body pose / motion. */
+export type AvatarPose = 'stand' | 'sit' | 'walk';
+/** What the body is doing in that pose; drives the clip choice. */
+export type AvatarActivity = 'idle' | 'typing' | 'talking' | 'delivering' | 'waiting';
+/** Visible warnings. `stale` is set by the layer from the connection, the rest by the stream. */
+export type AvatarAlert = 'none' | 'error' | 'unknown' | 'nodesk' | 'stale';
 
 export interface AvatarRuntime {
   agentId: string;
@@ -20,15 +26,25 @@ export interface AvatarRuntime {
   y: number;
   z: number;
   yaw: number;
-  mode: AvatarMode;
+  pose: AvatarPose;
+  activity: AvatarActivity;
+  /** Holding the document (carry overlay + prop). */
+  carrying: boolean;
+  alert: AvatarAlert;
+  alertText: string;
+  /** Collaboration group, for mutual look-at while standing. */
+  groupId: string | null;
+  /** Task whose hand-over animation already played, so a repeated DELIVERING frame does not replay it. */
+  deliveredTaskId: string | null;
   follow: FollowState | null;
   finalYaw: number | null;
-  /** Speed multiplier for catch-up walks (see reconciliation in Phase 5). */
+  /** Speed multiplier for catch-up walks (reconcile.ts). */
   speedScale: number;
+  /** Pose to take when the current walk ends. */
   onArrive: (() => void) | null;
   /** Set when a trip had no route (rendered as a visible warning, never hidden). */
   unreachable: boolean;
-  /** Where the avatar is heading, for labels and the inspector. */
+  /** Where the avatar is heading, for reconciliation and labels. */
   destination: HexCoord | null;
 }
 
@@ -46,7 +62,13 @@ export function getOrCreateRuntime(agentId: string, at: HexCoord): AvatarRuntime
       y: FLOOR_Y,
       z: w.z,
       yaw: 0,
-      mode: 'stand',
+      pose: 'stand',
+      activity: 'idle',
+      carrying: false,
+      alert: 'none',
+      alertText: '',
+      groupId: null,
+      deliveredTaskId: null,
       follow: null,
       finalYaw: null,
       speedScale: 1,
@@ -68,71 +90,100 @@ export function currentHex(rt: AvatarRuntime): HexCoord {
   return worldToHex(rt.x, rt.z);
 }
 
-/** Teleport to a tile centre (used only for first appearance and reconciliation snaps). */
+export function furnitureAt(hex: HexCoord): FurniturePlacement | undefined {
+  return CAMPUS.furnitureByHex.get(hexKey(hex));
+}
+
+function stopMoving(rt: AvatarRuntime): void {
+  rt.follow = null;
+  rt.onArrive = null;
+  rt.destination = null;
+  rt.speedScale = 1;
+}
+
+/** Teleport to a tile centre (first appearance, or a reconciliation snap). */
 export function placeAtHex(rt: AvatarRuntime, hex: HexCoord, yaw?: number): void {
   const w = hexToWorld(hex);
   rt.x = w.x;
   rt.z = w.z;
   rt.y = FLOOR_Y;
   if (yaw !== undefined) rt.yaw = yaw;
-  rt.follow = null;
-  rt.onArrive = null;
+  stopMoving(rt);
+  rt.pose = 'stand';
 }
 
 /**
  * Plan and start a walk from the current position to `toHex`. If the tile
  * holds furniture the route ends at its approach tile plus a final leg to the
  * stand/deliver anchor. `onArrive` fires once, when the last waypoint is hit.
+ * `maxSeconds` scales the speed up (capped) so a catch-up walk stays short.
  */
-export function walkTo(rt: AvatarRuntime, toHex: HexCoord, anchor: AnchorName, mode: 'walk' | 'carry', onArrive: (() => void) | null): void {
+export function walkTo(
+  rt: AvatarRuntime,
+  toHex: HexCoord,
+  anchor: AnchorName,
+  onArrive: (() => void) | null,
+  opts: { carrying?: boolean; maxSeconds?: number } = {},
+): void {
   const from = currentHex(rt);
   const plan = planTrip(CAMPUS, graph, { x: rt.x, z: rt.z }, from, toHex, anchor);
+  rt.carrying = opts.carrying ?? rt.carrying;
+  if (plan.waypoints.length <= 1) {
+    stopMoving(rt);
+    if (plan.finalYaw !== null) rt.yaw = plan.finalYaw;
+    rt.pose = 'stand';
+    onArrive?.();
+    return;
+  }
   rt.follow = startFollow(plan.waypoints, rt.yaw);
   rt.finalYaw = plan.finalYaw;
   rt.unreachable = plan.unreachable;
   rt.destination = toHex;
-  rt.mode = mode;
+  rt.pose = 'walk';
+  rt.activity = 'idle';
   rt.onArrive = onArrive;
   rt.y = FLOOR_Y;
-  if (rt.follow.done) {
-    // Already there.
-    rt.follow = null;
-    if (rt.finalYaw !== null) rt.yaw = rt.finalYaw;
-    rt.mode = mode === 'carry' ? 'carry' : 'stand';
-    const cb = rt.onArrive;
-    rt.onArrive = null;
-    cb?.();
-  }
+  const seconds = pathLength(plan.waypoints) / WALK_SPEED_MPS;
+  rt.speedScale = opts.maxSeconds && seconds > opts.maxSeconds ? Math.min(3, seconds / opts.maxSeconds) : 1;
 }
 
 /** Pose the avatar on a seat anchor: hips on the pan, feet forward on the floor (A-4). */
-export function sitAt(rt: AvatarRuntime, furniture: FurniturePlacement, mode: 'sit' | 'talkSit' = 'sit'): void {
+export function sitAt(rt: AvatarRuntime, furniture: FurniturePlacement, activity: AvatarActivity = 'typing'): void {
   const a = anchorWorldPose(furniture, 'anchor_sit', FLOOR_Y);
   rt.x = a.x + Math.sin(a.yaw) * RIG.sitHipBack;
   rt.z = a.z + Math.cos(a.yaw) * RIG.sitHipBack;
   rt.y = a.y - RIG.sitHipHeight;
   rt.yaw = a.yaw;
-  rt.follow = null;
-  rt.onArrive = null;
-  rt.mode = mode;
-  rt.destination = null;
+  stopMoving(rt);
+  rt.pose = 'sit';
+  rt.activity = activity;
+  rt.carrying = false;
 }
 
 /** Stand at a furniture anchor (stand or deliver) facing it. */
-export function standAtAnchor(rt: AvatarRuntime, furniture: FurniturePlacement, anchor: AnchorName, mode: AvatarMode = 'stand'): void {
+export function standAtAnchor(rt: AvatarRuntime, furniture: FurniturePlacement, anchor: AnchorName, activity: AvatarActivity = 'idle'): void {
   const a = anchorWorldPose(furniture, anchor, FLOOR_Y);
   rt.x = a.x;
   rt.z = a.z;
   rt.y = a.y;
   rt.yaw = a.yaw;
-  rt.follow = null;
-  rt.onArrive = null;
-  rt.mode = mode;
-  rt.destination = null;
+  stopMoving(rt);
+  rt.pose = 'stand';
+  rt.activity = activity;
 }
 
-export function furnitureAt(hex: HexCoord): FurniturePlacement | undefined {
-  return CAMPUS.furnitureByHex.get(hexKey(hex));
+/** Stand where the avatar already is (no micro-snap), or at the tile centre if it is not on the tile. */
+export function standAtHex(rt: AvatarRuntime, hex: HexCoord, activity: AvatarActivity = 'idle'): void {
+  const here = currentHex(rt);
+  if (here.q !== hex.q || here.r !== hex.r) {
+    const w = hexToWorld(hex);
+    rt.x = w.x;
+    rt.z = w.z;
+  }
+  rt.y = FLOOR_Y;
+  stopMoving(rt);
+  rt.pose = 'stand';
+  rt.activity = activity;
 }
 
 /** Advance one frame. Returns true if the avatar arrived this frame. */
@@ -143,19 +194,20 @@ export function advanceAvatar(rt: AvatarRuntime, dt: number): boolean {
   rt.z = rt.follow.z;
   rt.yaw = rt.follow.yaw;
   if (rt.follow.done) {
-    rt.follow = null;
-    if (rt.finalYaw !== null) rt.yaw = rt.finalYaw;
-    rt.speedScale = 1;
-    rt.mode = rt.mode === 'carry' ? 'carry' : 'stand';
     const cb = rt.onArrive;
-    rt.onArrive = null;
+    const finalYaw = rt.finalYaw;
+    stopMoving(rt);
+    if (finalYaw !== null) rt.yaw = finalYaw;
+    rt.pose = 'stand';
+    // Without a confirming event the avatar waits here; it never sits down on its own (B-1).
+    rt.activity = 'waiting';
     cb?.();
     return true;
   }
   return false;
 }
 
-/** Smoothly turn toward a yaw (used for mutual look-at once seated/standing). */
+/** Smoothly turn toward a yaw (mutual look-at for standing collaborators). */
 export function turnToward(rt: AvatarRuntime, yaw: number, dt: number, rate = 6): void {
   const d = angleDelta(rt.yaw, yaw);
   const step = rate * dt;

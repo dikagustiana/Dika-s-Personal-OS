@@ -108,6 +108,9 @@ One line of reasoning each, recorded as they were made (0-B).
   it off.
 - Walking speed 1.7 m/s, shared by server scheduling and client
   interpolation (`src/core/movement/movement.ts`).
+- A mock meeting lasts its scripted duration *after the last arrival*: the
+  walk from a far desk to the meeting room is ~40 s, longer than the first
+  version of the meeting itself, so agents arrived as it ended.
 - Server is a separate Fastify process on :4000 (not a Next custom server);
   `pnpm dev` runs both.
 
@@ -133,6 +136,60 @@ One line of reasoning each, recorded as they were made (0-B).
   agents around a table never gesture in lockstep (B-3).
 - The Phase 4 test drive is a dev toggle, labelled "SCRIPTED — NOT STREAM
   DATA" in the scene, and never mounts unless switched on (B-1).
+
+## Reconciliation (Phase 5)
+
+- `reconcile.ts` runs once per applied event, never per frame. The event's
+  location is the truth; the avatar either continues a walk already heading
+  there, finishes the remaining leg briskly (speed ≥1.6×), catches up with a
+  short sped-up walk when within 6 tiles (≤1.2 s, speed capped at 3×), or
+  snaps when farther. A long invented walk would misreport where the agent is.
+- A progress update mid-walk with the same target never restarts the walk.
+  A mid-walk retarget re-plans from the avatar's current position.
+- Arrival without a confirming event leaves the avatar standing at the stand
+  anchor in a `waiting` activity (idle clip). Nothing seats it, hands over a
+  document, or clears an error except the stream.
+- An error or unknown state at a desk keeps the seated pose (typing stops);
+  the badge carries the message or the raw state name. Errors never stand an
+  agent up — that would be motion the stream did not report.
+- DELIVERING with a target walks carrying the document; DELIVERING with no
+  target at a deliverable tile plays the hand-over once per task id, then the
+  avatar stands empty-handed until the next event.
+- Staleness is a badge, not a state: after 3 s without a socket every avatar
+  shows `STALE · last seen HH:MM:SS` and keeps doing exactly what it was
+  doing. On reconnect the server's snapshot re-syncs; duplicates are dropped by
+  eventId and newer events are reconciled with the same rules.
+- Mutual look-at: seated collaborators face the table because the chairs do;
+  standing collaborators turn toward the centroid of their group each frame.
+  Talk/idle loops start at a per-agent phase.
+- Holograms above working/collaborating/errored agents are canvas sprites
+  rebuilt only when title or rounded progress changes; never drei/Html.
+
+## HUD and inspector (Phase 6)
+
+- Exactly one drei/Html: the inspector, anchored above the selected avatar
+  and following it. It renders into its own React root, so it mounts its own
+  QueryClientProvider around the same shared QueryClient.
+- Selecting an agent (click on its avatar or its desk) sets follow + zoom in
+  one store action; closing restores the zoom the camera had. Camera focus is
+  an exponential ease toward a goal, so a second click simply changes the
+  goal — nothing queues. A user gesture on the orbit controls releases follow
+  and zoom so the camera is never fought over.
+- Picking: avatars carry an invisible capsule; skinned meshes and sprites opt
+  out of raycasting, so hover never runs per-triangle skinned intersections.
+  Furniture picking uses InstancedMesh instanceId; a clicked desk opens its
+  occupant, or focuses the desk if empty.
+- The output document is a DOM modal outside the canvas; markdown is parsed
+  to a block tree and rendered as React nodes — never innerHTML — because live
+  adapters may post untrusted text.
+- Clicking empty ground closes the inspector, but only for a click that did
+  not drag more than 6 px, so orbiting never closes it. Esc closes the
+  document first, then the inspector.
+- Reduced motion: camera eases become immediate when the OS asks for reduced
+  motion; CSS transitions are collapsed globally.
+- Telemetry that is not on the stream (output documents, history) goes through
+  TanStack Query against the server's REST endpoints; a 404 for output is a
+  normal "not yet", not an error.
 
 ## HUD token set (C-7), defined before styling
 

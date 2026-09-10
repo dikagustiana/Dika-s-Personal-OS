@@ -23,6 +23,13 @@ Anything a clip cannot cover is rendered with a red `MISSING: <clip>` badge
 above the avatar rather than a substitute animation (B-6). With the shipped
 GLB no clip is missing.
 
+## HUD (Phase 6)
+
+| Placeholder | Stands in for | What replaces it |
+| --- | --- | --- |
+| Output document content in mock mode — generated markdown from the task template | Real artefacts produced by agents | Live pipelines post real output to `POST /ingest/output` |
+| Token usage graph — sparkline of `tokensUsed` samples as received | Full token telemetry (prompt/completion split, cost) | Adapters carrying richer usage fields once the contract grows |
+
 ## Furniture and fittings (Phase 2) — all code-authored primitives
 
 Every entry below is flat-coloured, untextured primitive geometry authored in

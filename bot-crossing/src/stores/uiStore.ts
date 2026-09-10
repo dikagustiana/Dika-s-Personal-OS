@@ -51,6 +51,9 @@ interface UiState {
   /** Dev harness: one scripted avatar, clearly labelled, never stream data. */
   avatarTestDrive: boolean;
   setAvatarTestDrive(on: boolean): void;
+  /** The agent whose inspector is open (Phase 6). */
+  selectedAgentId: string | null;
+  setSelectedAgentId(id: string | null): void;
   /** Camera follows this agent's avatar while set. */
   followAgentId: string | null;
   setFollowAgentId(id: string | null): void;
@@ -91,6 +94,8 @@ export const useUiStore = create<UiState>((set) => ({
 
   avatarTestDrive: false,
   setAvatarTestDrive: (on) => set({ avatarTestDrive: on }),
+  selectedAgentId: null,
+  setSelectedAgentId: (id) => set({ selectedAgentId: id }),
   followAgentId: null,
   setFollowAgentId: (id) => set({ followAgentId: id }),
   cameraZoom: null,

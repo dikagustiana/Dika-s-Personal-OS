@@ -13,17 +13,81 @@ marked done.
 | 2 — Furniture and spatial layout | **done** |
 | 3 — Mock event source | **done** |
 | 4 — Avatars and pathfinding | **done** |
-| 5 — State machine and live events | not started |
+| 5 — State machine and live events | **done** |
 | 6 — HUD and inspector | not started |
 
 ## Next action
 
-Phase 5: wire the stream to avatar behaviour. Build
-`src/scene/avatars/reconcile.ts` (pure: latest event + runtime → motion
-commands; catch-up walks, snaps, arrival poses, stale badges) with tests,
-then `AvatarsLayer` renders one `Avatar` per agent record and calls
-`reconcile` on every applied event. Verify the full mock scenario end to end,
-kill/restart the server mid-run, and record fps at 20 agents.
+Phase 6: HUD and inspector. Files already written but not yet imported:
+`src/core/text/markdown.ts` (+test), `src/hud/api.ts`,
+`src/hud/inspector/{TokenGraph,Console,OutputPreview}.tsx`,
+`src/hud/OutputModal.tsx`. To do: the single drei `<Html>` inspector anchored
+to the selected avatar (`src/scene/inspector/`), QueryClientProvider in
+`OfficeApp`, selection ring, click-to-focus on avatars and workstations
+(instanced picking), fleet summary in the top bar, Esc to close, then verify:
+click focuses + telemetry, logs stream, token graph updates, second click
+mid-transition retargets, exactly one `.bc-html-root` in the DOM.
+
+## Phase 5 — what landed
+
+- `src/scene/avatars/avatarRuntime.ts` — pose (`stand | sit | walk`), activity
+  (`idle | typing | talking | delivering | waiting`), `carrying`, `alert`;
+  motion helpers never change state on their own; arrival without a
+  confirming event → `waiting`.
+- `src/scene/avatars/reconcile.ts` — the stream→motion rules (see DECISIONS.md
+  "Reconciliation"): continue / brisk finish / short catch-up (≤6 tiles,
+  ≤1.2 s, ≤3× speed) / snap; same-target updates never restart a walk;
+  errors keep the seated pose; hand-over once per task; unknown states shown
+  as unknown. 11 tests, including "a silent agent never changes".
+- `src/scene/avatars/AvatarsLayer.tsx` — one `Avatar` per agent record,
+  reconciled synchronously on each applied event; badges (ERROR with message,
+  UNKNOWN_STATE with raw name, NO DESK AT TILE, NO ROUTE, STALE with last-seen
+  time, 💬 discussing), holograms with title + progress bar above working /
+  collaborating / errored agents, mutual look-at for standing collaborators,
+  staleness after 3 s without a socket.
+- Server snapshot-on-connect + client dedupe give reconnect recovery without
+  invented state.
+
+## Phase 5 — verification (headless Chromium, software GL, server restarted at t=0)
+
+- `pnpm test:run` — 12 files, 92 tests pass. Typecheck clean.
+- Mock scenario end to end with 20 agents, 20 avatars: agents left the lounge
+  and walked to desks in their own departments (name plates + department
+  colours), sat and typed with progress holograms; `agent-backend-2` showed
+  the ERROR badge with "Unit tests failed: 3 assertions…" while staying
+  seated; `agent-frontend` and `agent-forecaster` carried documents
+  (DELIVERING) toward the terminal / manager desk; the unknown state
+  `OFFICE_DANCING` was applied and counted (`unknownState: 1`). Two malformed
+  frames per loop were dropped at the boundary with no page errors.
+- **Three-agent meeting** (separate run, polling the runtimes): `agent-senior-dev`,
+  `agent-researcher` and `agent-designer` converged on Meeting Room A by
+  `collaborationGroupId` `collab-1-auth-review`, sat on three distinct chairs
+  around the table facing it, all in the `talking` activity with 💬 badges,
+  still there 8 s later; screenshot inspected. `agent-video` showed the
+  `UNKNOWN_STATE · OFFICE_DANCING` badge while staying seated and idle.
+- Mock fix found by this check: a meeting now lasts its scripted duration
+  after the last arrival (far desks take ~40 s to walk to the room).
+- **Kill and restart the socket mid-scenario:** with the server killed, the
+  connection went `reconnecting`, all 20 avatars carried the STALE badge and
+  kept exactly their last state (16 WORKING, 2 DELIVERING, 2 WALKING —
+  unchanged). After restart the client reconnected on its own, the fresh
+  snapshot applied (the restarted mock begins in the lounge, so avatars
+  snapped to the new truth), 4 invalid frames total were dropped, 0 stale,
+  and the page had no errors — only the expected `ERR_CONNECTION_REFUSED`
+  console lines while the server was down.
+- **Frame rate at 20 agents:** 0.7 fps with the composer on and 0.7–3.4 fps
+  with it off at 1400×900 on **SwiftShader software WebGL** (4-core Xeon
+  container, no GPU). Not a hardware number; the acceptance figure cannot be
+  measured in this environment. Hardware-independent budget at 20 agents:
+  **178 draw calls (composer on) / 158 (off), 693k triangles** per frame,
+  of which the 20 skinned mannequins are ~550k (13.7k triangles each, drawn
+  twice: shadow pass + main). One shadow-casting light, zero interior lights,
+  one terrain InstancedMesh, one InstancedMesh per furniture type.
+- Rendering lag note: at ~1 fps the frame step is capped at 0.25 s, so the
+  simulation ran at a quarter of real time and avatars were frequently in a
+  catch-up walk behind the server schedule; the reconciler handled it
+  without snapping unless a location was more than six tiles away. At 60 fps
+  the walks keep pace with the schedule.
 
 ## Phase 4 — what landed
 
