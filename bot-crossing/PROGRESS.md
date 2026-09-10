@@ -11,23 +11,60 @@ marked done.
 | --- | --- |
 | 1 — Floorplan and hex engine | **done** |
 | 2 — Furniture and spatial layout | **done** |
-| 3 — Mock event source | not started |
+| 3 — Mock event source | **done** |
 | 4 — Avatars and pathfinding | not started (A* itself already exists in core, tested) |
 | 5 — State machine and live events | not started |
 | 6 — HUD and inspector | not started |
 
 ## Next action
 
-Phase 3: the mock event source. Zod schema for the A-2 contract in
-`src/core/events/schema.ts`; pure reducer (out-of-order / duplicate drop,
-unknown-state flag); Fastify server under `server/` with a WebSocket
-`/events` endpoint, snapshot-on-connect, REST for history/output; an
-`EventSource` interface with `MockEventSource` (scripted 20-agent looping
-scenario, all six states, a three-agent collaboration, an error, one
-deliberately malformed frame) and `LiveEventSource` (webhook + SSE adapters
-for LangGraph, CrewAI, AutoGen, custom); client `WebSocketEventSource` that
-validates at the boundary and feeds `agentStore`; a stream inspector in the
-dev panel.
+Phase 4: avatars and pathfinding. Try to download a CC0 humanoid rig with
+idle / walk / sit_typing / talk / carry_walk clips from one source
+(Quaternius Universal Animation Library first); fall back to a code-authored
+low-poly humanoid with procedural clips, logged in PLACEHOLDERS.md. Build
+`src/scene/avatars/`: rig loading + retarget onto one skeleton, an
+AnimationMixer blend layer, path following over `findPath` at
+`WALK_SPEED_MPS`, anchor parenting per A-4 (approach tile → anchor_stand →
+anchor_sit). Verify with a scripted walk lounge → Engineering desk → sit →
+type → meeting table → talk, plus the A* unreachable test (already green).
+
+## Phase 3 — what landed
+
+- `src/core/events/schema.ts` — the A-2 contract as strict Zod; `parseCanonicalEvent`
+  never throws. `reducer.ts` — pure agent reducer: duplicate and out-of-order
+  drops, unknown-state flag, bounded logs and token history.
+- `src/core/scenario/` — semantic events (what an adapter knows), deterministic
+  `Seating` (desk by department, lounge spots, meeting chairs by group),
+  and the `Positioner`, which turns "agent X is working" into WALKING now +
+  the arrival state at `walkDurationSeconds(path)` later, re-sending WALKING
+  from the interpolated position on mid-walk updates without restarting the
+  walk. `roster.ts` — the twenty agents and their task catalogue.
+- `server/` — Fastify 5: `EventBus` (validate, latest-per-agent, history,
+  outputs, one JSON frame per event, snapshot on connect), `EmissionScheduler`,
+  `MockEventSource` (per-agent task loops + a 180 s specials loop: three-agent
+  and two-agent collaborations, an error, an unknown state, two malformed
+  frames), `LiveEventSource` (POST `/ingest/{langgraph|crewai|autogen|custom}`,
+  `/ingest/canonical`, `/ingest/output`, optional upstream SSE reader), the
+  four adapters (pure, tested), REST (`/api/agents`, `/api/agents/:id/history`,
+  `/api/tasks/:id/output`, `/api/stats`, `/health`), `/events` WebSocket.
+  `EVENT_SOURCE=mock|live` picks the source in one line.
+- Client: `WebSocketEventSource` (backoff reconnect), `agentStore` (validates
+  at the boundary, applies through the reducer, logs drops to the console
+  with the raw payload), `StreamInspector` in the dev panel, `scripts/probe-stream.ts`
+  (`pnpm probe 30`) as a console inspector.
+
+## Phase 3 — verification
+
+- `pnpm test:run` — 9 files, 76 tests pass (schema, reducer, positioner,
+  adapters). Typecheck clean.
+- `pnpm probe 100` against the mock: 324 frames, 20 agents, states seen:
+  WORKING 257, WALKING 30, IDLE 26, COLLABORATING 5, ERROR 1, DELIVERING 4,
+  plus `OFFICE_DANCING` 1 (unknown-state exercise); every WALKING frame carried
+  a target; `collab-1-auth-review` had exactly the three scripted agents.
+- Fresh server + browser for 22 s: connection `open`, 20 agents, 35 applied,
+  **2 invalid frames dropped** (missing fields; not JSON) with the reason and
+  raw payload on the console and in the inspector; zero page errors. The
+  Node probe saw the same two invalid frames.
 
 ## Phase 2 — what landed
 

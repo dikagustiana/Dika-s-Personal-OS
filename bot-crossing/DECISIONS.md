@@ -84,6 +84,33 @@ One line of reasoning each, recorded as they were made (0-B).
   posts are deduplicated corners. Changing the floorplan needs no scene edit.
 - Desert dunes stay as low-poly spheres (placeholder, listed).
 
+## Events and transport (Phase 3)
+
+- `currentTaskId` is `string | null`: the contract example shows a string,
+  but an idle agent has no task and a sentinel id would be a lie in the data.
+  Every other field is exactly as written; objects are strict.
+- Adapters emit *semantic* events (agent, state, task, progress, tokens,
+  group). A server-side positioner owns hex coordinates, derives WALKING /
+  DELIVERING legs from real A* path lengths and delays the destination
+  state by the walk time. The renderer still only renders what the stream
+  says; the physical layer lives on the server where the layout is known.
+- Wire frames are the bare canonical object, one per WebSocket text frame.
+  No envelope, so the contract is the whole protocol. Snapshot-on-connect is
+  the latest event per agent sent as ordinary frames; clients dedupe by
+  eventId.
+- Out-of-order handling: an event older than the agent's latest by timestamp
+  is dropped and logged; equal timestamps apply in arrival order; a repeated
+  eventId is a duplicate.
+- The mock injects two malformed frames per loop via an explicit
+  `publishRaw` (never stored) so the client boundary is exercised end to end.
+  `MOCK_INCLUDE_MALFORMED=0` turns them off. An unknown state
+  (`OFFICE_DANCING`) is also scripted; `MOCK_INCLUDE_UNKNOWN_STATE=0` turns
+  it off.
+- Walking speed 1.7 m/s, shared by server scheduling and client
+  interpolation (`src/core/movement/movement.ts`).
+- Server is a separate Fastify process on :4000 (not a Next custom server);
+  `pnpm dev` runs both.
+
 ## HUD token set (C-7), defined before styling
 
 - Colours: `panel` rgb(16 20 28 / .78) slate glass; `ink` #E9EEF5; `ink-muted`

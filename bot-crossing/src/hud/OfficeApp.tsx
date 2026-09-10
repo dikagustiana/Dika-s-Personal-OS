@@ -1,9 +1,11 @@
 'use client';
 import dynamic from 'next/dynamic';
 import { useEffect } from 'react';
+import { useAgentStore } from '@/stores/agentStore';
 import { useUiStore } from '@/stores/uiStore';
 import { DevPanel } from './DevPanel';
 import { TopBar } from './TopBar';
+import { useEventStream } from './useEventStream';
 
 // The canvas needs a WebGL context; it never renders on the server.
 const OfficeCanvas = dynamic(() => import('@/scene/OfficeCanvas').then((m) => m.OfficeCanvas), {
@@ -16,6 +18,7 @@ const OfficeCanvas = dynamic(() => import('@/scene/OfficeCanvas').then((m) => m.
 declare global {
   interface Window {
     __bcUi?: typeof useUiStore;
+    __bcAgents?: typeof useAgentStore;
   }
 }
 
@@ -32,11 +35,15 @@ function devToolsRequested(): boolean {
 export function OfficeApp() {
   const devTools = useUiStore((s) => s.devTools);
   const setDevTools = useUiStore((s) => s.setDevTools);
+  useEventStream();
   useEffect(() => {
     const on = devToolsRequested();
     setDevTools(on);
     // Scripted verification (Playwright) drives the store through this handle.
-    if (on) window.__bcUi = useUiStore;
+    if (on) {
+      window.__bcUi = useUiStore;
+      window.__bcAgents = useAgentStore;
+    }
   }, [setDevTools]);
 
   return (

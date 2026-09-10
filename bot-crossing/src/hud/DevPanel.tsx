@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { TIME_ZONE_CHOICES, formatHour, systemTimeZone } from '@/core/time/clock';
 import { useUiStore, type HexGridMode } from '@/stores/uiStore';
+import { StreamInspector } from './StreamInspector';
 
 const GRID_MODES: Array<{ value: HexGridMode; label: string }> = [
   { value: 'always', label: 'Always' },
@@ -113,6 +114,7 @@ export function DevPanel() {
           <dd>{(s.perf.triangles / 1000).toFixed(0)}k</dd>
         </div>
       </dl>
+      <StreamInspector />
     </aside>
   );
 }
