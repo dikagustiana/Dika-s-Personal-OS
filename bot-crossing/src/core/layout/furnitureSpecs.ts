@@ -6,8 +6,12 @@ import type { FurnitureSpec, FurnitureType, LocalTransform } from './types';
 
 const T = (x: number, y: number, z: number, yaw = 0): LocalTransform => ({ x, y, z, yaw });
 
-/** Seat height that puts a 1.75 m humanoid's hips on a 0.46 m chair pan. */
-export const SEAT_HEIGHT = 0.46;
+/**
+ * Chair pan height. The avatar rig's seated clip rests its hips 0.49 m above
+ * the floor (measured from the clip), so every seat surface sits there and a
+ * seated avatar's origin lands on the floor with its hips on the pan.
+ */
+export const SEAT_HEIGHT = 0.49;
 
 export const FURNITURE_SPECS: Record<FurnitureType, FurnitureSpec> = {
   workstation: {
@@ -54,7 +58,7 @@ export const FURNITURE_SPECS: Record<FurnitureType, FurnitureSpec> = {
     dims: { w: 1.8, d: 0.8, h: 0.8 },
     blocksTile: true,
     anchors: {
-      anchor_sit: T(0, 0.42, 0.05),
+      anchor_sit: T(0, SEAT_HEIGHT, 0.05),
       anchor_stand: T(0, 0, -0.7),
       anchor_deliver: T(0, 0, -0.7),
     },

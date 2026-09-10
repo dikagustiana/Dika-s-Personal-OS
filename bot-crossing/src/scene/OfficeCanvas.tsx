@@ -2,6 +2,7 @@
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Architecture } from './architecture/Architecture';
+import { AvatarsLayer } from './avatars/AvatarsLayer';
 import { CameraRig } from './CameraRig';
 import { FurnitureLayer } from './furniture/FurnitureLayer';
 import { ZoneSigns } from './labels/ZoneSigns';
@@ -38,6 +39,7 @@ export function OfficeCanvas() {
       <FurnitureLayer />
       <Architecture />
       <ZoneSigns />
+      <AvatarsLayer />
       <Effects />
       <PerfMeter />
     </Canvas>

@@ -111,6 +111,29 @@ One line of reasoning each, recorded as they were made (0-B).
 - Server is a separate Fastify process on :4000 (not a Next custom server);
   `pnpm dev` runs both.
 
+## Avatars (Phase 4)
+
+- Rig: Quaternius Universal Animation Library mannequin (CC0). One skeleton,
+  every clip already on it — no retargeting. Downloaded through itch.io's
+  free-download flow because Chromium's tunnel to itch.io was reset by the
+  egress; curl/urllib worked. Trimmed to 10 clips (2.3 MB).
+- Seat anchors sit at the chair pan (`SEAT_HEIGHT` 0.49 m); the rig module
+  knows its seated clip puts the hips 0.49 m up and 0.33 m behind the origin,
+  so `sitAt` places the origin accordingly. Anchors describe furniture; rig
+  constants describe the rig; neither knows about the other.
+- Furniture is instanced, so there is no scene-graph node per piece to parent
+  an avatar to. "Parenting to the anchor" (A-4) is implemented as resolving
+  the anchor to a world pose and holding the avatar there; furniture is
+  static, so the result is identical.
+- Walk routes end on the approach tile and then a final leg to the
+  stand/deliver anchor; sitting snaps from the stand anchor to the seat pose.
+- Frame delta is capped at 0.25 s: a stalled tab must not teleport avatars,
+  but a slow software-GL frame rate must still show motion.
+- Talk/idle loops start at a per-agent phase offset (hash of agentId) so
+  agents around a table never gesture in lockstep (B-3).
+- The Phase 4 test drive is a dev toggle, labelled "SCRIPTED — NOT STREAM
+  DATA" in the scene, and never mounts unless switched on (B-1).
+
 ## HUD token set (C-7), defined before styling
 
 - Colours: `panel` rgb(16 20 28 / .78) slate glass; `ink` #E9EEF5; `ink-muted`

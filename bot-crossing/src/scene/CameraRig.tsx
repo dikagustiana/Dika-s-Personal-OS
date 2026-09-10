@@ -4,6 +4,8 @@ import { useFrame } from '@react-three/fiber';
 import { useRef, type ElementRef } from 'react';
 import * as THREE from 'three';
 import { CAMPUS } from '@/core/layout/campus';
+import { useUiStore } from '@/stores/uiStore';
+import { avatarRuntimes } from './avatars/avatarRuntime';
 import { runtime } from './runtime';
 
 // three-stdlib is drei's dependency, not ours; take the controls type from drei's ref.
@@ -11,6 +13,23 @@ type OrbitControlsImpl = NonNullable<ElementRef<typeof OrbitControls>>;
 
 /** Shared handle so the inspector (Phase 6) can drive focus transitions. */
 export const cameraRig: { controls: OrbitControlsImpl | null } = { controls: null };
+
+declare global {
+  interface Window {
+    __bcCamera?: { setOrbit(polar: number, azimuth: number): void; getOrbit(): { polar: number; azimuth: number } };
+  }
+}
+
+/** Place the camera on the orbit sphere around the current target (dev/scripted verification). */
+function setOrbit(controls: OrbitControlsImpl, polar: number, azimuth: number): void {
+  const cam = controls.object;
+  const t = controls.target;
+  const r = cam.position.distanceTo(t);
+  const p = THREE.MathUtils.clamp(polar, controls.minPolarAngle, controls.maxPolarAngle);
+  cam.position.set(t.x + r * Math.sin(p) * Math.sin(azimuth), t.y + r * Math.cos(p), t.z + r * Math.sin(p) * Math.cos(azimuth));
+  cam.lookAt(t);
+  controls.update();
+}
 
 const ISO_DIR = new THREE.Vector3(1, 1.15, 1).normalize();
 const ISO_DISTANCE = 120;
@@ -26,19 +45,48 @@ export function CameraRig() {
   const c = runtime.campusCenter;
   const b = CAMPUS.bounds;
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const controls = controlsRef.current;
     if (!controls) return;
-    cameraRig.controls = controls;
+    if (cameraRig.controls !== controls) {
+      cameraRig.controls = controls;
+      if (useUiStore.getState().devTools) {
+        window.__bcCamera = {
+          setOrbit: (polar, azimuth) => setOrbit(controls, polar, azimuth),
+          getOrbit: () => ({ polar: controls.getPolarAngle(), azimuth: controls.getAzimuthalAngle() }),
+        };
+      }
+    }
     const t = controls.target;
+    const ui = useUiStore.getState();
+    // Follow: ease the orbit target onto the avatar, carrying the camera with it.
+    if (ui.followAgentId) {
+      const rt = avatarRuntimes.get(ui.followAgentId);
+      if (rt) {
+        const k = Math.min(1, dt * 4);
+        const dx = (rt.x - t.x) * k;
+        const dz = (rt.z - t.z) * k;
+        const dy = (rt.y + 0.9 - t.y) * k;
+        t.x += dx;
+        t.z += dz;
+        t.y += dy;
+        controls.object.position.x += dx;
+        controls.object.position.z += dz;
+        controls.object.position.y += dy;
+      }
+    }
+    const cam = controls.object;
+    if (ui.cameraZoom !== null && cam instanceof THREE.OrthographicCamera && Math.abs(cam.zoom - ui.cameraZoom) > 1e-3) {
+      cam.zoom += (ui.cameraZoom - cam.zoom) * Math.min(1, dt * 4);
+      cam.updateProjectionMatrix();
+    }
     const nx = THREE.MathUtils.clamp(t.x, b.minX - MARGIN, b.maxX + MARGIN);
     const nz = THREE.MathUtils.clamp(t.z, b.minZ - MARGIN, b.maxZ + MARGIN);
-    if (nx !== t.x || nz !== t.z || t.y !== 0) {
-      const cam = controls.object;
+    if (nx !== t.x || nz !== t.z) {
       cam.position.x += nx - t.x;
       cam.position.z += nz - t.z;
-      cam.position.y -= t.y;
-      t.set(nx, 0, nz);
+      t.x = nx;
+      t.z = nz;
     }
   });
 

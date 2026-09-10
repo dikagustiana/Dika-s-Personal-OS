@@ -5,6 +5,7 @@
 // Every piece is listed in PLACEHOLDERS.md; a GLTF with anchor empties
 // replaces each one.
 import type * as THREE from 'three';
+import { SEAT_HEIGHT } from '@/core/layout/furnitureSpecs';
 import type { FurnitureType } from '@/core/layout/types';
 import { ball, box, cyl, merge } from './parts';
 
@@ -18,10 +19,11 @@ const LAMP_GLOW = '#ffd2a0';
 const LED_GLOW = '#37d2c6';
 
 function officeChair(z: number): THREE.BufferGeometry[] {
+  // Seat pan top at SEAT_HEIGHT (0.49): pan is 0.06 thick, centred at 0.46.
   return [
-    box(0.46, 0.06, 0.46, { y: 0.44, z, color: CHARCOAL }),
-    box(0.46, 0.5, 0.05, { y: 0.74, z: z - 0.23, color: CHARCOAL }),
-    cyl(0.03, 0.36, { y: 0.2, z, color: METAL }),
+    box(0.46, 0.06, 0.46, { y: SEAT_HEIGHT - 0.03, z, color: CHARCOAL }),
+    box(0.46, 0.5, 0.05, { y: SEAT_HEIGHT + 0.28, z: z - 0.23, color: CHARCOAL }),
+    cyl(0.03, SEAT_HEIGHT - 0.09, { y: (SEAT_HEIGHT - 0.06) / 2, z, color: METAL }),
     cyl(0.28, 0.03, { y: 0.03, z, color: METAL, segments: 8 }),
   ];
 }
@@ -67,11 +69,11 @@ const BUILDERS: Record<FurnitureType, () => THREE.BufferGeometry> = {
   loungeSofa: () =>
     merge([
       box(1.8, 0.4, 0.8, { y: 0.2, color: '#3f7f86' }),
-      box(1.8, 0.45, 0.2, { y: 0.62, z: -0.3, color: '#3f7f86' }),
-      box(0.15, 0.55, 0.8, { x: -0.825, y: 0.35, color: '#356c72' }),
-      box(0.15, 0.55, 0.8, { x: 0.825, y: 0.35, color: '#356c72' }),
-      box(0.8, 0.1, 0.6, { x: -0.42, y: 0.45, z: 0.05, color: '#e6d5b8' }),
-      box(0.8, 0.1, 0.6, { x: 0.42, y: 0.45, z: 0.05, color: '#e6d5b8' }),
+      box(1.8, 0.5, 0.2, { y: 0.65, z: -0.3, color: '#3f7f86' }),
+      box(0.15, 0.6, 0.8, { x: -0.825, y: 0.35, color: '#356c72' }),
+      box(0.15, 0.6, 0.8, { x: 0.825, y: 0.35, color: '#356c72' }),
+      box(0.8, 0.1, 0.6, { x: -0.42, y: SEAT_HEIGHT - 0.05, z: 0.05, color: '#e6d5b8' }),
+      box(0.8, 0.1, 0.6, { x: 0.42, y: SEAT_HEIGHT - 0.05, z: 0.05, color: '#e6d5b8' }),
     ]),
   coffeeBar: () =>
     merge([

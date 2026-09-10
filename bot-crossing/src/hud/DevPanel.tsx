@@ -95,6 +95,31 @@ export function DevPanel() {
         <input type="checkbox" checked={s.greyPlaceholders} onChange={(e) => s.setGreyPlaceholders(e.target.checked)} />
         Show placeholders in grey
       </label>
+      <div className="mt-2 flex flex-wrap gap-4">
+        <label className="bc-toggle">
+          <input
+            type="checkbox"
+            checked={s.avatarTestDrive}
+            onChange={(e) => {
+              s.setAvatarTestDrive(e.target.checked);
+              if (!e.target.checked && s.followAgentId === '__test-drive__') s.setFollowAgentId(null);
+            }}
+          />
+          Avatar test drive (scripted)
+        </label>
+        <label className="bc-toggle">
+          <input
+            type="checkbox"
+            checked={s.followAgentId === '__test-drive__'}
+            disabled={!s.avatarTestDrive}
+            onChange={(e) => {
+              s.setFollowAgentId(e.target.checked ? '__test-drive__' : null);
+              s.setCameraZoom(e.target.checked ? 60 : null);
+            }}
+          />
+          Follow it
+        </label>
+      </div>
 
       <dl className="mt-3 grid grid-cols-4 gap-2 border-t border-white/10 pt-3 font-mono text-xs">
         <div>

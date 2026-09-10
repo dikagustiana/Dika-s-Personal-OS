@@ -9,6 +9,20 @@ replaces and what would replace it. Nothing here is disguised as finished
 | Faceted low-poly dune spheres around the campus (`DesertGround.tsx`) | Sculpted desert terrain / Dubai-inspired skyline backdrop | A modelled terrain mesh or a matte-painted skybox band with proper licence |
 | Flat hex prisms with per-tile colour for floors and paving | Textured floor materials (concrete, stone paving) | Baked albedo/AO textures per tile kind |
 
+## Avatars (Phase 4)
+
+| Placeholder | Stands in for | What replaces it |
+| --- | --- | --- |
+| **sit_typing** = the rig's real `Sitting_Idle_Loop` clip with a code-driven overlay (`AnimationController.applyTyping`: forearms raised toward the desk, alternating hand bob) | A real seated typing clip | A `Sit_Typing_Loop` clip authored on the same skeleton; drop it into the GLB and map it in `rig.ts` |
+| **carry_walk** = the rig's real `Walk_Loop` clip with a code-driven arm overlay (`applyCarry`: arms forward, elbows bent) and a document mesh parented to `hand_r` | A real carry-walk clip | A `Carry_Walk_Loop` clip on the same skeleton |
+| Document / folder mesh — white box with an emissive strip | A modelled folder or tablet | A small GLTF prop |
+| Mannequin body colour per department (flat colour, no texture) | Department uniforms / avatar identity | Textured or accessorised variants of the same rig |
+| Name plates — canvas sprites | Designed name plates | Same mechanism with final typography |
+
+Anything a clip cannot cover is rendered with a red `MISSING: <clip>` badge
+above the avatar rather than a substitute animation (B-6). With the shipped
+GLB no clip is missing.
+
 ## Furniture and fittings (Phase 2) — all code-authored primitives
 
 Every entry below is flat-coloured, untextured primitive geometry authored in

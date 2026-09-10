@@ -12,21 +12,55 @@ marked done.
 | 1 — Floorplan and hex engine | **done** |
 | 2 — Furniture and spatial layout | **done** |
 | 3 — Mock event source | **done** |
-| 4 — Avatars and pathfinding | not started (A* itself already exists in core, tested) |
+| 4 — Avatars and pathfinding | **done** |
 | 5 — State machine and live events | not started |
 | 6 — HUD and inspector | not started |
 
 ## Next action
 
-Phase 4: avatars and pathfinding. Try to download a CC0 humanoid rig with
-idle / walk / sit_typing / talk / carry_walk clips from one source
-(Quaternius Universal Animation Library first); fall back to a code-authored
-low-poly humanoid with procedural clips, logged in PLACEHOLDERS.md. Build
-`src/scene/avatars/`: rig loading + retarget onto one skeleton, an
-AnimationMixer blend layer, path following over `findPath` at
-`WALK_SPEED_MPS`, anchor parenting per A-4 (approach tile → anchor_stand →
-anchor_sit). Verify with a scripted walk lounge → Engineering desk → sit →
-type → meeting table → talk, plus the A* unreachable test (already green).
+Phase 5: wire the stream to avatar behaviour. Build
+`src/scene/avatars/reconcile.ts` (pure: latest event + runtime → motion
+commands; catch-up walks, snaps, arrival poses, stale badges) with tests,
+then `AvatarsLayer` renders one `Avatar` per agent record and calls
+`reconcile` on every applied event. Verify the full mock scenario end to end,
+kill/restart the server mid-run, and record fps at 20 agents.
+
+## Phase 4 — what landed
+
+- Asset: Quaternius Universal Animation Library mannequin (CC0), trimmed to
+  10 clips → `public/models/ual-mannequin.glb` (2.3 MB). See ASSETS.md.
+- `src/core/movement/pathFollow.ts` — pure waypoint following (constant speed
+  across corners, turn rate, final yaw) and `planTrip` (A* route to the
+  approach tile plus a final leg to the stand/deliver anchor; unreachable is
+  flagged, never silent). Tested, including the server/client walk-time
+  agreement.
+- `src/scene/avatars/` — `rig.ts` (measured rig constants, clip map, required-
+  clip table), `AnimationController.ts` (mixer, cross-fades, one-shots that
+  cannot override a newer state, axis-agnostic aim solver for the typing and
+  carry overlays), `avatarRuntime.ts` (per-avatar position/pose state outside
+  React; `walkTo`, `sitAt`, `standAtAnchor`, `advanceAvatar`), `Avatar.tsx`
+  (skeleton clone per agent, department colour, name plate sprite, chest-
+  socketed document, MISSING badge for absent clips), `AvatarTestDrive.tsx`
+  (dev-only scripted walk, labelled as such), `AvatarsLayer.tsx`.
+- Camera: follow-an-agent easing and a zoom override (used by the inspector
+  in Phase 6) plus a scripted orbit hook for verification.
+- Seat pans raised to 0.49 m to match the rig's seated clip.
+
+## Phase 4 — verification
+
+- `pnpm test:run` — 10 files, 81 tests pass (A* incl. unreachable target;
+  trip planning ends at anchors, not tile centres). Typecheck clean.
+- Headless scripted test drive (`?dev=1`, toggle on): the avatar walked
+  lounge → Engineering workstation, sat aligned in the chair facing the
+  monitor with hands at the keyboard (close-ups from side, front and top),
+  walked to Meeting Room A, stood and played the talk loop, sat and played the
+  seated talk loop, carried a document to the output terminal (arms forward,
+  document at chest) and played the hand-over, then walked back. No page
+  errors. No clip is missing from the GLB, so no MISSING badge appears.
+- Cross-fades are 0.25 s via `AnimationAction.crossFadeTo`; still frames
+  cannot prove the absence of pops, so this is verified by construction only.
+- Budget with one avatar: 41–47 draw calls, ~170k triangles (post off).
+  Software-GL fps 1.7–2.9 (same caveat as before).
 
 ## Phase 3 — what landed
 

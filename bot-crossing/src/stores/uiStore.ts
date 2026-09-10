@@ -47,6 +47,16 @@ interface UiState {
 
   perf: PerfSample;
   setPerf(sample: PerfSample): void;
+
+  /** Dev harness: one scripted avatar, clearly labelled, never stream data. */
+  avatarTestDrive: boolean;
+  setAvatarTestDrive(on: boolean): void;
+  /** Camera follows this agent's avatar while set. */
+  followAgentId: string | null;
+  setFollowAgentId(id: string | null): void;
+  /** Orthographic zoom override for close-ups; null keeps the user's zoom. */
+  cameraZoom: number | null;
+  setCameraZoom(zoom: number | null): void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -78,4 +88,11 @@ export const useUiStore = create<UiState>((set) => ({
 
   perf: { fps: 0, frameMs: 0, drawCalls: 0, triangles: 0, agents: 0 },
   setPerf: (sample) => set({ perf: sample }),
+
+  avatarTestDrive: false,
+  setAvatarTestDrive: (on) => set({ avatarTestDrive: on }),
+  followAgentId: null,
+  setFollowAgentId: (id) => set({ followAgentId: id }),
+  cameraZoom: null,
+  setCameraZoom: (zoom) => set({ cameraZoom: zoom }),
 }));
