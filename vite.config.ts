@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import mdx from '@mdx-js/rollup';
 import remarkFrontmatter from 'remark-frontmatter';
@@ -62,5 +62,10 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
+    // bot-crossing/ is a standalone Next.js app with its own package.json,
+    // lockfile and vitest config. Without this exclude the root run would
+    // sweep its *.test.ts files in and fail on imports the root install
+    // never provides.
+    exclude: [...configDefaults.exclude, 'bot-crossing/**'],
   },
 });
