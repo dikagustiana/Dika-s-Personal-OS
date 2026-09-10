@@ -1,6 +1,6 @@
 'use client';
 import { OrbitControls, OrthographicCamera } from '@react-three/drei';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { useRef, type ElementRef } from 'react';
 import * as THREE from 'three';
 import { CAMPUS } from '@/core/layout/campus';
@@ -16,9 +16,17 @@ export const cameraRig: { controls: OrbitControlsImpl | null } = { controls: nul
 
 declare global {
   interface Window {
-    __bcCamera?: { setOrbit(polar: number, azimuth: number): void; getOrbit(): { polar: number; azimuth: number } };
+    __bcCamera?: {
+      setOrbit(polar: number, azimuth: number): void;
+      getOrbit(): { polar: number; azimuth: number };
+      getTarget(): { x: number; y: number; z: number };
+    };
+    /** World point → CSS pixel position on the canvas (scripted clicks). */
+    __bcProject?: (x: number, y: number, z: number) => { x: number; y: number };
   }
 }
+
+const reducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** Place the camera on the orbit sphere around the current target (dev/scripted verification). */
 function setOrbit(controls: OrbitControlsImpl, polar: number, azimuth: number): void {
@@ -44,6 +52,9 @@ export function CameraRig() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const c = runtime.campusCenter;
   const b = CAMPUS.bounds;
+  const lastZoomPublish = useRef(0);
+  const gl = useThree((s) => s.gl);
+  const size = useThree((s) => s.size);
 
   useFrame((_, dt) => {
     const controls = controlsRef.current;
@@ -54,32 +65,46 @@ export function CameraRig() {
         window.__bcCamera = {
           setOrbit: (polar, azimuth) => setOrbit(controls, polar, azimuth),
           getOrbit: () => ({ polar: controls.getPolarAngle(), azimuth: controls.getAzimuthalAngle() }),
+          getTarget: () => ({ x: controls.target.x, y: controls.target.y, z: controls.target.z }),
+        };
+        window.__bcProject = (x, y, z) => {
+          const v = new THREE.Vector3(x, y, z).project(controls.object);
+          const rect = gl.domElement.getBoundingClientRect();
+          return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
         };
       }
     }
     const t = controls.target;
     const ui = useUiStore.getState();
-    // Follow: ease the orbit target onto the avatar, carrying the camera with it.
-    if (ui.followAgentId) {
-      const rt = avatarRuntimes.get(ui.followAgentId);
-      if (rt) {
-        const k = Math.min(1, dt * 4);
-        const dx = (rt.x - t.x) * k;
-        const dz = (rt.z - t.z) * k;
-        const dy = (rt.y + 0.9 - t.y) * k;
-        t.x += dx;
-        t.z += dz;
-        t.y += dy;
-        controls.object.position.x += dx;
-        controls.object.position.z += dz;
-        controls.object.position.y += dy;
-      }
+    // Focus transitions are exponential eases toward a goal, so retargeting is
+    // just changing the goal: nothing queues, nothing fights (C-4).
+    const ease = reducedMotion ? 1 : Math.min(1, dt * 4);
+    const goal = ui.followAgentId ? avatarRuntimes.get(ui.followAgentId) : null;
+    const focus = goal ? { x: goal.x, y: goal.y + 0.9, z: goal.z } : ui.cameraFocus ? { x: ui.cameraFocus.x, y: 0.9, z: ui.cameraFocus.z } : null;
+    if (focus) {
+      const dx = (focus.x - t.x) * ease;
+      const dz = (focus.z - t.z) * ease;
+      const dy = (focus.y - t.y) * ease;
+      t.x += dx;
+      t.z += dz;
+      t.y += dy;
+      controls.object.position.x += dx;
+      controls.object.position.z += dz;
+      controls.object.position.y += dy;
     }
     const cam = controls.object;
     if (ui.cameraZoom !== null && cam instanceof THREE.OrthographicCamera && Math.abs(cam.zoom - ui.cameraZoom) > 1e-3) {
-      cam.zoom += (ui.cameraZoom - cam.zoom) * Math.min(1, dt * 4);
+      cam.zoom += (ui.cameraZoom - cam.zoom) * ease;
       cam.updateProjectionMatrix();
     }
+    if (cam instanceof THREE.OrthographicCamera) {
+      lastZoomPublish.current += dt;
+      if (lastZoomPublish.current > 0.5 && Math.abs(ui.liveZoom - cam.zoom) > 0.2) {
+        lastZoomPublish.current = 0;
+        ui.setLiveZoom(cam.zoom);
+      }
+    }
+    void size;
     const nx = THREE.MathUtils.clamp(t.x, b.minX - MARGIN, b.maxX + MARGIN);
     const nz = THREE.MathUtils.clamp(t.z, b.minZ - MARGIN, b.maxZ + MARGIN);
     if (nx !== t.x || nz !== t.z) {
@@ -110,6 +135,13 @@ export function CameraRig() {
         maxPolarAngle={1.25}
         screenSpacePanning={false}
         zoomToCursor
+        onStart={() => {
+          // The user took the camera: stop following and stop any zoom transition.
+          const ui = useUiStore.getState();
+          if (ui.followAgentId) ui.setFollowAgentId(null);
+          if (ui.cameraFocus) ui.setCameraFocus(null);
+          if (ui.cameraZoom !== null) ui.setCameraZoom(null);
+        }}
         mouseButtons={{ LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }}
         touches={{ ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }}
       />

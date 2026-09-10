@@ -51,9 +51,19 @@ interface UiState {
   /** Dev harness: one scripted avatar, clearly labelled, never stream data. */
   avatarTestDrive: boolean;
   setAvatarTestDrive(on: boolean): void;
-  /** The agent whose inspector is open (Phase 6). */
+  /** The agent whose inspector is open (Phase 6). Selecting also follows and zooms in; closing restores the zoom. */
   selectedAgentId: string | null;
   setSelectedAgentId(id: string | null): void;
+  /** Task whose output document modal is open. */
+  outputTaskId: string | null;
+  setOutputTaskId(id: string | null): void;
+  /** One-off camera focus point (world XZ) when not following an agent, e.g. a clicked empty desk. */
+  cameraFocus: { x: number; z: number } | null;
+  setCameraFocus(p: { x: number; z: number } | null): void;
+  /** The camera's actual zoom, written by the rig at a low rate; restored when the inspector closes. */
+  liveZoom: number;
+  setLiveZoom(z: number): void;
+  zoomBeforeSelect: number | null;
   /** Camera follows this agent's avatar while set. */
   followAgentId: string | null;
   setFollowAgentId(id: string | null): void;
@@ -95,7 +105,26 @@ export const useUiStore = create<UiState>((set) => ({
   avatarTestDrive: false,
   setAvatarTestDrive: (on) => set({ avatarTestDrive: on }),
   selectedAgentId: null,
-  setSelectedAgentId: (id) => set({ selectedAgentId: id }),
+  setSelectedAgentId: (id) =>
+    set((s) => {
+      if (id) {
+        return {
+          selectedAgentId: id,
+          followAgentId: id,
+          cameraFocus: null,
+          cameraZoom: 40,
+          zoomBeforeSelect: s.selectedAgentId ? s.zoomBeforeSelect : s.liveZoom,
+        };
+      }
+      return { selectedAgentId: null, followAgentId: null, cameraZoom: s.zoomBeforeSelect, zoomBeforeSelect: null };
+    }),
+  outputTaskId: null,
+  setOutputTaskId: (id) => set({ outputTaskId: id }),
+  cameraFocus: null,
+  setCameraFocus: (p) => set({ cameraFocus: p, followAgentId: p ? null : undefined } as Partial<UiState>),
+  liveZoom: 16,
+  setLiveZoom: (z) => set({ liveZoom: z }),
+  zoomBeforeSelect: null,
   followAgentId: null,
   setFollowAgentId: (id) => set({ followAgentId: id }),
   cameraZoom: null,

@@ -14,20 +14,60 @@ marked done.
 | 3 — Mock event source | **done** |
 | 4 — Avatars and pathfinding | **done** |
 | 5 — State machine and live events | **done** |
-| 6 — HUD and inspector | not started |
+| 6 — HUD and inspector | **done** |
 
 ## Next action
 
-Phase 6: HUD and inspector. Files already written but not yet imported:
-`src/core/text/markdown.ts` (+test), `src/hud/api.ts`,
-`src/hud/inspector/{TokenGraph,Console,OutputPreview}.tsx`,
-`src/hud/OutputModal.tsx`. To do: the single drei `<Html>` inspector anchored
-to the selected avatar (`src/scene/inspector/`), QueryClientProvider in
-`OfficeApp`, selection ring, click-to-focus on avatars and workstations
-(instanced picking), fleet summary in the top bar, Esc to close, then verify:
-click focuses + telemetry, logs stream, token graph updates, second click
-mid-transition retargets, exactly one `.bc-html-root` in the DOM.
+The build is complete and the final report has been delivered. For follow-up
+work: run `pnpm install && pnpm dev` in `bot-crossing/`, open
+http://localhost:3000, and check `PLACEHOLDERS.md` for what the client is
+expected to replace first (real sit_typing / carry clips, GLTF furniture).
+Out of scope (Part F), noted as TODO and not started: agent marketplace,
+scheduling, floorplan editor UI, multiplayer, mobile layout, avatar
+customisation UI, sound design, camera state persistence, more than one
+campus.
 
+## Phase 6 — what landed
+
+- The single drei/Html in the scene: `src/scene/inspector/InspectorHtml.tsx`
+  hosts `src/hud/inspector/InspectorPanel.tsx` above the selected avatar,
+  following it every frame and clamped inside the viewport. Panel: agent,
+  role, department accent, state chip (unknown states show the raw name),
+  task title, subtask, progress bar, tokens, task id, hex position and
+  heading, token-usage sparkline (`TokenGraph`), streaming console
+  (`Console`, tail-following), output preview (`OutputPreview`, TanStack
+  Query polling until a document exists), Follow-camera toggle, Esc closes.
+- `src/hud/OutputModal.tsx` — DOM modal rendering the output document from a
+  markdown block tree (`src/core/text/markdown.ts`, tested) as React nodes.
+- Selection: click an avatar (invisible capsule; skinned meshes and sprites
+  opt out of raycasting) or a desk (InstancedMesh instanceId → occupant, or
+  camera focus on an empty desk). One store action sets follow + zoom;
+  closing restores the previous zoom. Camera eases are exponential, so a
+  second click retargets immediately; a user gesture on the orbit controls
+  releases follow and zoom. Click on empty ground (not a drag) closes.
+- `SelectionRing`, `FleetSummary` in the top bar (counts by state, unknown
+  states counted separately), reduced-motion handling for camera eases,
+  visible focus rings, aria roles on progress bar, dialog, logs.
+- Server answers 204 for "no output yet" so the browser console stays quiet.
+
+## Phase 6 — verification (headless Chromium)
+
+- `pnpm test:run` — 13 files, 97 tests pass. Typecheck clean. `pnpm build`
+  succeeds (route `/` 32.5 kB, 120 kB first load).
+- A **real mouse click** on an avatar's projected screen position selected it
+  and started following; the orbit target eased from the campus centre to the
+  agent's position; the panel showed live telemetry (state, task, subtask,
+  progress, tokens, hex, heading); console lines grew while events arrived;
+  the token graph rendered its area and line paths.
+- Selecting a **second agent mid-transition** (during a zoom ease) switched
+  selection and follow immediately; the camera settled on the second agent
+  3 s later. Html roots stayed at exactly one.
+- **Exactly one drei/Html** in the DOM while an inspector is open
+  (`.bc-html-root` count 1), zero when closed — counted in the DOM, not
+  asserted.
+- The output modal opened for a delivered task (title, meta, rendered
+  markdown with a checked work log), closed on Esc; a second Esc closed the
+  inspector. Console errors: none.
 ## Phase 5 — what landed
 
 - `src/scene/avatars/avatarRuntime.ts` — pose (`stand | sit | walk`), activity

@@ -1,6 +1,7 @@
 'use client';
 import { formatHour } from '@/core/time/clock';
 import { useUiStore } from '@/stores/uiStore';
+import { FleetSummary } from './FleetSummary';
 
 const PRESET_LABEL: Record<string, string> = {
   MORNING: 'Morning',
@@ -25,6 +26,9 @@ export function TopBar() {
           {PRESET_LABEL[preset] ?? '—'}
           {timeMode === 'scrub' ? ' · scrubbed' : ` · ${timeZone}`}
         </span>
+      </div>
+      <div className="bc-panel pointer-events-auto px-3 py-2">
+        <FleetSummary />
       </div>
     </header>
   );

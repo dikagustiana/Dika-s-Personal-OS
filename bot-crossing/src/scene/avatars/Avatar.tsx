@@ -113,6 +113,8 @@ export function Avatar({ runtime, label, department, onFrame, badges, hologram, 
         o.castShadow = true;
         o.receiveShadow = false;
         o.frustumCulled = false;
+        // Picking uses an invisible capsule instead of per-triangle skinned raycasts.
+        o.raycast = () => undefined;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         const cloned = mats.map((m) => {
           const c = (m as THREE.MeshStandardMaterial).clone();
@@ -139,6 +141,7 @@ export function Avatar({ runtime, label, department, onFrame, badges, hologram, 
   const plate = useMemo(() => {
     const s = makeTextSprite(label, { background: 'rgba(16,20,28,0.78)', accent: DEPARTMENT_COLORS[department] ?? '#9aa6b8', height: 0.42, fontSize: 40 });
     s.position.set(0, RIG.labelHeight, 0);
+    s.raycast = () => undefined;
     return s;
   }, [label, department]);
 
@@ -254,6 +257,12 @@ export function Avatar({ runtime, label, department, onFrame, badges, hologram, 
       <primitive object={model} />
       <primitive object={document} />
       <primitive object={plate} />
+      {onClick ? (
+        <mesh position={[0, 1.1, 0]} visible={false}>
+          <capsuleGeometry args={[0.42, 1.3, 4, 8]} />
+          <meshBasicMaterial />
+        </mesh>
+      ) : null}
       {badgeSprites.map((s, i) => (
         <primitive key={i} object={s} />
       ))}

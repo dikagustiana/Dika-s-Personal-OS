@@ -2,10 +2,25 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { hexEquals } from '@/core/hex/hex';
 import { CAMPUS } from '@/core/layout/campus';
 import { furnitureWorldPose } from '@/core/layout/resolve';
 import type { FurniturePlacement, FurnitureType } from '@/core/layout/types';
+import { useAgentStore } from '@/stores/agentStore';
 import { useUiStore } from '@/stores/uiStore';
+
+/** Clicking a desk opens the agent sitting there, or focuses the camera on the desk if nobody is. */
+function onFurnitureClick(f: FurniturePlacement): void {
+  const agents = Object.values(useAgentStore.getState().agents);
+  const occupant = agents.find((a) => hexEquals(a.latest.currentLocationHex, f.hex));
+  const ui = useUiStore.getState();
+  if (occupant) ui.setSelectedAgentId(occupant.agentId);
+  else {
+    const pose = furnitureWorldPose(f);
+    ui.setCameraFocus({ x: pose.x, z: pose.z });
+    ui.setCameraZoom(40);
+  }
+}
 import { interiorMaterial, setGreyPlaceholders, setInteriorEmissive } from '../materials/interiorMaterial';
 import { FLOOR_Y, runtime } from '../runtime';
 import { furnitureGeometry } from './catalog';
@@ -38,6 +53,11 @@ function TypeInstances({ type, placements }: { type: FurnitureType; placements: 
       receiveShadow
       frustumCulled={false}
       userData={{ furnitureType: type }}
+      onClick={(e) => {
+        if (e.instanceId === undefined) return;
+        e.stopPropagation();
+        onFurnitureClick(placements[e.instanceId]);
+      }}
     />
   );
 }

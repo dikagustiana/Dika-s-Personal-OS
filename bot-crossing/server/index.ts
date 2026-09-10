@@ -30,7 +30,8 @@ async function main(): Promise<void> {
   });
   app.get<{ Params: { taskId: string } }>('/api/tasks/:taskId/output', async (req, reply) => {
     const doc = bus.getOutput(req.params.taskId);
-    if (!doc) return reply.code(404).send({ error: 'no output for this task yet' });
+    // No output yet is a normal state, not an error: 204 keeps the browser console quiet.
+    if (!doc) return reply.code(204).send();
     return doc;
   });
 
