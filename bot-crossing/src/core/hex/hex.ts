@@ -201,6 +201,22 @@ export function yawToward(fromX: number, fromZ: number, toX: number, toZ: number
   return Math.atan2(toX - fromX, toZ - fromZ);
 }
 
+/**
+ * The two corners shared by adjacent tiles `a` and `b`, in world XZ — the
+ * segment a wall on that edge occupies. Null if the tiles are not adjacent.
+ */
+export function sharedEdgeCorners(a: HexCoord, b: HexCoord): [WorldXZ, WorldXZ] | null {
+  if (hexDistance(a, b) !== 1) return null;
+  const ca = hexCornersWorld(a);
+  const cb = hexCornersWorld(b);
+  const shared: WorldXZ[] = [];
+  for (const p of ca) {
+    if (cb.some((q) => Math.abs(q.x - p.x) < 1e-6 && Math.abs(q.z - p.z) < 1e-6)) shared.push(p);
+  }
+  if (shared.length !== 2) return null;
+  return [shared[0], shared[1]];
+}
+
 /** Canonical key for the edge shared by two adjacent tiles; order-independent. */
 export function edgeKey(a: HexCoord, b: HexCoord): string {
   const ka = hexKey(a);

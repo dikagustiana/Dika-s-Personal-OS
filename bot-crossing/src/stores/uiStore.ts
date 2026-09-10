@@ -41,6 +41,9 @@ interface UiState {
   aoEnabled: boolean;
   setPostEnabled(on: boolean): void;
   setAoEnabled(on: boolean): void;
+  /** Render every code-authored placeholder in flat grey so stubs are unmistakable (B-6). */
+  greyPlaceholders: boolean;
+  setGreyPlaceholders(on: boolean): void;
 
   perf: PerfSample;
   setPerf(sample: PerfSample): void;
@@ -70,6 +73,8 @@ export const useUiStore = create<UiState>((set) => ({
   aoEnabled: true,
   setPostEnabled: (on) => set({ postEnabled: on }),
   setAoEnabled: (on) => set({ aoEnabled: on }),
+  greyPlaceholders: false,
+  setGreyPlaceholders: (on) => set({ greyPlaceholders: on }),
 
   perf: { fps: 0, frameMs: 0, drawCalls: 0, triangles: 0, agents: 0 },
   setPerf: (sample) => set({ perf: sample }),

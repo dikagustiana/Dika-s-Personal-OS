@@ -16,6 +16,7 @@ import {
   offsetRect,
   offsetToAxial,
   rotationStepsToYaw,
+  sharedEdgeCorners,
   worldToHex,
 } from './hex';
 
@@ -161,6 +162,22 @@ describe('rotation snapping and edges', () => {
     expect(Math.abs(((a + Math.PI) % (2 * Math.PI)) - Math.PI)).toBeCloseTo(Math.PI / 3, 9);
     expect(rotationStepsToYaw(7)).toBeCloseTo(rotationStepsToYaw(1), 12);
     expect(rotationStepsToYaw(-1)).toBeCloseTo(rotationStepsToYaw(5), 12);
+  });
+
+  it('sharedEdgeCorners returns the one edge two neighbours share, of length R', () => {
+    const a = { q: 2, r: 1 };
+    for (const b of hexNeighbors(a)) {
+      const seg = sharedEdgeCorners(a, b);
+      expect(seg).not.toBeNull();
+      const [p, q] = seg!;
+      expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeCloseTo(HEX_RADIUS, 9);
+      // The midpoint of the edge is the midpoint between the two tile centres.
+      const ca = hexToWorld(a);
+      const cb = hexToWorld(b);
+      expect((p.x + q.x) / 2).toBeCloseTo((ca.x + cb.x) / 2, 9);
+      expect((p.z + q.z) / 2).toBeCloseTo((ca.z + cb.z) / 2, 9);
+    }
+    expect(sharedEdgeCorners(a, { q: 4, r: 1 })).toBeNull();
   });
 
   it('edgeKey is order independent', () => {

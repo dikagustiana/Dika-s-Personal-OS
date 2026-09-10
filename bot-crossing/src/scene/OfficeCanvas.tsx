@@ -1,7 +1,10 @@
 'use client';
 import { Canvas } from '@react-three/fiber';
 import * as THREE from 'three';
+import { Architecture } from './architecture/Architecture';
 import { CameraRig } from './CameraRig';
+import { FurnitureLayer } from './furniture/FurnitureLayer';
+import { ZoneSigns } from './labels/ZoneSigns';
 import { Effects } from './Effects';
 import { PerfMeter } from './PerfMeter';
 import { SceneClock } from './SceneClock';
@@ -32,6 +35,9 @@ export function OfficeCanvas() {
       <DesertGround />
       <HexTerrain />
       <HexGridLines />
+      <FurnitureLayer />
+      <Architecture />
+      <ZoneSigns />
       <Effects />
       <PerfMeter />
     </Canvas>

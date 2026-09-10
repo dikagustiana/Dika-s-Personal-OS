@@ -68,6 +68,22 @@ One line of reasoning each, recorded as they were made (0-B).
   a dev toggle. Baked AO would need a texturing pass the placeholder
   geometry does not justify yet.
 
+## Furniture and architecture (Phase 2)
+
+- Furniture is code-authored primitives merged into one geometry per type
+  and drawn as one InstancedMesh per type: nine draw calls for all
+  furniture, and every piece is in the anchor frame so a GLTF swap is
+  geometry-only.
+- One shared interior material with per-vertex emissive colour and a
+  per-vertex "base" fraction: screens stay faintly on by day; lamps, strips
+  and spots are fully clock-driven. One uniform, one place to tune.
+- Pods are roofed with a faint translucent canopy so ceiling spots have
+  something to hang from and the pods read as glass; the canopy casts no
+  shadow, deliberately, so interiors stay sunlit.
+- Walls are derived from zone perimeters, doors are exception edges;
+  posts are deduplicated corners. Changing the floorplan needs no scene edit.
+- Desert dunes stay as low-poly spheres (placeholder, listed).
+
 ## HUD token set (C-7), defined before styling
 
 - Colours: `panel` rgb(16 20 28 / .78) slate glass; `ink` #E9EEF5; `ink-muted`

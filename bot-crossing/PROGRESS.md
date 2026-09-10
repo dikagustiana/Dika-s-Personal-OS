@@ -10,7 +10,7 @@ marked done.
 | Phase | Status |
 | --- | --- |
 | 1 — Floorplan and hex engine | **done** |
-| 2 — Furniture and spatial layout | not started |
+| 2 — Furniture and spatial layout | **done** |
 | 3 — Mock event source | not started |
 | 4 — Avatars and pathfinding | not started (A* itself already exists in core, tested) |
 | 5 — State machine and live events | not started |
@@ -18,11 +18,48 @@ marked done.
 
 ## Next action
 
-Phase 2: author placeholder furniture (grey boxes at spec dimensions) as
-per-type InstancedMesh from `CAMPUS.furniture`, glass walls from
-`CAMPUS.walls`, zone signage sprites, interior emissive materials driven by
-`runtime.lighting.interiorEmissiveIntensity`, then verify the three grid modes
-still render and lamps come on across DUSK → NIGHT.
+Phase 3: the mock event source. Zod schema for the A-2 contract in
+`src/core/events/schema.ts`; pure reducer (out-of-order / duplicate drop,
+unknown-state flag); Fastify server under `server/` with a WebSocket
+`/events` endpoint, snapshot-on-connect, REST for history/output; an
+`EventSource` interface with `MockEventSource` (scripted 20-agent looping
+scenario, all six states, a three-agent collaboration, an error, one
+deliberately malformed frame) and `LiveEventSource` (webhook + SSE adapters
+for LangGraph, CrewAI, AutoGen, custom); client `WebSocketEventSource` that
+validates at the boundary and feeds `agentStore`; a stream inspector in the
+dev panel.
+
+## Phase 2 — what landed
+
+- `src/scene/furniture/catalog.ts` — nine furniture types authored from
+  primitives at spec dimensions, in the anchor frame; merged into one geometry
+  per type; `FurnitureLayer.tsx` renders each type as one InstancedMesh.
+- `src/scene/materials/interiorMaterial.ts` — one MeshStandardMaterial patched
+  via onBeforeCompile: per-vertex diffuse, per-vertex emissive colour and a
+  per-vertex "base" (screens stay faintly on by day); a single uniform carries
+  `interiorEmissiveIntensity`. A grey-placeholder uniform is behind a dev
+  toggle so stubs can be made unmistakable.
+- `src/scene/architecture/Architecture.tsx` — glass panels on every wall edge
+  (doors are edges without a panel), corner posts, top rails, LED floor strips
+  inside each wall, translucent canopy per interior tile, ceiling spots on a
+  sparse tile pattern. Six InstancedMeshes total.
+- `src/scene/labels/textSprite.ts` + `ZoneSigns.tsx` — canvas-texture sprites
+  for the nine zone names (no drei/Html).
+- Zero light objects indoors; all interior light is emissive + bloom.
+
+## Phase 2 — verification
+
+- `pnpm test:run` — 46 tests pass (shared-edge helper added). Typecheck
+  clean, build succeeds.
+- Headless render at 13:00: all four desk bays, both meeting hex clusters,
+  lounge, executive office and output terminal are identifiable by label and
+  furniture. At 19:12 and 21:00: desk lamps, LED strips and ceiling spots are
+  on; at 13:00 they are off (screens faintly lit). All three grid modes
+  rendered (`always` draws outlines across interiors, `exterior-only` only on
+  sand and paving, `never` none).
+- Budget: **77 draw calls, 144k triangles** per frame with the composer on
+  (54 draws without). Software-GL fps ~0.9 (same SwiftShader caveat as
+  Phase 1; not a hardware number).
 
 ## Phase 1 — what landed
 

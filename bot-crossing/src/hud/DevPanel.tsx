@@ -90,6 +90,10 @@ export function DevPanel() {
           Ambient occlusion
         </label>
       </div>
+      <label className="bc-toggle mt-2">
+        <input type="checkbox" checked={s.greyPlaceholders} onChange={(e) => s.setGreyPlaceholders(e.target.checked)} />
+        Show placeholders in grey
+      </label>
 
       <dl className="mt-3 grid grid-cols-4 gap-2 border-t border-white/10 pt-3 font-mono text-xs">
         <div>
