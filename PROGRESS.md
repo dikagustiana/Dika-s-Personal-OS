@@ -27,7 +27,7 @@ a down file under `supabase/migrations/down/`:
 | `20260910000102_institution_function_grants.sql` | `institution_function_grants` | Per-role EXECUTE revokes on all 19 new functions, then the intended grants. Exists because the live check after 100 found the grant model open (see Verified). |
 
 Also: `supabase/tests/institution_guards.sql` (attempted violations under
-both identities, 60 grant-matrix checks, audit-inert floor of 100 checks) and
+both identities, 60 grant-matrix checks, audit-inert floor of 157 checks) and
 `scripts/institution-tests.sh` (throwaway cluster, full replay, two negative
 controls that must go red).
 
