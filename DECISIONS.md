@@ -108,3 +108,49 @@ the B-2 proposal guard becomes testable live once the row exists (it is
 tested in the harness now). Rejected: seeding a placeholder committee prompt
 — a placeholder prompt in the fixed point of the system is worse than an
 empty desk.
+
+**D-12 — The institution's stepper runs in the client, not in a new Edge
+Function.** The Lab already works this way: `run-lab-agent` executes ONE
+agent call per request and the browser drives the chain, because every
+billable call in this codebase is user-initiated and explicitly confirmed
+and there is no cron anywhere in the subsystem. The institution follows it:
+the department machinery, the routing, the weight classes and the committee
+loop are pure TypeScript under `supabase/functions/_shared/institution/`
+(so the tool layer can import the same rules) and are driven from
+`src/logic/institution/` + `src/data/institutionRepository.ts`. One Edge
+Function is added — `institution-tools` — because it is the only part that
+must hold secrets and reach the network. Consequences, accepted: a run stops
+when the director closes the tab, and resumes from the brief's state on
+reopening, because every step is a row before it is a fact. Rejected: a
+long-running server stepper, which would need a scheduler the director
+explicitly does not have and would spend money with nobody watching.
+
+**D-13 — The search backend is a secret with a keyless default.** The
+institution has no search contract. `INSTITUTION_SEARCH_URL` is a URL
+template the director sets; the default is DuckDuckGo's keyless HTML
+endpoint. When it answers 403 or 429 the tool archives the attempt with its
+status and says the source did not answer — it never returns an empty result
+set that reads like "nothing exists". Recorded in PLACEHOLDERS as P-11: a
+real search API key is a configuration the director adds, not code to write.
+
+**D-14 — The sandbox is a small language, not a JavaScript sandbox.** B-7
+requires execution with no network. Every way of running JavaScript in this
+runtime keeps a path to the host: `eval` and `new Function` see the
+enclosing scope and `globalThis` (which is why `_shared/modelEval.ts` rule
+A5 forbids them), a Worker still carries `fetch`, and a vendored WASM
+interpreter would be a binary blob nobody here can audit. So
+`_shared/institution/sandbox/` implements a tokeniser, a parser and an
+evaluator for a small analysis language whose only callables are its own
+standard library. "No network" is then a property of the grammar rather than
+a permission, and the test suite proves it by calling `fetch`, `eval`,
+`Deno.env.get` and five other escapes inside a script and asserting each is
+told the function does not exist. The cost is that scripts are not
+JavaScript; the gain is that there is nothing to escape to.
+
+**D-15 — The deployed Edge Function is a generated single-file bundle.** The
+tool layer is 17 modules; the deploy path available here takes an inline
+file set. `scripts/bundle-institution-tools.sh` concatenates them in
+dependency order, stripping local imports, and the deployed artefact is
+verified byte-for-byte against the bundle after deployment. The repo files
+stay the source of truth: they are what vitest runs and what a reader
+reviews.

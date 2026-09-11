@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { IELTS_TOPICS } from '../logic/ielts/topics';
 import { createSupabaseLabEvidenceRepository } from './labEvidenceRepository';
 import type { LabEvidenceRepository } from './labEvidenceRepository';
+import { createSupabaseInstitutionRepository, type InstitutionRepository } from './institutionRepository';
 import { createSupabaseLabRepository } from './labRepository';
 import type { LabRepository } from './labRepository';
 import { createSupabaseResearchRepository } from './researchRepository';
@@ -784,10 +785,14 @@ class SupabaseRepository implements Repository {
   /** The epistemic layer — see labEvidenceRepository.ts. */
   readonly labEvidence: LabEvidenceRepository;
 
+  /** The institution — see institutionRepository.ts. */
+  readonly institution: InstitutionRepository;
+
   constructor(private readonly client: SupabaseClient) {
     this.research = createSupabaseResearchRepository(client);
     this.lab = createSupabaseLabRepository(client);
     this.labEvidence = createSupabaseLabEvidenceRepository(client);
+    this.institution = createSupabaseInstitutionRepository(client);
   }
 
   async listEntries(filter?: {

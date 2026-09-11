@@ -263,6 +263,54 @@ begin
   perform pg_temp.expect_fail('events append-only (update)', 'update public.os_inst_events set kind = ''x'' where kind = ''director.decided''', 'append-only');
   perform pg_temp.expect_fail('events append-only (delete)', 'delete from public.os_inst_events where kind = ''director.decided''', 'append-only');
 
+  -- ==== the director's write surface (104) ==================================
+  -- 104 opened INSERT/UPDATE to the app-key holder on the pipeline's own
+  -- bookkeeping, because the stepper is the director's client (D-12). Four
+  -- tables stay closed: the corpus (or a draft becomes an output without
+  -- passing the synthesize gate), the egress log (or a blocked call can be
+  -- written out of history), the evaluation set and the rubrics (B-9).
+  for v_role in select unnest(array['anon', 'authenticated']) loop
+    for v_fn in select unnest(array['os_inst_corpus', 'os_inst_egress_blocks', 'os_inst_evaluations']) loop
+      update inst_counter set n = n + 1;
+      if has_table_privilege(v_role, 'public.' || v_fn, 'insert')
+         or has_table_privilege(v_role, 'public.' || v_fn, 'update')
+         or has_table_privilege(v_role, 'public.' || v_fn, 'delete') then
+        insert into inst_failures values ('write surface ' || v_fn || ' -> ' || v_role,
+          'a client role can write a table only the service role may write');
+      end if;
+    end loop;
+    -- ...and the pipeline tables the stepper does need.
+    for v_fn in select unnest(array['os_inst_briefs', 'os_inst_assignments', 'os_inst_reviews',
+                                    'os_inst_submissions', 'os_inst_debates', 'os_inst_agent_versions',
+                                    'os_inst_evaluation_runs', 'os_inst_events']) loop
+      update inst_counter set n = n + 1;
+      if not has_table_privilege(v_role, 'public.' || v_fn, 'insert') then
+        insert into inst_failures values ('write surface ' || v_fn || ' -> ' || v_role,
+          'the stepper cannot insert; the client-side pipeline cannot run');
+      end if;
+    end loop;
+    -- A review or an event that can be edited afterwards is not a record.
+    for v_fn in select unnest(array['os_inst_reviews', 'os_inst_events', 'os_inst_agent_versions']) loop
+      update inst_counter set n = n + 1;
+      if has_table_privilege(v_role, 'public.' || v_fn, 'update')
+         or has_table_privilege(v_role, 'public.' || v_fn, 'delete') then
+        insert into inst_failures values ('write surface ' || v_fn || ' -> ' || v_role,
+          'a client role can rewrite a record that must be append-only');
+      end if;
+    end loop;
+  end loop;
+
+  -- The policies exist and are key-gated, not merely the grants.
+  update inst_counter set n = n + 1;
+  if exists (
+    select 1 from pg_policies
+    where schemaname = 'public' and tablename like 'os_inst_%'
+      and cmd in ('INSERT', 'UPDATE', 'ALL')
+      and coalesce(qual, '') || ' ' || coalesce(with_check, '') not like '%os_key_valid%'
+  ) then
+    insert into inst_failures values ('write policy', 'an institution write policy does not test os_key_valid()');
+  end if;
+
   -- ==== grant model (102) ===================================================
   -- Supabase's default privileges (mirrored by scripts/lib/pg-cluster.sh)
   -- grant EXECUTE on every new public function to anon, authenticated and
@@ -311,7 +359,7 @@ begin
 
   -- ==== audit inert floor ===================================================
   select n into v_n from inst_counter;
-  if v_n < 100 then insert into inst_failures values ('audit inert', 'only ' || v_n || ' checks ran; the suite is not exercising the guards'); end if;
+  if v_n < 145 then insert into inst_failures values ('audit inert', 'only ' || v_n || ' checks ran; the suite is not exercising the guards'); end if;
 end $$;
 
 select check_name, detail from inst_failures order by check_name;

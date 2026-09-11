@@ -72,6 +72,16 @@ const relEquals = (a: number, b: number): boolean =>
  * magnitude immediately preceded by '-' or '(' (accounting negatives).
  * NO scale-word arithmetic, by design — see the header.
  */
+/**
+ * Every numeric literal in `haystack`, as written. Exported for the
+ * institution's egress check (_shared/institution/egress.ts), which needs the
+ * SAME tokenisation as the echo check so a figure the extractor would accept
+ * as "present in the text" is also a figure the egress gate sees leaving.
+ */
+export function numericTokens(haystack: string): string[] {
+  return haystack.match(HAYSTACK_TOKEN) ?? [];
+}
+
 export function numberAppearsIn(value: number, haystack: string): boolean {
   if (!Number.isFinite(value)) return false;
   const magnitude = Math.abs(value);

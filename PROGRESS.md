@@ -118,8 +118,170 @@ office and leads, public by B-3), the committee's agent row and prompt
 
 ---
 
-## Phase 2 — shared tool layer — NOT STARTED
-## Phase 3 — department contract machinery — NOT STARTED
+## Phase 2 — shared tool layer — DONE
+
+### What landed
+
+`supabase/functions/institution-tools/` — one function, eight tools, for
+every specialist, every lead, the program office and the committee.
+`web_search`, `web_fetch`, `public_data`, `methodology_research`, `execute`,
+`synthesize`, `corpus_get`, `corpus_search`.
+
+The rules it carries live in pure modules under
+`supabase/functions/_shared/institution/`, so the function and the client
+import the same copy and vitest runs them directly:
+
+| Module | Carries |
+| --- | --- |
+| `egress.ts` | B-4. Numeric literals and 5-word shingles of the run's internal content, matched against every outbound string; a hit blocks the call and logs it. |
+| `robots.ts` | robots.txt, parsed properly: longest match, `Allow` over `Disallow`, `*` and `$`, our own token before the wildcard, crawl-delay honoured. |
+| `rateLimit.ts` | Per-host pacing, where the memory is the archive itself (B-6 records every fetch, so the log of what we asked a host is complete). |
+| `extract.ts` | Page → the text the agent actually reads, which is what gets archived. |
+| `searchParse.ts` | Search results from a JSON or an HTML endpoint, reporting which shape it parsed. |
+| `provenance.ts` | B-8 and the synthesize gate: citations resolve, every factual claim carries one or is a numbered assumption, G-NUMBER with the agent's own tags switched off. |
+| `policy.ts` | Which calls are scanned, and the refusal that stops a public agent ever holding internal content. |
+| `sandbox/` | B-7. A tokeniser, parser and evaluator for a small analysis language whose only callables are its own 41-function library. |
+
+Migration `20260910000103_institution_eval_cagr_fix.sql`
+(`institution_eval_cagr_fix`, applied) corrects a wrong answer the sandbox
+found in the held-fixed evaluation set, and
+`20260910000104_institution_director_writes.sql`
+(`institution_director_writes`, applied) opens the pipeline's own tables to
+the director's client and closes the write grants Supabase's defaults had
+left wide open.
+
+### Verified
+
+**The deployed artefact is the reviewed source.** The function was deployed
+from a generated single-file bundle (`scripts/bundle-institution-tools.sh`),
+then read back and compared byte-for-byte:
+
+```
+dc8d3bdc16c161b2fb92acd41d70be4c74d390e99d12a7897732da71bd5c1c6e  institution-tools.bundle.ts
+dc8d3bdc16c161b2fb92acd41d70be4c74d390e99d12a7897732da71bd5c1c6e  deployed.ts   (read back)
+```
+
+Live capability probe, `GET /functions/v1/institution-tools`, HTTP 200:
+
+```json
+{"configured":true,"toolLayer":"1.0.0","tools":["web_search","web_fetch","public_data","methodology_research","execute","synthesize","corpus_get","corpus_search"],"search":{"configured":true,"keyed":false,"endpoint":"https://html.duckduckgo.com/html/?…"},"sandbox":{"version":"institution-stdlib@1.0.0","network":false,"functions":["abs","breakeven","cagr",…,"variance"]}}
+```
+
+**The sandbox has no network, proved by attempting it.**
+`src/logic/institution/sandbox.test.ts` runs ten escapes against the same
+code that is deployed — `fetch`, `globalThis`, `Deno.env.get`, `require`,
+`eval`, `Function`, dynamic `import`, `process.env`, `XMLHttpRequest`,
+`WebSocket` — and every one is refused with "there is no function … in the
+sandbox". The error names what IS available, so the refusal is usable.
+
+**Everything else the phase asks for, by attempt, under vitest** (159 cases
+at this point, 233 by the end of Phase 3):
+
+| Attempt | Result |
+| --- | --- |
+| an internal figure in a search query | blocked, logged as a `number` match |
+| the same figure percent-encoded in a URL | blocked |
+| a lifted internal sentence with no figure in it | blocked as a `phrase` match |
+| an ordinary public query | passes |
+| a year or a small count that also appears internally | passes (blocking them would block language) |
+| a draft with an unattributed factual claim | refused |
+| a citation that resolves to nothing | refused |
+| a figure no cited record contains | refused, G-NUMBER |
+| the same figure with a self-minted `[C]` tag | still refused (B-7) |
+| the same figure inside quotation marks | still refused |
+| a retrieval record with no URL, status or timestamp | refused (B-6) |
+| an execution record missing script, inputs, library version, runtime or seed | refused (B-7) |
+| a dataset naming no sources | refused |
+| a script asking for 1,000,000 range elements | refused |
+| a script exceeding its step or time budget | refused |
+
+**The deployed code refusing things, in production.** Every tool call is
+behind the director's `x-app-key`, which this run must never hold, so the
+end-to-end paths (a real search archived to the corpus, a real egress block
+row) were not exercised against production. The gap is closed as far as it
+can be: the open capability probe answers `?selftest=1` by ATTEMPTING the
+violations against the running code with synthetic data — no row read, no
+row written, no request made, no secret touched. `GET …?selftest=1`
+returned HTTP 200 with `"ok": true, "passed": 13, "failed": 0` (the handler
+answers 500 if any case fails, so the status is itself the assertion):
+
+| case | result in production |
+| --- | --- |
+| sandbox refuses `fetch` | refused: "there is no function fetch in the sandbox. The sandbox has no network, no filesystem and no host access; available functions: abs, breakeven, cagr, …" |
+| sandbox refuses `Deno.env` | refused: "unknown name Deno" |
+| sandbox refuses `eval` | refused: "there is no function eval in the sandbox…" |
+| sandbox refuses `globalThis` | refused: "unknown name globalThis" |
+| sandbox computes | 4.22 |
+| egress blocks an internal figure | blocked: `[{"kind":"number","excerpt":"8.675.309.000"}]` |
+| egress blocks a percent-encoded figure | blocked: two matches |
+| egress passes a public query | not blocked: `[]` |
+| synthesis refuses an unattributed claim | refused: `["unattributed"]` |
+| synthesis refuses a figure no cited record contains | refused: `["number"]` |
+| synthesis refuses a self-minted `[C]` tag | refused: `["number"]` |
+| synthesis accepts a cited claim | accepted: `[]` |
+| robots disallows what it disallows | not allowed: `Disallow: /private/` |
+
+A tool call with no `x-app-key` is refused before any context assembly:
+HTTP 401, `{"error":"Unauthorized"}`.
+
+The deployed artefact was read back and compared again after this change:
+`b8baaed54af3a3ca32c30284b77306e191cb57eb407da1c42f5c1e9ce1176489`, both
+files 136,310 bytes, `diff` empty.
+
+### Not in this phase
+
+A search API key (P-11). The tool layer runs on DuckDuckGo's keyless HTML
+endpoint and reports a 403 or 429 as a failed retrieval with its status,
+archived, rather than as "no results".
+
+---
+
+## Phase 3 — department contract machinery — DONE
+
+### What landed
+
+1-A implemented once, in three pure modules, plus the stepper that performs
+what they decide:
+
+| File | Job |
+| --- | --- |
+| `_shared/institution/department.ts` | The contract: intake and refusal, delegation by capability respecting the lane, authoring a missing capability (always public), peer reviewer selection that is never the author, the B-5 bounds, the submission record. |
+| `_shared/institution/weight.ts` | B-10: the three class shapes, the cost estimate as arithmetic over measured per-call cost, Verification in every routing, the overrun check. |
+| `_shared/institution/pipeline.ts` | The decider: from the rows as they stand, what the institution does next. Every state is a value a test can construct. |
+| `_shared/institution/protocol.ts` | What the institution says to an agent and what it accepts back. Every parser fails closed. |
+| `src/logic/institution/runner.ts` | The stepper: one call, one step, state in the database rather than in a process. |
+| `src/data/institutionRepository.ts`, `institutionMock.ts`, `institutionTypes.ts`, `institutionTools.ts` | The seam, in memory and against Supabase, and the browser side of the tool layer. |
+
+### Verified
+
+`pnpm test:run` — 107 files, 1900 tests, all passing. 233 of them are the
+institution's. The ones this phase is judged on:
+
+| Attempt | Result |
+| --- | --- |
+| instantiate two departments from config alone | both run, with no department-specific code anywhere |
+| a specialist output reviewed by its author | impossible: the reviewer is chosen from siblings, and the database and the mock both refuse a self-review |
+| a lead returns work three times | it cannot: two reworks, then the program office arbitrates |
+| a lead reviewed the same work twice already | a third review escalates instead of a third rework |
+| an assignment that says nothing about what an answer would be | returned unanswerable-as-written, **before any model call is spent** |
+| a lead that answers in prose instead of the required form | the assignment is returned, not read as a yes |
+| an unreadable review | escalates, never accepted |
+| an unreadable arbitration | stops and tells the director, never waves work onward |
+| a committee rebuttal the committee did not weigh | recorded as unresolved, so it survives to the director |
+| an authored agent | public, attributed to the lead that asked for it |
+| an authored agent with a three-sentence prompt | refused |
+| a blocked egress attempt mid-run | recorded as an event; the run continues and still reaches the director |
+| the executor refusing (no API key) | recorded, the step stops, nothing is half-written |
+
+A brief-class question runs end to end against the fakes: intake, routing,
+Framing, peer review, lead review, submission, Verification, the director's
+room — with the estimate written before the run and the actual after.
+
+### Not in this phase
+
+A run against the live provider. Phase 4's verification asks for one, and
+it needs the director's passphrase.
+
 ## Phase 4 — departments and program office — NOT STARTED
 ## Phase 5 — committee, debate, proposals, evaluations — NOT STARTED
 ## Phase 6 — director's room — NOT STARTED

@@ -1,3 +1,4 @@
+import { MockInstitutionRepository } from './institutionMock';
 import { MockLabEvidenceRepository } from './labEvidenceRepository';
 import { MockLabRepository } from './labRepository';
 import { MockResearchRepository } from './researchRepository';
@@ -160,6 +161,9 @@ export class MockRepository implements Repository {
 
   /** The epistemic layer's mock runs the same shared gate logic as live. */
   readonly labEvidence = new MockLabEvidenceRepository();
+
+  /** The institution, in memory — see institutionMock.ts. */
+  readonly institution = new MockInstitutionRepository();
 
   private viewer: MockViewer = { kind: 'owner' };
 
