@@ -416,5 +416,12 @@ negative controls red. New cases in it:
 One real full-class research task against the live provider — same reason
 as Phase 4.
 
+### Root gate at the end of Phase 5
+
+`pnpm typecheck` clean; `pnpm test:run` **109 files / 1921 tests** passing
+(254 of them the institution's); `pnpm build` exit 0. The Phase 4–5 commit
+message says 1954, which was written before the run and is wrong; 1921 is
+the measured figure.
+
 ## Phase 6 — director's room — NOT STARTED
 ## Phase 7 — the floor at /lab/floor — NOT STARTED
