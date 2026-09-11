@@ -250,3 +250,32 @@ a wall of white bars over the building they describe. An empty seat is the
 one thing on the floor you cannot infer by looking, so it is exempt: an
 unlabelled empty desk is indistinguishable from furniture, and naming it
 is the entire reason it is drawn.
+
+**D-28 — `estimate()` counts calls against what `nextAction()` dispatches,
+and a test now walks the machine to prove it.** The first brief the
+institution was asked to price exposed two errors in B-10's arithmetic:
+program-office intake was priced at two model calls when the stepper makes
+one, and lead review was priced per DEPARTMENT when `pipeline.ts` branch f
+reviews per OUTPUT. At `full` over seven departments that understated a
+clean run by 23 calls — 66 priced against 79 dispatched, a 35% undercount
+— and B-10 would have surfaced it as an overrun *after* the money was
+spent, which is the one thing an estimate exists to prevent.
+
+The fix is arithmetic. The guard is not: `weight.test.ts` now steps
+`nextAction()` over a clean seven-department run, completing each action
+exactly as `runner.ts` does, and asserts the dispatched count per stage
+against the priced count per stage. Verified as a negative control — with
+the old arithmetic restored the test fails with "expected 79 to be 66".
+
+Two transitions the walk had to model correctly, and which are the reason
+the error survived review in the first place: a lead intake writes one
+`assigned` specialist row per chosen specialist rather than one row, and a
+peer review that ACCEPTS leaves the work at `peer_review` for the lead
+(`applyPeerReview`) rather than accepting it. Get the second wrong and the
+lead review disappears from the sequence entirely — 1-C's "a lead review
+before work leaves the department" silently skipped, with nothing failing.
+
+The three conditional stages — debate, proposals, evaluations — stay
+priced but are excluded from the assertion. The estimate deliberately
+prices the class's ceiling, and being over on a stage that may not run is
+the safe direction.

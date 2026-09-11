@@ -112,13 +112,25 @@ export function estimate(
   const departments = routing.slice(0, shape.maxDepartments);
   const breakdown: Array<{ stage: string; calls: number }> = [];
 
-  breakdown.push({ stage: 'program office intake and routing', calls: 2 });
+  // Every line below is one `await run(...)` in the stepper, counted against
+  // what nextAction() actually dispatches. weight.test.ts walks the state
+  // machine and fails if these drift — which they had: intake was priced at
+  // two calls when the stepper makes one, and lead review was priced per
+  // DEPARTMENT when the machine reviews per OUTPUT. At `full` that undercounted
+  // a seven-department run by 23 calls, and B-10 would have reported it as an
+  // overrun after the money was spent instead of before.
+  breakdown.push({ stage: 'program office intake and routing', calls: 1 });
   const perDepartment = departments.length;
   breakdown.push({ stage: 'lead intake', calls: perDepartment });
   const specialistCalls = perDepartment * shape.specialistsPerDepartment;
   breakdown.push({ stage: 'specialist work', calls: specialistCalls });
   if (shape.peerReviewPerOutput) breakdown.push({ stage: 'peer review', calls: specialistCalls });
-  if (shape.leadReview) breakdown.push({ stage: 'lead review and submission', calls: perDepartment * 2 });
+  if (shape.leadReview) {
+    // One lead review per output (pipeline.ts branch f), then one submission
+    // per department (branch g).
+    breakdown.push({ stage: 'lead review', calls: specialistCalls });
+    breakdown.push({ stage: 'submission onward', calls: perDepartment });
+  }
   if (shape.committeeReview) breakdown.push({ stage: 'committee review', calls: 1 });
   if (shape.debate) breakdown.push({ stage: 'debate (2 rounds, both sides)', calls: 4 });
   if (shape.proposals) breakdown.push({ stage: 'upgrade proposals', calls: 2 });
