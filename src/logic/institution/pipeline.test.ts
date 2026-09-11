@@ -224,13 +224,59 @@ describe('a department works in contract order', () => {
     expect(action).toMatchObject({ kind: 'lead_submit', departmentSlug: 'framing-office', toDepartmentSlug: 'verification', toCommittee: false });
   });
 
-  it('blocks on an empty lead desk rather than working around it', () => {
+  it('has the program office staff an empty lead desk rather than stopping (1-B)', () => {
     const unstaffed = DEPARTMENTS.map((d) => (d.slug === 'framing-office'
       ? { ...d, seats: [{ ...d.seats[0], agentId: null, dataClass: null }, ...d.seats.slice(1)] }
       : d));
     const action = nextAction(state({ assignments: [DONE_INTAKE], departments: unstaffed }));
+    expect(action).toMatchObject({
+      kind: 'agent_authoring',
+      departmentSlug: 'framing-office',
+      authorSlug: 'evidence-coordinator',
+      seatSlug: 'framing-lead',
+      seatRole: 'lead',
+    });
+  });
+
+  it('stops if staffing that desk already failed, rather than trying forever', () => {
+    const unstaffed = DEPARTMENTS.map((d) => (d.slug === 'framing-office'
+      ? { ...d, seats: [{ ...d.seats[0], agentId: null, dataClass: null }, ...d.seats.slice(1)] }
+      : d));
+    const action = nextAction(state({
+      departments: unstaffed,
+      assignments: [
+        DONE_INTAKE,
+        assignment({ id: 'a-auth', agentSlug: 'framing-lead', kind: 'agent_authoring', status: 'failed', departmentSlug: 'framing-office' }),
+      ],
+    }));
     expect(action.kind).toBe('blocked');
-    if (action.kind === 'blocked') expect(action.why).toContain('empty desk');
+    if (action.kind === 'blocked') expect(action.why).toContain('the director staffs this seat');
+  });
+
+  it('has a lead fill its own named empty desk before work starts', () => {
+    const withPhantom = DEPARTMENTS.map((d) => (d.slug === 'framing-office'
+      ? {
+          ...d,
+          seats: [...d.seats, {
+            agentSlug: 'discourse-analyst', role: 'specialist' as const, position: 3,
+            seatPurpose: 'Reads how the question is framed. Phantom until authored.',
+            agentId: null, dataClass: null, capabilities: [],
+          }],
+        }
+      : d));
+    const action = nextAction(state({
+      departments: withPhantom,
+      assignments: [
+        DONE_INTAKE,
+        assignment({ id: 'a1', agentSlug: 'framing-lead', kind: 'lead_intake', status: 'done', departmentSlug: 'framing-office' }),
+      ],
+    }));
+    expect(action).toMatchObject({
+      kind: 'agent_authoring',
+      authorSlug: 'framing-lead',
+      seatSlug: 'discourse-analyst',
+      seatRole: 'specialist',
+    });
   });
 
   it('blocks when no staffed specialist may work an internal brief', () => {

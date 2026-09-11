@@ -154,3 +154,44 @@ dependency order, stripping local imports, and the deployed artefact is
 verified byte-for-byte against the bundle after deployment. The repo files
 stay the source of truth: they are what vitest runs and what a reader
 reviews.
+
+**D-16 — The committee is an internal-lane agent.** It reviews whatever the
+departments submitted, and on an internal brief that is SAMB's own figures.
+A public-lane committee would either be handed internal content it may not
+process or be unable to review internal work at all. Seeded internal by
+migration (director-created), which makes it Anthropic-only through the
+existing boundary trigger. Its prompt stays human-owned (B-2) and its own
+upgrades travel the ordinary proposal path.
+
+**D-17 — The program office extension shipped as a proposal, not a write.**
+1-B asks for the coordinator to become the Program Office. Writing that
+prompt from a migration would have been the first violation of B-1 in the
+institution's own construction, so `20260910000105` writes a
+`status='proposed'` row carrying the full text, the diff and the reason.
+The director promotes it in the director's room. The per-call prompts the
+stepper sends already carry the instructions, so nothing is blocked
+meanwhile — what is withheld is the agent's standing character, which is
+exactly what the director should own.
+
+**D-18 — Two key-gated wrappers were added for B-9's scoring.** 102 granted
+`os_inst_eval_score()` and `os_inst_version_set_eval()` to `service_role`
+alone, correct for a server stepper and wrong once the stepper became the
+director's client. `os_inst_eval_score_owner()` and
+`os_inst_version_set_eval_owner()` check `os_key_valid()` and delegate;
+both are revoked from `service_role` so the wrapper is the director's path
+and the unwrapped function stays the server's. The rubric is still read by
+nothing outside the database.
+
+**D-19 — An empty lead desk is staffed by the program office, and a named
+empty specialist desk by that department's lead.** The alternative was an
+institution that cannot start: the first brief would reach an unstaffed
+Framing Office and stop. 1-B already gives the program office staffing, so
+the pipeline emits the authoring action rather than blocking, and a second
+failure at the same desk blocks and names the director. Filling a named
+desk keeps the seat's slug, so the floor's name plate and every prompt that
+refers to it still mean the same agent.
+
+**D-20 — A refused evaluation run is unscored, not zero.** Averaging a
+refusal in as 0 would read as the agent having failed the instrument when
+in fact the instrument never ran. `meanScore` averages only what was
+measured and returns null when nothing was.

@@ -128,9 +128,31 @@ begin
     format('select public.os_inst_version_reject((select id from public.os_inst_agent_versions where agent_id = %L and status = ''retired'' limit 1), ''x'')', v_framer), 'reason');
 
   -- ==== B-2: the committee's prompt =========================================
-  insert into public.os_lab_agents (slug, name, description, system_prompt, data_class, default_provider_id)
-    values ('editorial-committee', 'Editorial Committee (test stand-in)', 'test', 'You are the committee.', 'public', (select id from public.os_lab_providers where name = 'kimi'))
-    returning id into v_committee;
+  -- Seeded by 20260910000106 as an internal-lane agent. The suite used to
+  -- create a stand-in here; it now uses the real row, so what it tests is
+  -- the committee the institution actually has. (If the seed is ever
+  -- removed, the stand-in below keeps the B-2 cases running rather than
+  -- silently skipping them, which would read as healthy.)
+  select id into v_committee from public.os_lab_agents where slug = 'editorial-committee';
+  if v_committee is null then
+    insert into public.os_lab_agents (slug, name, description, system_prompt, data_class, default_provider_id)
+      values ('editorial-committee', 'Editorial Committee (test stand-in)', 'test', 'You are the committee.', 'public', (select id from public.os_lab_providers where name = 'kimi'))
+      returning id into v_committee;
+    insert into inst_failures values ('B-2 committee seeded', 'no editorial-committee row; 20260910000106 did not run');
+  end if;
+  update inst_counter set n = n + 1;
+  if not exists (select 1 from public.os_lab_agents where slug = 'editorial-committee' and data_class = 'internal') then
+    insert into inst_failures values ('B-2 committee lane',
+      'the committee is not internal; it cannot review an internal brief without handing SAMB figures to a public-lane agent');
+  end if;
+  update inst_counter set n = n + 1;
+  if not exists (
+    select 1 from public.os_inst_agent_versions v
+    where v.agent_id = v_committee and v.status = 'active' and v.proposed_by = 'director'
+  ) then
+    insert into inst_failures values ('B-2 committee launch version',
+      'the committee has no director-owned active version; its prompt history does not start anywhere');
+  end if;
   perform pg_temp.as_agent();
   perform pg_temp.expect_fail('B-2 lead proposes against the committee',
     format('insert into public.os_inst_agent_versions (agent_id, system_prompt, proposed_by, proposed_by_agent_id, rationale, diff) values (%L, ''changed'', ''evidence-framer'', %L, ''the committee is too strict with framers'', ''+changed'')', v_committee, v_framer), 'B-2');
@@ -357,9 +379,56 @@ begin
     end if;
   end loop;
 
+  -- ==== the director's scorer (106) ========================================
+  -- B-9 needs a caller the client-side stepper can reach; 102 had granted
+  -- the scorer to service_role alone, so before/after scoring had none.
+  update inst_counter set n = n + 1;
+  if not has_function_privilege('anon', 'public.os_inst_eval_score_owner(uuid)', 'execute')
+     or not has_function_privilege('authenticated', 'public.os_inst_eval_score_owner(uuid)', 'execute') then
+    insert into inst_failures values ('grant os_inst_eval_score_owner', 'the director cannot score an evaluation run');
+  end if;
+  update inst_counter set n = n + 1;
+  if has_function_privilege('service_role', 'public.os_inst_eval_score_owner(uuid)', 'execute') then
+    insert into inst_failures values ('grant os_inst_eval_score_owner -> service_role', 'the stepper can reach the key-gated wrapper');
+  end if;
+  perform pg_temp.as_agent();
+  select id into v_eval from public.os_inst_evaluations where slug = 'eval-method-cagr';
+  insert into public.os_inst_evaluation_runs (evaluation_id, agent_id, phase, answer)
+    values (v_eval, v_framer, 'baseline', 'CAGR is computed from start and end over a structural break.') returning id into v_evalrun;
+  perform pg_temp.expect_fail('B-9 an agent calls the director''s scorer',
+    format('select public.os_inst_eval_score_owner(%L)', v_evalrun), 'director');
+  perform pg_temp.as_owner();
+  perform pg_temp.expect_ok('B-9 the director scores a run', format('select public.os_inst_eval_score_owner(%L)', v_evalrun));
+  update inst_counter set n = n + 1;
+  if (select score from public.os_inst_evaluation_runs where id = v_evalrun) is null then
+    insert into inst_failures values ('B-9 scorer wrote nothing', 'the wrapper returned without writing a score');
+  end if;
+
+  -- ==== the director attaches a score to a proposal (107) ===================
+  perform pg_temp.as_agent();
+  perform pg_temp.expect_fail('B-9 an agent attaches an eval score to a proposal',
+    format('select public.os_inst_version_set_eval_owner(%L, ''before'', 0.9)', v_proposal), 'director');
+  update inst_counter set n = n + 1;
+  if has_function_privilege('service_role', 'public.os_inst_version_set_eval_owner(uuid, text, numeric)', 'execute') then
+    insert into inst_failures values ('grant os_inst_version_set_eval_owner -> service_role', 'the stepper can reach the key-gated wrapper');
+  end if;
+
+  -- ==== seating an authored agent (106) =====================================
+  update inst_counter set n = n + 1;
+  if not has_table_privilege('anon', 'public.os_inst_department_members', 'insert') then
+    insert into inst_failures values ('grant os_inst_department_members insert',
+      'a lead can author a specialist and cannot seat it — an agent with no desk');
+  end if;
+  update inst_counter set n = n + 1;
+  if has_table_privilege('anon', 'public.os_inst_department_members', 'update')
+     or has_table_privilege('anon', 'public.os_inst_department_members', 'delete') then
+    insert into inst_failures values ('grant os_inst_department_members write',
+      'a client role can move or remove a seat; that is a migration');
+  end if;
+
   -- ==== audit inert floor ===================================================
   select n into v_n from inst_counter;
-  if v_n < 145 then insert into inst_failures values ('audit inert', 'only ' || v_n || ' checks ran; the suite is not exercising the guards'); end if;
+  if v_n < 157 then insert into inst_failures values ('audit inert', 'only ' || v_n || ' checks ran; the suite is not exercising the guards'); end if;
 end $$;
 
 select check_name, detail from inst_failures order by check_name;

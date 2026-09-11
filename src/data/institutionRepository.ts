@@ -187,6 +187,14 @@ export interface InstitutionRepository {
   listEvaluations(): Promise<ReadResult<InstEvaluation>>;
   listEvaluationRuns(agentId?: string): Promise<ReadResult<InstEvaluationRun>>;
   recordEvaluationRun(input: EvaluationRunWrite): Promise<InstEvaluationRun>;
+  /**
+   * Scores one recorded answer against a rubric the caller never sees, and
+   * returns the number it wrote. Key-gated in the database
+   * (os_inst_eval_score_owner); an agent calling it is refused.
+   */
+  scoreEvaluationRun(runId: string): Promise<number | null>;
+  /** Attaches a before/after score to a proposal (B-9). Key-gated. */
+  setVersionEvalScore(versionId: string, phase: 'before' | 'after', score: number): Promise<void>;
 
   // --- the record
   listEgressBlocks(briefId?: string): Promise<ReadResult<InstEgressBlock>>;
@@ -195,6 +203,41 @@ export interface InstitutionRepository {
 
   /** The director's decision on a brief (1-E). Key-gated in the database. */
   decideBrief(id: string, decision: 'approved' | 'rejected' | 'published', reason: string | null): Promise<void>;
+
+  /**
+   * An agent authored inside the institution (B-3), and its seat.
+   *
+   * ALWAYS PUBLIC, and not as a default a caller may override: the field is
+   * hardcoded here, `authored_by_agent_id` is always set, and the
+   * os_lab_agents_lane_at_birth trigger refuses an internal agent carrying
+   * that column whoever holds the key. Promotion to the internal lane is
+   * the director's action.
+   */
+  authorAgent(input: AuthorAgentInput): Promise<AuthoredAgent>;
+}
+
+export interface AuthorAgentInput {
+  slug: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  authoredByAgentId: string;
+  authoringPurpose: string;
+  departmentId: string;
+  seatPurpose: string;
+  /** Non-null when filling an existing empty desk; null creates a seat. */
+  seatSlug: string | null;
+  seatRole: 'lead' | 'specialist';
+}
+
+export interface AuthoredAgent {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  systemPrompt: string;
+  dataClass: DataClass;
+  version: number;
 }
 
 // --- row mapping ------------------------------------------------------------
@@ -667,6 +710,21 @@ export function createSupabaseInstitutionRepository(client: SupabaseClient): Ins
       return toEvaluationRun(data as EvaluationRunRow);
     },
 
+    async scoreEvaluationRun(runId) {
+      const { data, error } = await client.rpc('os_inst_eval_score_owner', { p_run_id: runId });
+      if (error) fail('scoreEvaluationRun', error.message);
+      return typeof data === 'number' ? data : data === null ? null : Number(data);
+    },
+
+    async setVersionEvalScore(versionId, phase, score) {
+      const { error } = await client.rpc('os_inst_version_set_eval_owner', {
+        p_version_id: versionId,
+        p_phase: phase,
+        p_score: score,
+      });
+      if (error) fail('setVersionEvalScore', error.message);
+    },
+
     async listEgressBlocks(briefId) {
       let query = client.from('os_inst_egress_blocks').select('*').order('created_at', { ascending: false }).limit(200);
       if (briefId) query = query.eq('brief_id', briefId);
@@ -704,6 +762,55 @@ export function createSupabaseInstitutionRepository(client: SupabaseClient): Ins
         p_reason: reason,
       });
       if (error) fail('decideBrief', error.message);
+    },
+
+    async authorAgent(input) {
+      // The Anthropic provider is not chosen here: a public agent may run
+      // on any provider, and the boundary trigger decides what an internal
+      // one may use. Leaving default_provider_id null keeps that decision
+      // where it belongs.
+      const { data, error } = await client
+        .from('os_lab_agents')
+        .insert({
+          slug: input.slug,
+          name: input.name,
+          description: input.description,
+          system_prompt: input.systemPrompt,
+          data_class: 'public',
+          authored_by_agent_id: input.authoredByAgentId,
+          authoring_purpose: input.authoringPurpose,
+        })
+        .select('id, slug, name, description, system_prompt, data_class, version')
+        .single();
+      if (error) fail('authorAgent', error.message);
+      const row = data as {
+        id: string; slug: string; name: string; description: string;
+        system_prompt: string; data_class: DataClass; version: number;
+      };
+      if (!input.seatSlug) {
+        const { error: seatError } = await client.from('os_inst_department_members').insert({
+          department_id: input.departmentId,
+          agent_slug: input.slug,
+          role: input.seatRole,
+          seat_purpose: input.seatPurpose,
+          position: 90,
+        });
+        // The agent exists either way; an unseated agent is visible in the
+        // registry and nameable, which is better than losing the prompt
+        // that was just written. Surfaced, not swallowed silently.
+        if (seatError) {
+          throw new Error(`authorAgent: ${input.slug} was created but could not be seated: ${seatError.message}`);
+        }
+      }
+      return {
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        description: row.description,
+        systemPrompt: row.system_prompt,
+        dataClass: row.data_class,
+        version: row.version,
+      };
     },
   };
 }

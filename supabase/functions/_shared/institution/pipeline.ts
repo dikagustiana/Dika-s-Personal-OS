@@ -20,11 +20,13 @@
 
 import {
   applyPeerReview,
+  isPhantom,
   leadSeat,
   MAX_DEBATE_ROUNDS,
   MAX_REWORKS,
   nextStop,
   peerReviewerFor,
+  specialists,
   staffedSpecialists,
   type DepartmentConfig,
 } from './department.ts';
@@ -122,7 +124,22 @@ export type Action =
   | { kind: 'program_intake'; agentSlug: string; why: string }
   | { kind: 'lead_intake'; departmentSlug: string; agentSlug: string; why: string }
   | { kind: 'specialist_work'; departmentSlug: string; agentSlug: string; parentAssignmentId: string | null; why: string }
-  | { kind: 'agent_authoring'; departmentSlug: string; authorSlug: string; capability: string; why: string }
+  | {
+      kind: 'agent_authoring';
+      departmentSlug: string;
+      authorSlug: string;
+      capability: string;
+      /**
+       * The seat this fills when the desk already exists and is empty — a
+       * department lead the program office must staff, or one of the named
+       * phantom specialists. Null when the lead asked for a capability the
+       * department has no seat for at all, in which case a seat is created
+       * alongside the agent.
+       */
+      seatSlug: string | null;
+      seatRole: 'lead' | 'specialist';
+      why: string;
+    }
   | { kind: 'peer_review'; departmentSlug: string; reviewerSlug: string; subjectAssignmentId: string; round: number; why: string }
   | { kind: 'lead_review'; departmentSlug: string; agentSlug: string; subjectAssignmentId: string; why: string }
   | { kind: 'lead_submit'; departmentSlug: string; agentSlug: string; toDepartmentSlug: string | null; toCommittee: boolean; why: string }
@@ -237,12 +254,36 @@ function departmentAction(state: PipelineState, config: DepartmentConfig): Actio
   const submitted = state.submissions.find((submission) => submission.fromDepartmentSlug === config.slug && submission.accepted);
   if (submitted) return null;
 
-  // a. the lead takes the assignment in, or returns it
+  // a. an empty lead desk is staffed, not worked around. 1-B: the program
+  //    office "may author departments' missing leads, always public" — so
+  //    the institution starts itself the first time a brief needs a
+  //    department nobody has staffed, instead of stopping on a seat.
+  if (!lead) {
+    return { kind: 'blocked', why: `${config.name} has no lead seat at all; that is a migration, not something an agent may add` };
+  }
+  if (lead.agentId === null) {
+    const staffer = programOfficeLead(state);
+    if (!staffer) return { kind: 'blocked', why: `${config.name}'s lead seat is empty and there is no program office to staff it` };
+    const attempted = state.assignments.filter(
+      (assignment) => assignment.kind === 'agent_authoring' && assignment.agentSlug === lead.agentSlug,
+    );
+    if (attempted.some((assignment) => assignment.status === 'failed')) {
+      return { kind: 'blocked', why: `${config.name}'s lead (${lead.agentSlug}) could not be authored; the director staffs this seat` };
+    }
+    return {
+      kind: 'agent_authoring',
+      departmentSlug: config.slug,
+      authorSlug: staffer,
+      capability: `${config.name} lead: ${config.purpose} Accountable for: ${config.accountableFor}`,
+      seatSlug: lead.agentSlug,
+      seatRole: 'lead',
+      why: `${config.name}'s lead seat (${lead.agentSlug}) is an empty desk with a name plate; the program office staffs it`,
+    };
+  }
+
+  // b. the lead takes the assignment in, or returns it
   const leadIntake = mine.find((assignment) => assignment.kind === 'lead_intake');
   if (!leadIntake) {
-    if (!lead || lead.agentId === null) {
-      return { kind: 'blocked', why: `${config.name}'s lead seat is an empty desk; the program office authors the lead before work is routed here` };
-    }
     return { kind: 'lead_intake', departmentSlug: config.slug, agentSlug: lead.agentSlug, why: `${config.name} has not accepted or returned this assignment` };
   }
   if (leadIntake.status === 'refused') {
@@ -252,20 +293,43 @@ function departmentAction(state: PipelineState, config: DepartmentConfig): Actio
     return { kind: 'lead_intake', departmentSlug: config.slug, agentSlug: leadIntake.agentSlug, why: 'the lead has not finished intake' };
   }
 
-  // b. a capability the department lacks is authored before work starts
+  // c. a capability the department lacks is authored before work starts.
+  //    Two shapes: a named empty desk (a phantom specialist — the seat
+  //    exists because the institution decided it is needed, and a
+  //    department with an unstaffed named seat is incomplete), and a
+  //    capability the lead asked for that has no seat at all.
   const authoring = mine.filter((assignment) => assignment.kind === 'agent_authoring');
+  const failedAuthoring = new Set(
+    authoring.filter((assignment) => assignment.status === 'failed').map((assignment) => assignment.agentSlug),
+  );
+  const phantom = specialists(config).find(
+    (seat) => isPhantom(seat) && !failedAuthoring.has(seat.agentSlug),
+  );
+  if (phantom) {
+    return {
+      kind: 'agent_authoring',
+      departmentSlug: config.slug,
+      authorSlug: lead.agentSlug,
+      capability: `${phantom.agentSlug}: ${phantom.seatPurpose}`,
+      seatSlug: phantom.agentSlug,
+      seatRole: 'specialist',
+      why: `${config.name} has a named empty desk (${phantom.agentSlug}); its lead authors the specialist that sits there`,
+    };
+  }
   const pending = authoring.find((assignment) => assignment.status !== 'done' && assignment.status !== 'failed');
   if (pending) {
     return {
       kind: 'agent_authoring',
       departmentSlug: config.slug,
-      authorSlug: lead?.agentSlug ?? config.leadAgentSlug,
+      authorSlug: lead.agentSlug,
       capability: pending.agentSlug,
+      seatSlug: null,
+      seatRole: 'specialist',
       why: `${config.name} needs ${pending.agentSlug} and has no seat for it`,
     };
   }
 
-  // c. specialist work
+  // d. specialist work
   const work = mine.filter((assignment) => assignment.kind === 'specialist_work');
   if (work.length === 0) {
     const bench = staffedSpecialists(config)
@@ -303,7 +367,7 @@ function departmentAction(state: PipelineState, config: DepartmentConfig): Actio
     };
   }
 
-  // d. peer review — a sibling, never the author (1-A)
+  // e. peer review — a sibling, never the author (1-A)
   for (const output of work.filter((assignment) => assignment.status === 'peer_review' || assignment.status === 'accepted')) {
     if (output.status !== 'peer_review') continue;
     const peerReviews = state.reviews.filter((review) => review.kind === 'peer' && review.subjectAssignmentId === output.id);
@@ -335,7 +399,7 @@ function departmentAction(state: PipelineState, config: DepartmentConfig): Actio
     }
   }
 
-  // e. lead review of what peer review cleared.
+  // f. lead review of what peer review cleared.
   //
   // A lead review is DUE when the work has been reworked since the last one:
   // one review per round of work, counted rather than looked up. Looking it
@@ -374,7 +438,7 @@ function departmentAction(state: PipelineState, config: DepartmentConfig): Actio
     }
   }
 
-  // f. submission onward
+  // g. submission onward
   const accepted = work.filter((assignment) => assignment.status === 'accepted');
   if (accepted.length > 0 && accepted.length === work.filter((assignment) => assignment.status !== 'failed').length) {
     if (!lead) return { kind: 'blocked', why: `${config.name} has no lead to submit its work` };

@@ -42,7 +42,7 @@ export interface Harness {
   repo: MockInstitutionRepository;
   calls: ScriptedCall[];
   toolCalls: Array<{ tool: string; ref: ToolRef; args: unknown }>;
-  authored: Array<{ slug: string; dataClass: string; authoredByAgentId: string }>;
+  authored: Array<{ slug: string; dataClass: string; authoredByAgentId: string; seatRole: string }>;
   agents: RunnerAgent[];
 }
 
@@ -58,7 +58,7 @@ export function makeHarness(options: HarnessOptions): Harness {
   const repo = new MockInstitutionRepository();
   const calls: ScriptedCall[] = [];
   const toolCalls: Array<{ tool: string; ref: ToolRef; args: unknown }> = [];
-  const authored: Array<{ slug: string; dataClass: string; authoredByAgentId: string }> = [];
+  const authored: Array<{ slug: string; dataClass: string; authoredByAgentId: string; seatRole: string }> = [];
   const agents = AGENTS.map((agent) => ({ ...agent }));
   let corpusCounter = 0;
 
@@ -123,15 +123,19 @@ export function makeHarness(options: HarnessOptions): Harness {
         version: 1,
       };
       agents.push(agent);
-      authored.push({ slug: input.slug, dataClass: agent.dataClass, authoredByAgentId: input.authoredByAgentId });
-      repo.seats.push({
-        id: `seat-${input.slug}`,
-        departmentId: input.departmentId,
-        agentSlug: input.slug,
-        role: 'specialist',
-        seatPurpose: input.seatPurpose,
-        position: 9,
-      });
+      authored.push({ slug: input.slug, dataClass: agent.dataClass, authoredByAgentId: input.authoredByAgentId, seatRole: input.seatRole });
+      // Filling a named empty desk keeps the seat; a capability with no
+      // seat gets one, exactly as the Supabase port does.
+      if (!input.seatSlug) {
+        repo.seats.push({
+          id: `seat-${input.slug}`,
+          departmentId: input.departmentId,
+          agentSlug: input.slug,
+          role: input.seatRole,
+          seatPurpose: input.seatPurpose,
+          position: 9,
+        });
+      }
       return agent;
     },
     async callEstimate(): Promise<CallEstimate> {

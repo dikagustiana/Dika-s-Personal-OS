@@ -16,6 +16,8 @@ import { okRows, type ReadResult } from './readResult';
 import type {
   AssignmentPatch,
   AssignmentWrite,
+  AuthorAgentInput,
+  AuthoredAgent,
   BriefWrite,
   DebateWrite,
   EvaluationRunWrite,
@@ -77,6 +79,7 @@ export class MockInstitutionRepository implements InstitutionRepository {
   evaluationRuns: InstEvaluationRun[] = [];
   egressBlocks: InstEgressBlock[] = [];
   events: InstEvent[] = [];
+  authoredAgents: AuthoredAgent[] = [];
 
   async listDepartments(): Promise<ReadResult<InstDepartment>> {
     return okRows(this.departments.map((row) => ({ ...row })));
@@ -365,6 +368,29 @@ export class MockInstitutionRepository implements InstitutionRepository {
     return { ...run };
   }
 
+  /**
+   * The mock has no rubric, and inventing one would make the stepper's
+   * tests agree with a scorer that does not exist. It scores what it can
+   * check without one — whether an answer was recorded at all — and says
+   * so. Real scores come from the database.
+   */
+  async scoreEvaluationRun(runId: string): Promise<number | null> {
+    const index = this.evaluationRuns.findIndex((row) => row.id === runId);
+    if (index === -1) throw new Error(`scoreEvaluationRun: no run ${runId}`);
+    const score = this.evaluationRuns[index].answer.trim().length > 0 ? 1 : 0;
+    this.evaluationRuns[index] = { ...this.evaluationRuns[index], score };
+    return score;
+  }
+
+  async setVersionEvalScore(versionId: string, phase: 'before' | 'after', score: number): Promise<void> {
+    const index = this.versions.findIndex((row) => row.id === versionId);
+    if (index === -1) throw new Error(`setVersionEvalScore: no version ${versionId}`);
+    this.versions[index] = {
+      ...this.versions[index],
+      ...(phase === 'before' ? { evalScoreBefore: score } : { evalScoreAfter: score }),
+    };
+  }
+
   async listEgressBlocks(briefId?: string): Promise<ReadResult<InstEgressBlock>> {
     const rows = briefId ? this.egressBlocks.filter((row) => row.briefId === briefId) : this.egressBlocks;
     return okRows(rows.map((row) => ({ ...row })));
@@ -385,6 +411,31 @@ export class MockInstitutionRepository implements InstitutionRepository {
       payload: input.payload ?? {},
       createdAt: now(),
     });
+  }
+
+  /** Mirrors the Supabase port, including the rule it cannot bend (B-3). */
+  async authorAgent(input: AuthorAgentInput): Promise<AuthoredAgent> {
+    const agent: AuthoredAgent = {
+      id: `agent-${input.slug}`,
+      slug: input.slug,
+      name: input.name,
+      description: input.description,
+      systemPrompt: input.systemPrompt,
+      dataClass: 'public',
+      version: 1,
+    };
+    this.authoredAgents.push(agent);
+    if (!input.seatSlug) {
+      this.seats.push({
+        id: `seat-${input.slug}`,
+        departmentId: input.departmentId,
+        agentSlug: input.slug,
+        role: input.seatRole,
+        seatPurpose: input.seatPurpose,
+        position: 90,
+      });
+    }
+    return { ...agent };
   }
 
   async decideBrief(briefId: string, decision: 'approved' | 'rejected' | 'published', reason: string | null): Promise<void> {

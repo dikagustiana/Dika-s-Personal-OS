@@ -129,6 +129,9 @@ export interface RunnerPorts {
   authorAgent(input: {
     slug: string; name: string; description: string; systemPrompt: string;
     authoredByAgentId: string; authoringPurpose: string; departmentId: string; seatPurpose: string;
+    /** Non-null when an existing empty desk is being filled rather than a new seat created. */
+    seatSlug: string | null;
+    seatRole: 'lead' | 'specialist';
   }): Promise<RunnerAgent>;
   /** Measured per-call cost for the estimate; `measured: false` when there is no history. */
   callEstimate(): Promise<CallEstimate>;
@@ -487,43 +490,66 @@ export async function stepBrief(ports: RunnerPorts, briefId: string): Promise<St
     }
 
     // -- B-3 authoring ------------------------------------------------------
+    //
+    // Three shapes, one code path: the program office staffing a
+    // department's empty lead desk (1-B), a lead filling one of its own
+    // named empty desks (a phantom specialist), and a lead authoring a
+    // capability its department has no seat for at all. Every one of them
+    // produces a PUBLIC agent attributed to its author; the database
+    // refuses an internal one whoever holds the key (B-3).
     case 'agent_authoring': {
       const config = configBySlug.get(action.departmentSlug);
       if (!config) return finish(`no config for ${action.departmentSlug}`);
+      const seatSlug = action.seatSlug;
+      const trackerSlug = seatSlug ?? action.capability;
       const pending = state.assignments.find(
-        (row) => row.kind === 'agent_authoring' && row.agentSlug === action.capability && row.status !== 'done' && row.status !== 'failed',
-      );
+        (row) => row.kind === 'agent_authoring' && row.agentSlug === trackerSlug && row.status !== 'done' && row.status !== 'failed',
+      ) ?? await ports.repo.createAssignment({
+        briefId,
+        departmentId: config.id,
+        agentSlug: trackerSlug,
+        kind: 'agent_authoring',
+        status: 'assigned',
+        input: action.why,
+      });
       const prompt = renderAuthoring(config, action.capability, context);
-      const outcome = await run(action.authorSlug, prompt, pending?.id);
-      if (!outcome.ok) return finish(`the executor refused: ${outcome.refusal ?? 'no reason given'}`);
+      const outcome = await run(action.authorSlug, prompt, pending.id);
+      if (!outcome.ok) {
+        await ports.repo.updateAssignment(pending.id, { status: 'failed', refusalReason: outcome.refusal ?? 'the executor refused' });
+        return finish(`the executor refused: ${outcome.refusal ?? 'no reason given'}`);
+      }
       const parsed = parseAuthoring(outcome.output);
       if ('error' in parsed) {
-        if (pending) await ports.repo.updateAssignment(pending.id, { status: 'failed', output: outcome.output, refusalReason: parsed.error });
+        await ports.repo.updateAssignment(pending.id, { status: 'failed', output: outcome.output, refusalReason: parsed.error });
         return finish(parsed.error);
       }
       const author = agentBySlug.get(action.authorSlug);
       if (!author) return finish(`no agent row for ${action.authorSlug}`);
       const created = await ports.authorAgent({
-        slug: parsed.slug,
+        // A named empty desk keeps its name: the seat, the floor's name
+        // plate and every prompt that already refers to it must still mean
+        // the same agent once it is filled.
+        slug: seatSlug ?? parsed.slug,
         name: parsed.name,
         description: parsed.description,
         systemPrompt: parsed.systemPrompt,
         authoredByAgentId: author.id,
-        authoringPurpose: parsed.purpose,
+        authoringPurpose: parsed.purpose || action.capability,
         departmentId: config.id,
         seatPurpose: parsed.description || action.capability,
+        seatSlug,
+        seatRole: action.seatRole,
       });
-      if (pending) {
-        await ports.repo.updateAssignment(pending.id, {
-          status: 'done', output: outcome.output, runId: outcome.runId,
-          detail: { authoredSlug: created.slug, dataClass: created.dataClass }, finishedAt: ports.now().toISOString(),
-        });
-      }
+      await ports.repo.updateAssignment(pending.id, {
+        status: 'done', output: outcome.output, runId: outcome.runId,
+        detail: { authoredSlug: created.slug, dataClass: created.dataClass, filledSeat: seatSlug, role: action.seatRole },
+        finishedAt: ports.now().toISOString(),
+      });
       await ports.repo.recordEvent({
         briefId, kind: 'agent.authored', departmentSlug: config.slug, agentSlug: action.authorSlug,
-        payload: { slug: created.slug, dataClass: created.dataClass },
+        payload: { slug: created.slug, dataClass: created.dataClass, seat: seatSlug, role: action.seatRole },
       });
-      return finish(`${action.authorSlug} authored ${created.slug} (${created.dataClass} lane) for ${config.name}`);
+      return finish(`${action.authorSlug} authored ${created.slug} (${created.dataClass} lane) as ${config.name}'s ${action.seatRole}`);
     }
 
     // -- specialist work ----------------------------------------------------
@@ -897,12 +923,19 @@ export interface EvaluationOutcome {
   evaluationSlug: string;
   runId: string;
   answered: boolean;
+  /** Null when the run was refused — an unmeasured evaluation, not a zero. */
+  score: number | null;
 }
 
 /**
- * Run the held-fixed set against one agent and record the answers. The score
- * is NOT written here: os_inst_eval_score() writes it, from a rubric no
- * agent and no client ever sees.
+ * Run the held-fixed set against one agent, record each answer, and have
+ * the DATABASE score it.
+ *
+ * The score is never computed here and the rubric is never fetched: the
+ * answer is written, `scoreEvaluationRun` calls a key-gated function that
+ * reads the rubric inside the database and writes one number, and that
+ * number comes back. Nothing in the browser, and nothing any agent can
+ * reach, ever sees what the rubric asked for.
  */
 export async function runEvaluations(
   ports: RunnerPorts,
@@ -925,9 +958,66 @@ export async function runEvaluations(
       answer: outcome.ok ? outcome.output : '',
       runId: outcome.runId,
     });
-    outcomes.push({ evaluationSlug: evaluation.slug, runId: run.id, answered: outcome.ok });
+    let score: number | null = null;
+    if (outcome.ok) {
+      // A refused run is not a zero: it is an unmeasured evaluation, and
+      // averaging it in as 0 would read as the agent having failed.
+      score = await ports.repo.scoreEvaluationRun(run.id);
+    }
+    outcomes.push({ evaluationSlug: evaluation.slug, runId: run.id, answered: outcome.ok, score });
   }
   return outcomes;
+}
+
+/** The mean of the scores that were actually measured, or null if none were. */
+export function meanScore(outcomes: readonly EvaluationOutcome[]): number | null {
+  const scored = outcomes.map((outcome) => outcome.score).filter((score): score is number => score !== null);
+  if (scored.length === 0) return null;
+  return Math.round((scored.reduce((total, score) => total + score, 0) / scored.length) * 1000) / 1000;
+}
+
+export interface PromotionResult {
+  promoted: boolean;
+  before: number | null;
+  after: number | null;
+  note: string;
+}
+
+/**
+ * B-9's before-and-after, around the one action that changes a live prompt.
+ *
+ * The order is the whole point: the set runs against the agent AS IT IS,
+ * then the director's promotion swaps the prompt, then the same set runs
+ * again. A score taken after the swap and labelled "before" would make
+ * every upgrade look neutral.
+ *
+ * Only the director reaches this: promoteVersion is os_inst_version_promote(),
+ * which checks the app key inside the database, and so do both scoring
+ * functions. A failure to score does NOT roll the promotion back — the
+ * director approved a prompt, not a measurement — but it is reported.
+ */
+export async function promoteWithEvaluations(
+  ports: RunnerPorts,
+  versionId: string,
+  agent: RunnerAgent,
+  departmentSlug?: string,
+): Promise<PromotionResult> {
+  const before = meanScore(await runEvaluations(ports, agent, 'before', versionId, departmentSlug));
+  if (before !== null) await ports.repo.setVersionEvalScore(versionId, 'before', before);
+
+  await ports.repo.promoteVersion(versionId);
+
+  const after = meanScore(await runEvaluations(ports, agent, 'after', versionId, departmentSlug));
+  if (after !== null) await ports.repo.setVersionEvalScore(versionId, 'after', after);
+
+  const note = before === null || after === null
+    ? 'promoted; the evaluation set could not be scored on both sides, so there is no before-and-after to read'
+    : after > before
+      ? `promoted; the held-fixed set moved ${before.toFixed(3)} to ${after.toFixed(3)}`
+      : after < before
+        ? `promoted; the held-fixed set FELL ${before.toFixed(3)} to ${after.toFixed(3)} — this upgrade made the agent worse on the instrument`
+        : `promoted; the held-fixed set did not move (${before.toFixed(3)})`;
+  return { promoted: true, before, after, note };
 }
 
 export { briefBlock };

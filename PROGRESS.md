@@ -282,7 +282,139 @@ room — with the estimate written before the run and the actual after.
 A run against the live provider. Phase 4's verification asks for one, and
 it needs the director's passphrase.
 
-## Phase 4 — departments and program office — NOT STARTED
-## Phase 5 — committee, debate, proposals, evaluations — NOT STARTED
+## Phase 4 — all eight departments and the program office — DONE
+
+### What landed
+
+The org chart was already rows (Phase 1); this made the institution able to
+START from them.
+
+- **An empty lead desk is staffed, not worked around.** 1-B says the
+  program office may author a department's missing lead. The pipeline now
+  emits that action instead of blocking, so the first brief that needs an
+  unstaffed department staffs it. A second failure at the same desk blocks
+  and names the director.
+- **A lead fills its own named empty desks.** The four phantom specialists
+  (`consolidation-reporting`, `financial-modeling`, `verify-financial-model`,
+  `deck-narrative-drafter`) are seats the institution decided it needs; a
+  department with one unfilled is incomplete, so its lead authors the agent
+  before work starts. Filling a named desk KEEPS the slug: the seat, the
+  floor's name plate and every prompt that refers to it still mean the same
+  agent.
+- Both paths, and "a capability with no seat at all", run through one
+  `agent_authoring` action and one `authorAgent` port — always public,
+  always attributed (B-3).
+- `src/logic/institution/institutionPorts.ts` wires the stepper to the real
+  repository, the real tool layer and the real executor, with a per-call
+  cost figure **measured** from `os_lab_runs` and marked `measured: false`
+  when there is no history.
+- `src/logic/institution/roster.ts` computes the roster property the phase
+  asks for, so the director's room can show it.
+- Migration `20260910000105_institution_program_office_proposal.sql`
+  (`institution_program_office_proposal`, applied) extends
+  `evidence-coordinator` into the Program Office per 1-B — **as a
+  proposal**, because B-1 admits no exception for a migration either.
+
+### Verified
+
+Live roster, computed from the rows:
+
+| check | result |
+| --- | --- |
+| agents seated exactly once | 47 |
+| agents seated more than once | none |
+| active agents with no seat | none |
+| departments whose named lead is not in its lead seat | none |
+| named empty desks | 13 → 12 after Phase 5 seeds the committee |
+
+The program office proposal on production, read back:
+
+| field | value |
+| --- | --- |
+| status | `proposed` |
+| proposed_by | `system` |
+| live prompt unchanged | true (the proposal is the live prompt plus an appended section) |
+| live version | 1 |
+
+That is B-1 working on production: the extension exists, is reviewable, and
+changed nothing.
+
+### Not in this phase
+
+A run against the live provider. Every model call is behind the director's
+passphrase, which this run must never hold, so the brief-class and
+standard-class runs were exercised end to end against fakes rather than
+against Anthropic or Moonshot. What that leaves unproven is timing and
+model behaviour, not routing: the routing, the class shapes, the estimates
+and the refusals are the same code either way.
+
+---
+
+## Phase 5 — committee, debate, proposals, evaluations — DONE
+
+### What landed
+
+- **The committee exists**, seeded by
+  `20260910000106_institution_committee.sql` (`institution_committee`,
+  applied) with a **human-owned prompt** (B-2) and on the **internal lane**:
+  it reviews whatever the departments submitted, and on an internal brief
+  that is SAMB's own figures, so a public-lane committee could not do the
+  job without breaking the lane. Its launch version is recorded like
+  everyone else's.
+- **Bounded debate.** After a committee review with findings, every
+  reviewed party may contest; the committee weighs each rebuttal with a
+  reason; an unweighed rebuttal is recorded as unresolved rather than
+  disappearing; after two rounds the disagreement goes to the director with
+  both positions.
+- **Proposals, including self-proposals.** Recorded as
+  `os_inst_agent_versions` rows with `status='proposed'`, a rationale and a
+  diff. The database refuses a proposal against the committee from anyone
+  but the committee or the director (B-2).
+- **The held-fixed set runs before and after a promotion**
+  (`promoteWithEvaluations`), and the score is computed **inside the
+  database** from a rubric nothing outside it reads. Two migrations were
+  needed for that:
+  `20260910000106` adds `os_inst_eval_score_owner()` and
+  `20260910000107_institution_director_evals.sql` adds
+  `os_inst_version_set_eval_owner()` — both key-gated, both revoked from
+  `service_role`. Without them B-9's scoring had no caller at all once the
+  stepper became the director's client (D-12).
+
+### Verified
+
+`scripts/institution-tests.sh` — 103 migrations replayed, suite green, both
+negative controls red. New cases in it:
+
+| attempt | result |
+| --- | --- |
+| the committee is public | caught: the suite fails if its lane is not internal |
+| the committee has no launch version | caught |
+| an agent calls the director's scorer | refused, "the director" |
+| the director scores a run | permitted, and a score is written |
+| `service_role` reaching the key-gated wrapper | refused |
+| an agent attaches a before/after score to a proposal | refused |
+| a client role updating or deleting a seat | refused (INSERT only) |
+
+`src/logic/institution/committee.test.ts` — a full-class run end to end:
+
+| attempt | result |
+| --- | --- |
+| the committee reviews after every department submits | one review, per-claim findings |
+| its proposals change a live prompt | they do not: every version row is `proposed`, and the agent still returns its old prompt |
+| a reviewed party contests a finding | filed, weighed, reason recorded |
+| an accepted rebuttal | the committee proposes against ITSELF, attributed to itself |
+| a rebuttal the committee does not weigh | recorded as unresolved, survives to the director |
+| a standing disagreement | goes to the director rather than a third round |
+| a refused evaluation run | left unscored, never averaged in as a zero |
+| a score computed in the browser | it is not: the client writes the answer and asks the database for the number |
+| promoting the same version twice | refused |
+| rejecting a proposal | reason stored, agent unchanged |
+| a proposal with no rationale | refused (B-1) |
+
+### Not in this phase
+
+One real full-class research task against the live provider — same reason
+as Phase 4.
+
 ## Phase 6 — director's room — NOT STARTED
 ## Phase 7 — the floor at /lab/floor — NOT STARTED
