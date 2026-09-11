@@ -423,5 +423,158 @@ as Phase 4.
 message says 1954, which was written before the run and is wrong; 1921 is
 the measured figure.
 
-## Phase 6 — director's room — NOT STARTED
-## Phase 7 — the floor at /lab/floor — NOT STARTED
+## Phase 6 — the director's room — DONE
+
+`src/views/lab/institution/InstitutionDirector.tsx`, reached from the Lab
+rail as **Director's room** (Gavel). Six panels, all read-only except the
+two decisions only the director can make:
+
+| Panel | What it shows |
+| --- | --- |
+| Briefs | Every brief with its weight class, routing, status, and **estimate vs actual** in both tokens and USD — the estimate is written before the work and the actual after, so the gap is visible rather than reconstructed |
+| Provenance | One brief's whole tree: assignment → review → submission → corpus record, each with its round and its B-5 counter, so "why did this take four passes" is answered by reading down |
+| Reviews & debates | Every peer, lead and committee verdict, and every rebuttal with how the committee weighed it. An unresolved rebuttal is marked and survives to the director rather than being closed by silence |
+| Evaluations | The held-fixed set, per-agent, before and after each promotion. A refused run is shown as unscored (D-20), never as zero |
+| Proposals | Every `proposed` version with a **word-level diff** against the live prompt, its rationale, and Approve / Reject. Approving is the ONLY way a live `system_prompt` changes (B-1) |
+| Corpus | What the institution has archived, by kind, with hashes |
+
+`LabRegistry.tsx` no longer issues a direct prompt `UPDATE` (P-08 closed):
+editing a prompt there now opens a proposal with a required rationale and
+routes through `repository.institution.proposeVersion`, which is the same
+path the committee uses. The database refused the old write anyway; the UI
+now matches the boundary instead of discovering it.
+
+## Phase 7 — the floor at /lab/floor — DONE
+
+Bot Crossing is now a view in the Lab, not an app. **`bot-crossing/` is
+deleted** — 106 tracked files, including the Fastify server, the Next.js
+root, its own `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`,
+`tailwind.config.ts` and `vitest.config.ts`. The `bot-crossing/**` exclude
+is gone from `vite.config.ts` and the root vitest run now sweeps the
+floor's tests like any other.
+
+### Where it landed
+
+| Was | Is |
+| --- | --- |
+| `src/core/**` (pure: hex, A*, layout, movement, events, time, text) | `src/logic/floor/**` — unchanged logic, 79 tests still green |
+| `src/scene/**`, `src/components/**` (R3F + HUD) | `src/views/lab/floor/{scene,hud,store,transport}` |
+| A Fastify server on :4000 inventing events | Nothing. The floor reads the institution's rows through the repository |
+| A WebSocket bus | Supabase Realtime on 8 institution tables (`transport/institutionStream.ts`) |
+| `server/adapters/**` | `src/logic/floor/adapters/**`, kept, with department inference rewritten from four invented bays to the institution's real slugs |
+| `server/sources/MockEventSource.ts` | `src/logic/floor/scenario/roster.ts` → `mockSnapshot()`, behind `?mock=1` |
+| A hard-coded 20-agent office | `buildCampus(spec)` generates the floorplan from the departments and seat counts the database reports |
+
+### The rule this migration existed to keep
+
+The client may derive POSITION. It may never derive STATE.
+`src/logic/floor/institution/project.ts` turns rows into semantic events
+("this agent is working", "these two are in a review") and says nothing
+about where anyone is; the positioner adds where. `project.test.ts` proves
+it by removing the rows: with no assignments, no reviews and no egress
+blocks, every staffed agent is idle and every marker list is empty. A
+floor that invented an arrival or a collaboration would fail there.
+
+### Read the floor and the institution is legible
+
+Bays are laid out in **pipeline order** down two columns, so a brief's
+route across the building is its route through the pipeline. Every
+department has three rooms — a desk bay, its lead's office, and its own
+peer-review cluster — because a peer review inside the department and a
+lead review in the lead's office are different events, and one shared
+meeting room would have made them look like the same one. The library
+(the corpus), the committee chamber and the director's office are fixed
+rooms. A department the brief did not visit is dark.
+
+**Phantom desks.** A seat in `os_inst_department_members` with no agent row
+renders as an empty desk with its name plate and its purpose — 12 of the
+47 seats today. It is the only way an unfilled seat is visible without
+reading a warning banner, so a phantom plate is drawn at every zoom while
+an occupied quiet desk earns its plate by being zoomed in on (47 plates at
+once hid the building they described).
+
+**Redaction (3-C).** An `internal`-lane agent's task title, subtask and
+output document are masked by default. Masking happens in the data loop,
+before the event reaches the store, so no surface downstream can leak by
+forgetting to ask. The toggle is per session and never persisted.
+
+### The render budget (3-D)
+
+A skinned avatar is ~8.5k vertices, 65 joints, an animation mixer and a
+per-frame skinning pass. Only five states earn one — walking, working,
+collaborating, delivering, error. Everything else is a **quiet desk**:
+three boxes and a sprite, `castShadow` off, raycast disabled. Skinned
+meshes cast no shadow at all; each avatar gets a contact disc instead.
+`src/logic/floor/layout/budget.test.ts` is the CI guard on the shape of
+that: it fails if the campus stops growing linearly in departments, if
+desks stop matching seats, or if `idle` ever joins the expensive path.
+
+Measured on the production build, 43 mock agents (27 on the expensive
+path, 16 quiet), 1600×1000:
+
+| | |
+| --- | --- |
+| Draw calls | 321–337 |
+| Triangles | 753k |
+| Skinned runtimes | 27 (22 seated, 5 standing) |
+
+**The frame rate has NOT been measured on the owner's hardware and this
+report will not pretend otherwise.** The only machine available to this
+run was the build container — 4 vCPU Intel Xeon @ 2.10 GHz, 15 GB, no GPU,
+WebGL through SwiftShader software rasterisation — where it renders at
+**0.8–1.6 fps / ~950–1230 ms per frame**. That is a software-rasteriser
+floor, not a prediction: it says the scene composes and draws, and nothing
+about what it will do on a real GPU. To read the real figure, open
+`/lab/floor?dev=1` and look at the dev panel, or read `window.__floorPerf`.
+
+### Bundle report (B-11)
+
+`pnpm build`, measured, not asserted:
+
+| Chunk | Raw | gzip | Three.js present? |
+| --- | --- | --- | --- |
+| `index-*.js` (main) | 1,858.86 kB | 498.03 kB | **no** |
+| `OfficeApp-*.js` (HUD, lazy) | 110.51 kB | 32.01 kB | **no** |
+| `OfficeCanvas-*.js` (scene, lazy) | 1,211.97 kB | 371.81 kB | yes |
+
+Probed by grep over the emitted chunks: `WebGLRenderer`, `BufferGeometry`,
+`@react-three`, `react-three-fiber`, `postprocessing` and `GLTFLoader` all
+occur **0 times** in the main chunk and in the HUD chunk, and 1–6 times
+each in the canvas chunk.
+
+Cost of the route itself, measured by building twice — once with the
+`/lab/floor` route and nav entry removed, once with them:
+
+| | main chunk | gzip |
+| --- | --- | --- |
+| without the floor | 1,856.96 kB | 497.32 kB |
+| with the floor | 1,858.86 kB | 498.03 kB |
+| **the floor's cost to every other page** | **+1.90 kB** | **+0.71 kB** |
+
+The Phase 0 baseline was 1,808.69 kB / 485.16 kB; the remaining ~50 kB of
+growth is Phases 2–6 (the institution's types, repository and director's
+room), not the floor. The 2.3 MB GLB is a static file under `public/`, so
+it is not in any chunk and is fetched only when the canvas mounts.
+
+### Design tokens
+
+The standalone build shipped a second design system: a dark glass panel,
+`#e9eef5` ink, a `#37d2c6` teal accent and its own warn/error/ok trio.
+All of it is gone. The HUD now resolves `hsl(var(--token))` like every
+other surface (`.floor-panel`, `.floor-seg`, `.floor-range`,
+`.floor-toggle` in `src/index.css`, built only from host variables), and
+the 3D world's interface colours — name plates, badges, the selection
+ring, avatar tints — come from `src/logic/floor/theme/palette.ts`, a
+**mirror** of `index.css` that `palette.test.ts` re-derives from the HSL
+triplets and fails on drift. Sand, pavement, sky and furniture are
+deliberately NOT on the ramp: they are a desert, not an interface.
+
+### Root gate at the end of Phase 7
+
+`pnpm typecheck` exit 0. `pnpm test:run` **127 files / 2084 tests** passing — measured after the
+change, not before it.
+`pnpm build` exit 0. No SQL changed in this phase, so no `scripts/*-tests.sh`
+run was required.
+
+Screenshot: `docs/v9/lab-floor-institution-mockdata.png` (the synthetic
+institution under `?mock=1`, scrubbed to midday).

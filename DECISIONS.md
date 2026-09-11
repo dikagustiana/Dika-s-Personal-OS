@@ -195,3 +195,58 @@ refers to it still mean the same agent.
 refusal in as 0 would read as the agent having failed the instrument when
 in fact the instrument never ran. `meanScore` averages only what was
 measured and returns null when nothing was.
+
+**D-21 — The floor reads through the repository; no second data layer.**
+The standalone build used `@tanstack/react-query` for one modal and a
+WebSocket for everything else. The host app has neither and does not need
+them: `useInstitutionFloor` calls the repository, and a Supabase Realtime
+change re-runs the whole read rather than applying the payload. Applying
+payloads incrementally would mean a second copy of the pipeline's rules in
+the browser, and the second copy is always the one that drifts. The reads
+are a handful of small queries and they cannot disagree with the database.
+
+**D-22 — The floor is the only lazy route in the app.** Every other view
+is small enough that a second request costs more than it saves. This one
+pulls three.js, drei and the postprocessing stack — 1.21 MB, two thirds of
+the main chunk again — so it is split, and the split is measured in
+PROGRESS.md rather than asserted in a comment. Cost to every other page:
+1.90 kB raw, 0.71 kB gzip.
+
+**D-23 — `bot-crossing/` was deleted, not archived.** B-11 said to delete
+it and the migration is complete: every pure module moved intact, the four
+adapters moved, the Fastify server has no successor because the
+institution's own rows replaced it, and the GLB moved to `public/models/`.
+Keeping a second pnpm root with its own lockfile "just in case" is how a
+repository ends up with two versions of the same file and no way to tell
+which one ships. It is one `git revert` away if that judgement is wrong.
+
+**D-24 — The mock is a synthetic institution, and it says so on screen.**
+`?mock=1` builds a `FloorSnapshot` with one agent in every state the floor
+can draw and three seats deliberately empty, so the building can be worked
+on when the pipeline is idle. Every id is prefixed `mock-` and the HUD
+carries a banner in the escalation colour. A mock indistinguishable from a
+run destroys the only thing the floor is for: that every figure on it
+traces to a row.
+
+**D-25 — A foreign framework's agent lands in the program office, never in
+a guessed department.** The four adapters' `inferDepartment` used to pick
+"Engineering Bay" for anything it could not match. The institution's
+version returns `program-office` instead, and its keyword list
+deliberately omits "review", "lead", "manager" and "analyst" — words that
+match everywhere and therefore place nobody. A confident wrong desk makes
+the floor lie about who works where; an honest unrouted one does not.
+
+**D-26 — Avatar tint is a grouping hint and is documented as one.** The
+host ramp has four chart colours and the institution has ten rooms, so
+tints repeat, and two of the four sit 1.06:1 apart in luminance. Which
+department someone is in is read from the name plate and the bay they are
+standing in — the floor already shows it twice. Minting six more colours
+to make the tint authoritative would have put a second palette in a repo
+whose Tailwind config deletes the default palette precisely to stop that.
+
+**D-27 — A quiet occupied desk hides its plate until you zoom in; a
+phantom desk never does.** Forty-seven name plates at the default zoom is
+a wall of white bars over the building they describe. An empty seat is the
+one thing on the floor you cannot infer by looking, so it is exempt: an
+unlabelled empty desk is indistinguishable from furniture, and naming it
+is the entire reason it is drawn.

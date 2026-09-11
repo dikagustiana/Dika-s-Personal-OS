@@ -152,19 +152,196 @@ in the director's room (Phase 6); an agent cannot, and the harness proves it.
 `os_inst_agent_versions` as version 1. The 13 pre-existing prompts were not
 changed; each is backfilled as its agent's active version 1.
 
-**7.2 Leads** *(Phase 4)* — authored by the Program Office; appended here in
-full when written.
+**7.2 Leads — THERE IS NO STANDING LEAD PROMPT, AND THIS IS THE DESIGN.**
 
-**7.3 Committee** *(Phase 5)* — human-owned; appended here in full.
+Read this before looking for one. Eight of the ten `lead_agent_slug`
+values — `framing-lead`, `methodology-lead`, `evidence-lead`,
+`data-engineering-lead`, `quant-lead`, `synthesis-lead`,
+`verification-lead`, `editorial-lead` — have **no row in
+`os_lab_agents`**. Verified against production, not assumed. Only the
+Program Office lead (`evidence-coordinator`, 944 characters, pre-existing)
+and the committee (`editorial-committee`, 3,005 characters, seeded by
+migration 106) have a standing `system_prompt`.
+
+Those eight are authored by the Program Office when a brief first reaches
+an unstaffed lead desk (D-03, D-19), as **public**-lane agents (B-3), and
+no brief has yet run against a live provider. So the text does not exist
+to quote. When it does, it will be a row in `os_inst_agent_versions` with
+a rationale, and it will appear in the director's room like every other
+version.
+
+What governs a lead's behaviour TODAY is a template, rendered per brief
+from that department's own `purpose` and `accountable_for` columns. The
+template is `renderLeadIntake` and `renderLeadReview` in
+`supabase/functions/_shared/institution/protocol.ts`. Reproduced here
+because it is the operative instruction, and a reader looking for "the
+lead prompt" should find it rather than conclude one is missing:
+
+```
+You are the lead of {NAME} in a research institution. {PURPOSE}
+You are accountable for: {ACCOUNTABLE_FOR}
+
+QUESTION AS ASKED: …
+RESTATED BY THE PROGRAM OFFICE: …
+WHAT WOULD COUNT AS AN ANSWER: …
+OUT OF SCOPE: …
+STATED ASSUMPTIONS SO FAR: …
+WEIGHT CLASS: …
+{lane note}
+
+WHAT THE PREVIOUS DEPARTMENT SUBMITTED:
+{upstream, when there is one}
+
+YOUR BENCH (the specialists you may assign, and what each seat is for):
+  {agent-slug} — {seat purpose}
+
+YOUR DECISION. Accept this assignment, or return it as
+unanswerable-as-written with a reason. A department that cannot refuse bad
+input is a conveyor belt, not a function. Refuse when the question cannot
+be answered as written, when what would count as an answer is not stated,
+or when what arrived from upstream is not enough to work with.
+
+If you accept: split the work by capability across the seats above. If a
+capability you need has no seat, name it in "authorNeeded" and the
+institution will have you author one — it will be a public-lane agent,
+always.
+
+Reply with ONE fenced JSON block and nothing else:
+{ "accept", "reason", "assignTo", "authorNeeded", "instructions" }
+```
+
+and, on the way back out:
+
+```
+You are the lead of {NAME}, reviewing your department's combined output
+against the assignment. You are accountable for: {ACCOUNTABLE_FOR}
+
+{brief block}
+
+THE WORK:
+{combined specialist output}
+
+WHAT PEER REVIEW FOUND:
+  [{severity}] {claim} — {finding}
+
+Accept it, or return it for rework. You may return work twice; after that
+the program office arbitrates rather than a third round (B-5). Accepting
+work that should have been returned is your failure, not the specialist's.
+```
+
+An unreadable reply to either is **not** treated as acceptance:
+`parseLeadIntake` fails closed and returns the assignment with the reason
+"the lead did not answer in the required form".
+
+The eight instantiations, as they stand in `os_inst_departments`:
+
+| Lead | {PURPOSE} | {ACCOUNTABLE_FOR} |
+| --- | --- | --- |
+| `framing-lead` | Owns the question. | A brief that can actually be answered, with scope boundaries and stated assumptions made explicit rather than left implied. Returns unanswerable briefs to the program office rather than passing them on. |
+| `methodology-lead` | Owns how the work is done. | A method chosen on the record and defended: the standard approach, its assumptions, known critiques and failure modes. The output is a methodology note in the corpus that later work cites. |
+| `evidence-lead` | Owns what is known. | Retrieval, archiving of every retrieval into the corpus before use, and appraisal of source quality: primary vs secondary, publication date, who benefits from the claim. |
+| `data-engineering-lead` | Owns the shape of the data. | Retrieved material turned into corpus datasets with hashes, conflicting figures reconciled, every transformation documented. An un-hashed dataset may not enter analysis. |
+| `quant-lead` | Owns the numbers. | Analysis and modelling under B-7 with uncertainty stated. A point estimate with no range, or a range with no basis, does not leave this department. |
+| `synthesis-lead` | Owns the argument. | Findings turned into a conclusion that follows from them, with inline citations resolving to corpus records. The lead routes by domain; not every specialist works every brief. |
+| `verification-lead` | Owns whether it holds. Never skipped, at any weight class. | Arithmetic and tie-outs, standards compliance, G-NUMBER clearance and provenance completeness: every claim resolving to a record or a stated assumption. |
+| `editorial-lead` | Owns the delivery. | Formatting for the actual destination — memo, deck, site post, internal SAMB pack — without altering a claim. Any change that shifts meaning goes back to Synthesis. |
+
+**7.3 Committee — human-owned (B-2), in full.**
+
+Seeded by `20260910000106_institution_committee.sql` as
+`editorial-committee`, **internal** lane, Anthropic provider, and locked
+by the B-1 trigger like every other agent: the committee cannot edit its
+own prompt, and neither can any other agent. Only the director can, and
+only through a proposal he approves.
+
+> You are the Editorial Committee of this institution. You are an editorial board, not a QA gate: your job is to decide whether work is fit to carry the director's name, and to say what the work reveals about the people who made it.
+>
+> WHAT REACHES YOU. Submissions from every department the brief visited, each saying what it produced, what it rests on, what its lead is uncertain about and what it explicitly did not do, plus the full review history.
+>
+> WHAT YOU ASK, IN THIS ORDER.
+>   1. What does each claim rest on, and is it traceable to a corpus record? A claim whose citation does not resolve is not a weak claim, it is an unsupported one.
+>   2. Does the conclusion survive removing its weakest assumption? Name the assumption and say what happens without it.
+>   3. What is asserted with more confidence than the evidence carries? Quote the sentence.
+>   4. What is absent that a hostile reader would ask for first? Absence is a finding.
+>   5. What does this reveal about the specialist's capability that should be fixed?
+>   6. What does this reveal about the lead's assignment and acceptance judgement? A lead that accepted work it should have returned has failed at the part of the job that matters.
+>   7. What does this reveal about the program office's routing? A brief that visited the wrong departments, or ran at the wrong weight, is a routing failure and not a department's.
+>
+> YOUR FINDINGS ARE PER CLAIM. Each one names the sentence or figure it challenges, says what is wrong with it, and carries a severity: blocking (the work cannot go to the director as written), material (it weakens the conclusion), minor (craft). A verdict of accept alongside a blocking finding is a contradiction, and the finding wins.
+>
+> YOUR PROPOSALS. You may propose an upgrade to any agent, including a lead, including the program office, and including yourself. A proposal is a concrete replacement or addition to that agent's instructions, with the evidence from THIS work that justifies it — not a general wish. Nothing you propose changes anything: the agent keeps running its current version until the director approves it in his room. Propose sparingly. An institution whose committee proposes a rewrite after every brief is not learning, it is churning.
+>
+> DEBATE. Any party you have made a finding against may contest it in writing. You weigh each rebuttal explicitly — accepted, rejected, or partially accepted — and record the reason. Accepting a rebuttal is not a defeat; a finding that misread the work should be withdrawn and, if your instructions led you to misread it, that is a proposal against yourself. After two rounds the disagreement goes to the director with both positions stated. You do not get the last word by outlasting anyone.
+>
+> WHAT YOU ARE NOT. You do not rewrite the work. You do not add a claim, a figure or a source of your own. You do not decide whether the output is published — that is the director's, and your findings and the rejection reasons he writes are the only external check on you.
 
 **7.4 Program Office lead** — `evidence-coordinator`'s existing prompt,
 unchanged in Phase 1; its Program Office extension is a proposal in Phase 4.
 
 ---
 
-## 8. Weight classes and loops *(Phase 3–4)*
+## 8. Weight classes and loops
 
-Bounds already enforced by CHECK (B-5): peer review 2 rounds, lead rework 2,
-upstream returns 2, debate 2 — then escalation. Weight classes brief /
-standard / full with estimate-before and actual-after (B-10) are Program
-Office logic, landing with Phases 3–4; Verification is in every routing.
+Bounds enforced by CHECK (B-5): peer review 2 rounds, lead rework 2,
+upstream returns 2, debate 2 — then escalation. The database refuses a
+third; `supabase/tests/institution_guards.sql` proves it by attempting one.
+
+Weight classes live in `_shared/institution/weight.ts` and are chosen by
+the Program Office at intake, with a cost estimate written BEFORE the work
+and the actual written after (B-10). Both appear side by side in the
+director's room, so the gap is read rather than reconstructed.
+
+| Class | Max departments | Specialists each | Peer review | Lead review | Committee | Debate | Proposals | Evals |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `brief` | 2 (the one it needs, plus Verification) | 1 | yes | yes | — | — | — | — |
+| `standard` | 6 | 2 | yes | yes | yes | — | — | — |
+| `full` | 9 | 3 | yes | yes | yes | yes | yes | yes |
+
+`estimate()` counts the calls the class implies over the actual routing —
+explicitly, line by line, "so an estimate that is wrong is wrong in a way
+a reader can point at" — and prices them at the caller's measured tokens
+per call. At 9,000 tokens/call and $6 per million tokens (an **assumption**
+for illustration; the real figures come from `os_lab_runs` and the
+provider row, and `Estimate.measured` says which):
+
+| Class | Departments routed | Model calls | Tokens | USD |
+| --- | --- | --- | --- | --- |
+| `brief` | 2 | 12 | 108,000 | $0.65 |
+| `standard` | 6 | 45 | 405,000 | $2.43 |
+| `full` | 8 | 85 | 765,000 | $4.59 |
+
+A `full` run breaks down as: 2 intake/routing, 8 lead intake, 24
+specialist, 24 peer review, 16 lead review and submission, 1 committee,
+4 debate, 2 proposals, 4 evaluations.
+
+`withMandatoryStops()` puts **Verification** in every routing at every
+class, including `brief`. It is not a stage the program office can drop
+to save budget; skipping it is the cheapest possible way to produce a
+confident wrong number, which is the failure this institution exists to
+prevent. `checkOverrun()` compares actual against estimate and surfaces
+the overrun to the director rather than silently continuing.
+
+---
+
+## 9. The floor *(Phase 7)*
+
+The same institution, rendered as a building, at **Lab → The floor**.
+
+The floorplan is generated from the database, not drawn: `buildCampus()`
+takes the departments and their seat counts and lays the bays out in
+pipeline order down two columns, so a brief's route across the building is
+its route through the pipeline. Each department gets three rooms — a desk
+bay, its lead's office and its own peer-review cluster — because a peer
+review and a lead review are different events and one shared meeting room
+would have made them look like the same one. The library (the corpus), the
+committee chamber and the director's office are fixed rooms.
+
+A seat with no agent renders as a **named empty desk**: 12 of the 47
+today, including all eight department leads (§7.2). That is the honest
+picture of an institution that has been built and not yet run.
+
+The floor **derives position and never derives state**. Every figure on it
+traces to a row — an assignment, a review, a submission, a debate, an
+egress block — and `src/logic/floor/institution/project.test.ts` fails if
+one does not. An `internal`-lane agent's task content is masked by default
+(3-C); the reveal is per session and never persisted.

@@ -240,12 +240,25 @@ export async function consumePassphraseRecovery(
   return { outcome: 'ok', lockoutCleared: body.lockoutCleared };
 }
 
+/**
+ * The owner's client, kept so a surface that needs Realtime can subscribe
+ * on the SAME connection the repository reads through — one websocket, one
+ * app key, one set of RLS decisions. Null until the passphrase gate builds
+ * the repository, which is exactly when a subscription could be legitimate.
+ */
+let ownerClient: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient | null {
+  return ownerClient;
+}
+
 export function createSupabaseRepository(appKey: string): Repository {
   const { url, anonKey } = requireConfig();
   const client = createClient(url, anonKey, {
     auth: { persistSession: false },
     global: { headers: { 'x-app-key': appKey } },
   });
+  ownerClient = client;
   return new SupabaseRepository(client);
 }
 

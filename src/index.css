@@ -425,3 +425,94 @@ button {
     background-color: hsl(var(--escalate) / 0.55);
   }
 }
+
+/* ===========================================================================
+   THE FLOOR (/lab/floor) — HUD chrome over the 3D scene.
+   ===========================================================================
+   PORTED FROM THE STANDALONE BUILD, NOT COPIED. Bot Crossing shipped its own
+   palette: a dark glass panel (rgb(16 20 28 / .78)), #e9eef5 ink, a teal
+   #37d2c6 accent and its own warn/error/ok trio. None of that exists here.
+   This app is light-only and every colour resolves through the Imperial ramp
+   above, so the panels are the same white card the rest of the app uses —
+   which also happens to read better over a bright desert render than dark
+   glass did.
+
+   Nothing below introduces a value. Every colour is hsl(var(--token)); the
+   radius is --radius and the lift is --shadow-card. If the ramp changes, the
+   floor changes with it, which is the whole reason the standalone tokens are
+   gone rather than merely renamed.
+
+   The 3D scene's own colours (sand, pavement, sky, avatar materials) are NOT
+   here: those are scene materials in src/logic/floor and src/views/lab/floor
+   /scene, they are lit by a sun and they are not interface. A desert lit by
+   the design system would be a different, worse thing. */
+.floor-panel {
+  background: hsl(var(--surface-1) / 0.92);
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  color: hsl(var(--foreground));
+  backdrop-filter: blur(10px);
+  box-shadow: var(--shadow-card);
+}
+
+.floor-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: hsl(var(--surface-3));
+}
+.floor-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--surface-1));
+  cursor: pointer;
+}
+.floor-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  border: 2px solid hsl(var(--surface-1));
+  cursor: pointer;
+}
+
+.floor-seg {
+  display: inline-flex;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
+.floor-seg button {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: hsl(var(--foreground-muted));
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+.floor-seg button + button {
+  border-left: 1px solid hsl(var(--border));
+}
+.floor-seg button[aria-pressed='true'] {
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+}
+
+.floor-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: hsl(var(--foreground-muted));
+  cursor: pointer;
+}
+.floor-toggle input {
+  accent-color: hsl(var(--primary));
+}

@@ -22,6 +22,7 @@ import { Input } from '../../components/ui/Input';
 import { useMutation } from '../../hooks/useMutation';
 import type { LabAgent, LabAgentWrite, LabDataClass } from '../../data/labTypes';
 import { phantomReport } from '../../logic/lab/labDeps';
+import { promptDiff } from '../../logic/institution/promptDiff';
 import { useAppStore } from '../../store/appStore';
 import { CouldNotCheck, Checking } from '../work/finishLineUi';
 import { DataClassChip, PhantomBadge, ProviderChip, RunStatusChip, rowsOr, useLabData } from './labUi';
@@ -68,6 +69,9 @@ export function LabRegistry() {
   const setLabRunFocus = useAppStore((state) => state.setLabRunFocus);
   const { providers, agents, chains, runs, reload } = useLabData();
   const [classFilter, setClassFilter] = useState<ClassFilter>('all');
+  // A prompt edit needs a reason, because it becomes a proposal (B-1).
+  const [proposalRationale, setProposalRationale] = useState('');
+  const [proposalError, setProposalError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<ActiveFilter>('all');
   /** null = closed; 'new' = create form; an id = that card's edit form. */
   const [editing, setEditing] = useState<'new' | string | null>(null);
@@ -114,15 +118,35 @@ export function LabRegistry() {
   const startEdit = (agent: LabAgent) => {
     setDraft(draftOf(agent));
     setEditing(agent.id);
+    setProposalRationale('');
+    setProposalError(null);
   };
 
+  /**
+   * Saving an edit.
+   *
+   * B-1: THE SYSTEM PROMPT OF AN EXISTING AGENT IS NOT WRITTEN HERE. The
+   * database refuses a direct UPDATE of os_lab_agents.system_prompt
+   * (20260910000100) whoever attempts it, so an edited prompt is submitted
+   * as a PROPOSAL — a row in os_inst_agent_versions the director promotes
+   * in the director's room — and the rest of the form (name, description,
+   * provider, active) saves normally in the same action.
+   *
+   * Creating a NEW agent still writes its prompt: there is no live version
+   * to protect, and the lane-at-birth guard is what governs that path.
+   */
   const submit = async () => {
     if (!draft.dataClass) return;
+    const target = editing === 'new' ? null : agentRows.find((agent) => agent.id === editing) ?? null;
+    const promptChanged = target !== null && draft.systemPrompt !== target.systemPrompt;
     const input: LabAgentWrite = {
       slug: draft.slug.trim(),
       name: draft.name.trim(),
       description: draft.description,
-      systemPrompt: draft.systemPrompt,
+      // The live prompt is sent unchanged on an edit; the new text travels
+      // as a proposal instead. Sending the edited text would simply be
+      // refused by the trigger, with the owner's work in the toast.
+      systemPrompt: target ? target.systemPrompt : draft.systemPrompt,
       dataClass: draft.dataClass,
       defaultProviderId: draft.defaultProviderId || null,
       isActive: draft.isActive,
@@ -135,8 +159,29 @@ export function LabRegistry() {
           : repository.lab.updateAgent(editing as string, input, providerRows),
     );
     if (!saved) return; // draft stays on screen, safe to retry
+
+    if (target && promptChanged) {
+      if (proposalRationale.trim().length < 10) {
+        setProposalError(
+          'A prompt change is a proposal, and a proposal carries a reason. Say what this changes and why, then save again — your text is still here.',
+        );
+        return;
+      }
+      const proposed = await mutate('Propose prompt change', () =>
+        repository.institution.proposeVersion({
+          agentId: target.id,
+          systemPrompt: draft.systemPrompt,
+          proposedBy: 'director',
+          rationale: proposalRationale.trim(),
+          diff: promptDiff(target.systemPrompt, draft.systemPrompt),
+        }),
+      );
+      if (!proposed) return; // the edit stays on screen, safe to retry
+    }
     setEditing(null);
     setDraft(EMPTY_DRAFT);
+    setProposalRationale('');
+    setProposalError(null);
     reload();
   };
 
@@ -231,6 +276,28 @@ export function LabRegistry() {
               required
             />
           </label>
+          {editing !== 'new' && (
+            <div className="grid gap-1.5 rounded-md border border-border-subtle bg-surface px-3 py-2">
+              <p className="text-xs leading-5 text-foreground-muted">
+                Editing a live prompt does not write it. The change is recorded as a proposal and the agent keeps
+                running its current version until you promote it in the director's room — the same path the committee
+                uses, and the same one the database enforces.
+              </p>
+              <label className="grid gap-1.5 text-xs font-semibold text-foreground-secondary">
+                Why this change
+                <input
+                  className="rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  value={proposalRationale}
+                  onChange={(event) => {
+                    setProposalRationale(event.target.value);
+                    setProposalError(null);
+                  }}
+                  placeholder="What this changes and what went wrong without it."
+                />
+              </label>
+              {proposalError && <p className="text-xs text-destructive">{proposalError}</p>}
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-1.5 text-xs font-semibold text-foreground-secondary">
               Data class

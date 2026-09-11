@@ -9,12 +9,14 @@ import {
   Flag,
   FlaskConical,
   Focus,
+  Gavel,
   Globe,
+  Grid3x3,
   GraduationCap,
   KeyRound,
   LayoutDashboard,
-  Megaphone,
   Lock,
+  Megaphone,
   Menu,
   Play,
   RefreshCw,
@@ -84,6 +86,13 @@ const labNav: Array<{ id: LabView; label: string; short: string; icon: typeof Fo
   // The epistemic layer: what stands behind a number. Last in the rail but
   // upstream of everything an output claims.
   { id: 'evidence', label: 'Evidence', short: 'Evidence', icon: BookMarked },
+  // 1-E. Where finished work, its provenance and the pending upgrades land.
+  // Last, because it is where a brief ENDS.
+  { id: 'institution', label: "Director's room", short: 'Director', icon: Gavel },
+  // 3-B. The same institution as a building: who is at which desk, which
+  // seats are empty, where a document is being carried. It reads the rows
+  // the other views read and writes nothing.
+  { id: 'floor', label: 'The floor', short: 'Floor', icon: Grid3x3 },
 ];
 
 function WorkspaceSwitch({
