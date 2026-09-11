@@ -1,7 +1,0 @@
-# This file makes bot-crossing its own pnpm workspace root, so `pnpm install`
-# run in this directory does not walk up to the parent repo's workspace.
-# esbuild (tsx, vitest) and sharp (next image) ship platform binaries that
-# need their install scripts; pnpm 10 blocks lifecycle scripts by default.
-onlyBuiltDependencies:
-  - esbuild
-  - sharp

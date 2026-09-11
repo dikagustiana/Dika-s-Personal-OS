@@ -1,3 +1,4 @@
+import type { InstitutionRepository } from './institutionRepository';
 import type { LabEvidenceRepository } from './labEvidenceRepository';
 import type { LabRepository } from './labRepository';
 import type { ResearchRepository } from './researchRepository';
@@ -122,6 +123,15 @@ export interface Repository {
    * boundary. See labEvidenceRepository.ts.
    */
   readonly labEvidence: LabEvidenceRepository;
+
+  /**
+   * The institution — departments, briefs, assignments, reviews, the corpus
+   * and the version proposals. A separate seam for the same reason as lab:
+   * one bounded subsystem. See institutionRepository.ts for the three
+   * invariants it carries (the corpus is read-only from the client, a live
+   * prompt is never written here, every read is a ReadResult).
+   */
+  readonly institution: InstitutionRepository;
 
   // IELTS practice results (GROWTH). Sorted by date ascending.
   listIeltsResults(): Promise<IeltsResult[]>;

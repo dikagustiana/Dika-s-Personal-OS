@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { AppShell } from './layout/AppShell';
 import { useAppStore } from './store/appStore';
 import { AccessDashboard } from './views/work/AccessDashboard';
@@ -20,6 +20,20 @@ import { LabRuns } from './views/lab/LabRuns';
 import { LabChains } from './views/lab/LabChains';
 import { LabFlow } from './views/lab/flow/LabFlow';
 import { LabEvidence } from './views/lab/evidence/LabEvidence';
+import { InstitutionDirector } from './views/lab/institution/InstitutionDirector';
+
+/**
+ * B-11: the floor is the ONLY lazy view in the app, and it is lazy for one
+ * measured reason — it pulls three.js, drei and the postprocessing stack,
+ * which together are larger than the rest of the bundle. Every other view
+ * is small enough that a second request costs more than it saves. The
+ * bundle report in PROGRESS.md is the proof that this boundary holds; a
+ * static import added anywhere in src/ that reaches this tree would put
+ * Three back in the main chunk without any error to notice.
+ */
+const LabFloor = lazy(() =>
+  import('./views/lab/floor/hud/OfficeApp').then((module) => ({ default: module.OfficeApp })),
+);
 
 export default function App() {
   const workspace = useAppStore((state) => state.workspace);
@@ -51,6 +65,17 @@ export default function App() {
     else if (labView === 'chains') view = <LabChains key="lab" />;
     else if (labView === 'flow') view = <LabFlow key="lab" />;
     else if (labView === 'evidence') view = <LabEvidence key="lab" />;
+    else if (labView === 'institution') view = <InstitutionDirector key="lab" />;
+    else if (labView === 'floor') {
+      view = (
+        <Suspense
+          key="lab"
+          fallback={<p className="p-6 text-sm text-foreground-muted">Loading the floor…</p>}
+        >
+          <LabFloor />
+        </Suspense>
+      );
+    }
     else view = <LabRegistry key="lab" />;
   } else if (workspace === 'work') {
     if (workView === 'today') view = <Today key="work" />;

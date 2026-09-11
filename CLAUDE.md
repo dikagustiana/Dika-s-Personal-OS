@@ -62,6 +62,9 @@ scripts/lab-boundary-tests.sh
 scripts/seed-guard-tests.sh
 scripts/grant-scope-tests.sh      # the grant model: backfill measured as each contributor,
                                   # per-identity reads/writes, 3 negative controls, collab_rls.sql
+scripts/institution-tests.sh      # the institution (B-1 prompt lock, B-3 lane at birth, data_class
+                                  # propagation, reviews, B-5 bounds, B-9 evals, function grants),
+                                  # both identities, 2 negative controls
 ```
 
 House convention for every file in `supabase/tests/`: **zero rows returned

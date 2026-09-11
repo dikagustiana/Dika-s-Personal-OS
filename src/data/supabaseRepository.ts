@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { IELTS_TOPICS } from '../logic/ielts/topics';
 import { createSupabaseLabEvidenceRepository } from './labEvidenceRepository';
 import type { LabEvidenceRepository } from './labEvidenceRepository';
+import { createSupabaseInstitutionRepository, type InstitutionRepository } from './institutionRepository';
 import { createSupabaseLabRepository } from './labRepository';
 import type { LabRepository } from './labRepository';
 import { createSupabaseResearchRepository } from './researchRepository';
@@ -239,12 +240,25 @@ export async function consumePassphraseRecovery(
   return { outcome: 'ok', lockoutCleared: body.lockoutCleared };
 }
 
+/**
+ * The owner's client, kept so a surface that needs Realtime can subscribe
+ * on the SAME connection the repository reads through — one websocket, one
+ * app key, one set of RLS decisions. Null until the passphrase gate builds
+ * the repository, which is exactly when a subscription could be legitimate.
+ */
+let ownerClient: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient | null {
+  return ownerClient;
+}
+
 export function createSupabaseRepository(appKey: string): Repository {
   const { url, anonKey } = requireConfig();
   const client = createClient(url, anonKey, {
     auth: { persistSession: false },
     global: { headers: { 'x-app-key': appKey } },
   });
+  ownerClient = client;
   return new SupabaseRepository(client);
 }
 
@@ -784,10 +798,14 @@ class SupabaseRepository implements Repository {
   /** The epistemic layer — see labEvidenceRepository.ts. */
   readonly labEvidence: LabEvidenceRepository;
 
+  /** The institution — see institutionRepository.ts. */
+  readonly institution: InstitutionRepository;
+
   constructor(private readonly client: SupabaseClient) {
     this.research = createSupabaseResearchRepository(client);
     this.lab = createSupabaseLabRepository(client);
     this.labEvidence = createSupabaseLabEvidenceRepository(client);
+    this.institution = createSupabaseInstitutionRepository(client);
   }
 
   async listEntries(filter?: {
