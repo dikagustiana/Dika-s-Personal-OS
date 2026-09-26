@@ -1,0 +1,13 @@
+{
+  "name": "lab-hermes-design-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node validate.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1"
+  }
+}
