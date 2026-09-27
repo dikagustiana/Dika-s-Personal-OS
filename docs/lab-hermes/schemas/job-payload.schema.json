@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://personal-os.dikagustiana.com/schemas/lab-hermes/job-payload-v1.json",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "version_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "system_prompt": {
+          "type": "string",
+          "minLength": 1
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "path": {
+                "type": "string",
+                "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"
+              },
+              "content": {
+                "type": "string"
+              },
+              "sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "path",
+              "content",
+              "sha256"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "id",
+        "slug",
+        "version_id",
+        "system_prompt",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "executor": {
+          "const": "hermes"
+        },
+        "route_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "enum": [
+            "kimi",
+            "deepseek",
+            "anthropic",
+            "nous"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
+        "endpoint_region": {
+          "enum": [
+            "global",
+            "china",
+            "direct",
+            "nous"
+          ]
+        },
+        "api_mode": {
+          "enum": [
+            "chat_completions",
+            "anthropic_messages"
+          ]
+        },
+        "auxiliary": {
+          "type": "object",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "tool_allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "minItems": 1
+        },
+        "fallback_routes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "max_turns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "max_output_tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8192
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 7200
+        },
+        "max_cost_usd": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "provenance_required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "executor",
+        "route_id",
+        "provider",
+        "model",
+        "endpoint_region",
+        "api_mode",
+        "auxiliary",
+        "tool_allowlist",
+        "fallback_routes",
+        "max_turns",
+        "max_output_tokens",
+        "timeout_seconds",
+        "max_cost_usd",
+        "provenance_required"
+      ],
+      "additionalProperties": false
+    },
+    "price": {
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "price": {
+          "type": "object",
+          "properties": {
+            "currency": {
+              "enum": [
+                "USD",
+                "CNY"
+              ]
+            },
+            "max_context_tokens": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "input_usd_per_million": {
+              "type": "number",
+              "minimum": 0
+            },
+            "output_usd_per_million": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_hit_usd_per_million": {
+              "type": "number",
+              "minimum": 0
+            },
+            "cache_write_usd_per_million": {
+              "type": "number",
+              "minimum": 0
+            },
+            "fx_usd_per_native": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": [
+            "currency",
+            "max_context_tokens",
+            "input_usd_per_million",
+            "output_usd_per_million",
+            "cache_hit_usd_per_million",
+            "cache_write_usd_per_million",
+            "fx_usd_per_native"
+          ],
+          "additionalProperties": true
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "checked_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "enabled": {
+          "const": true
+        }
+      },
+      "required": [
+        "route_id",
+        "provider",
+        "model",
+        "region",
+        "price",
+        "source_url",
+        "checked_at",
+        "enabled"
+      ],
+      "additionalProperties": false
+    },
+    "input": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 32000
+        },
+        "brief_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "assignment_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "corpus_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "required": [
+        "question",
+        "brief_id",
+        "assignment_id",
+        "corpus_ids"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "agent",
+    "config",
+    "price",
+    "input"
+  ],
+  "additionalProperties": false
+}
