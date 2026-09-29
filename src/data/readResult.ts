@@ -44,6 +44,23 @@ export interface ReadFailure {
 
 export type ReadResult<T> = { ok: true; rows: T[] } | ReadFailure;
 
+/**
+ * THE SAME THREE OUTCOMES FOR A READ THAT RETURNS ONE THING.
+ *
+ * ReadResult carries `rows` because almost every read here is a list. A read
+ * of a single object — the Finish line simulation was the first — would have
+ * to smuggle "one or none" through `rows[0]`, and `rows[0]` of an empty array
+ * is `undefined`: exactly the "a failure looks like an absence" shape this
+ * file exists to prevent. So the singular read gets its own success arm and
+ * shares ReadFailure verbatim — the same two reasons, the same detail, the
+ * same rule that a failure never renders as a value.
+ *
+ * `value` may itself be `null` when "nothing is there" is a real, observed
+ * answer (a pointer that was never written). That is a success, and it is the
+ * only way a null reaches the caller.
+ */
+export type ReadValue<T> = { ok: true; value: T } | ReadFailure;
+
 export function okRows<T>(rows: T[]): ReadResult<T> {
   return { ok: true, rows };
 }

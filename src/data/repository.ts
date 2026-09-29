@@ -3,7 +3,8 @@ import type { LabEvidenceRepository } from './labEvidenceRepository';
 import type { LabRepository } from './labRepository';
 import type { ResearchRepository } from './researchRepository';
 import type { CellWriteOrigin } from './finishLineGuards';
-import type { ReadResult } from './readResult';
+import type { FinishLineSimulation, SimulationUploadOutcome } from './finishLineSimulation';
+import type { ReadResult, ReadValue } from './readResult';
 import type {
   ProcessGateTextWrite,
   ProcessLaneTextWrite,
@@ -440,6 +441,24 @@ export interface Repository {
    * matrix treats as "membership still implies write" — the pre-095 rule.
    */
   listFinishLineGrants(): Promise<ReadResult<FinishLineGrant>>;
+
+  /**
+   * The Finish line simulation (20260928000108 + the finish-line-simulation
+   * Edge Function). OWNER ONLY, twice over: the tab is not rendered for a
+   * contributor, and a repository that holds no owner key answers without
+   * sending a request. Three outcomes, never two: `value: null` means
+   * current.json was never written; a function that is not deployed, a
+   * bucket that is not there and a pointer naming a missing object are all
+   * failures, and none of them may render as the empty state.
+   */
+  readFinishLineSimulation(): Promise<ReadValue<FinishLineSimulation | null>>;
+  /**
+   * Resolves with a guard refusal as DATA — every failing code and message —
+   * because the tab renders them; throws for everything else, so useMutation
+   * raises its retryable toast. The server re-validates whatever the tab's
+   * pre-flight already checked: the client is never the authority.
+   */
+  uploadFinishLineSimulation(html: string): Promise<SimulationUploadOutcome>;
 
   listSignInLog(): Promise<ReadResult<SignInEvent>>;
   listCellHistory(): Promise<ReadResult<CellHistoryEntry>>;

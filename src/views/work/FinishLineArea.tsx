@@ -1,5 +1,5 @@
 /**
- * THE FINISH LINE IS ONE PAGE WITH THREE TABS, AND THAT IS THE POINT.
+ * THE FINISH LINE IS ONE PAGE WITH ITS TABS, AND THAT IS THE POINT.
  *
  * The matrix says what "done" looks like; the swimlane says how the work
  * actually flows; the register says which data is missing before either can
@@ -7,6 +7,12 @@
  * entries — three levels of navigation for two views, and the connection
  * between the target and the road to it reduced to a hyperlink. They belong
  * here: the target is the destination, the process is the journey.
+ *
+ * The fourth tab, Simulasi Hari-H, shows a separately built simulation and is
+ * OWNER ONLY. It is not a process view (isProcessTab): it carries no entity
+ * and no item, and visiting it never touches the picker. For a contributor
+ * the tab is not in the bar, and its address renders a sentence rather than
+ * mounting anything that reads.
  *
  * This component owns the page header, the tab bar, the URL, and the
  * handoffs between tabs. Each tab renders its own description and its own
@@ -23,22 +29,28 @@ import { cn } from '../../lib/utils';
 import { useAppStore } from '../../store/appStore';
 import { FinishLine } from './FinishLine';
 import { FinishLineNeeds } from './FinishLineNeeds';
+import { FinishLineSimulation, FinishLineSimulationOwnerOnly } from './FinishLineSimulation';
 import { FinishLineSwimlane } from './FinishLineSwimlane';
 import {
   DEFAULT_PROCESS_ENTITY,
   finishLineHref,
   finishLineRouteFromLocation,
+  isProcessTab,
   type FinishLineRoute,
   type FinishLineTab,
 } from './finishLineRoute';
 
-const TABS: Array<{ id: FinishLineTab; label: string }> = [
+const TABS: Array<{ id: FinishLineTab; label: string; ownerOnly?: true }> = [
   { id: 'matrix', label: 'Matrix' },
   { id: 'swimlane', label: 'Swimlane' },
   { id: 'kebutuhan-data', label: 'Kebutuhan data' },
+  // Not rendered for a contributor. The address still resolves for them —
+  // to a sentence (FinishLineSimulationOwnerOnly), never to a request.
+  { id: 'simulasi', label: 'Simulasi Hari-H', ownerOnly: true },
 ];
 
 export function FinishLineArea() {
+  const viewer = useAppStore((state) => state.viewer);
   const setFinishLineFocus = useAppStore((state) => state.setFinishLineFocus);
   const setProsesFocus = useAppStore((state) => state.setProsesFocus);
   const prosesEntity = useAppStore((state) => state.prosesEntity);
@@ -49,11 +61,11 @@ export function FinishLineArea() {
   );
 
   // URL → store: an address that names an entity wins on arrival and on
-  // Back/Forward; a bare process URL means the default. The matrix tab never
-  // touches the entity — it is every entity at once.
+  // Back/Forward; a bare process URL means the default. Only the process tabs
+  // touch the entity (isProcessTab) — the matrix is every entity at once.
   const syncEntityFromRoute = useCallback(
     (next: FinishLineRoute) => {
-      if (next.tab === 'matrix') return;
+      if (!isProcessTab(next.tab)) return;
       setProsesEntity(next.entity ?? DEFAULT_PROCESS_ENTITY);
     },
     [setProsesEntity],
@@ -101,7 +113,8 @@ export function FinishLineArea() {
   // store → URL: when the picker changes the entity, the address follows IN
   // PLACE — replaceState, not push, because switching chains is a view
   // change on one page, not a navigation. Skipped on first render (the
-  // arrival effect owns that direction) and on the matrix tab.
+  // arrival effect owns that direction) and on every tab that is not a
+  // process tab.
   const entitySyncSkippedRef = useRef(true);
   useEffect(() => {
     if (entitySyncSkippedRef.current) {
@@ -109,7 +122,7 @@ export function FinishLineArea() {
       return;
     }
     setRoute((current) => {
-      if (current.tab === 'matrix') return current;
+      if (!isProcessTab(current.tab)) return current;
       const next: FinishLineRoute =
         prosesEntity === DEFAULT_PROCESS_ENTITY
           ? { tab: current.tab, ...(current.item ? { item: current.item } : {}) }
@@ -127,15 +140,15 @@ export function FinishLineArea() {
       </header>
 
       <div className="mb-6 flex flex-wrap gap-1 border-b border-border-subtle">
-        {TABS.map((tab) => (
+        {TABS.filter((tab) => !tab.ownerOnly || viewer.kind === 'owner').map((tab) => (
           <button
             key={tab.id}
             type="button"
             onClick={() =>
               go(
-                tab.id === 'matrix'
-                  ? { tab: tab.id }
-                  : { tab: tab.id, entity: prosesEntity },
+                isProcessTab(tab.id)
+                  ? { tab: tab.id, entity: prosesEntity }
+                  : { tab: tab.id },
               )
             }
             aria-current={route.tab === tab.id ? 'page' : undefined}
@@ -182,6 +195,8 @@ export function FinishLineArea() {
           }}
         />
       )}
+      {route.tab === 'simulasi' &&
+        (viewer.kind === 'owner' ? <FinishLineSimulation /> : <FinishLineSimulationOwnerOnly />)}
     </div>
   );
 }

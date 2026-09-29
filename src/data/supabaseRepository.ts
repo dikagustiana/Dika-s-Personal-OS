@@ -15,7 +15,22 @@ import {
   type CellWriteOrigin,
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
-import { okRows, readAbsence, readFailure, type ReadResult } from './readResult';
+import {
+  classifySimulationRead,
+  classifySimulationUpload,
+  simulationOwnerOnly,
+  SIMULATION_FUNCTION,
+  type FinishLineSimulation,
+  type SimulationUploadOutcome,
+} from './finishLineSimulation';
+import {
+  okRows,
+  readAbsence,
+  readFailure,
+  readThrew,
+  type ReadResult,
+  type ReadValue,
+} from './readResult';
 import type { RelationError } from './missingRelation';
 import { isAbsentRelation } from './missingRelation';
 import type {
@@ -157,6 +172,34 @@ export async function edgeFunctionCall<T>(
 }
 
 /**
+ * edgeFunctionCall's sibling that KEEPS THE STATUS. edgeFunctionCall parses
+ * whatever body comes back and drops the status, so an undeployed function's
+ * gateway 404 — `{"code":"NOT_FOUND"}` — arrives cast as the success type.
+ * The simulation read has to tell "not deployed" from "never uploaded", and
+ * only the status can. A body that is not JSON arrives as null rather than a
+ * throw: the status still says what happened.
+ */
+async function edgeFunctionStatusCall(
+  name: string,
+  appKey: string,
+  body: unknown,
+): Promise<{ status: number; body: unknown }> {
+  const { url, anonKey } = requireConfig();
+  const response = await fetch(`${url}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: anonKey,
+      Authorization: `Bearer ${anonKey}`,
+      'x-app-key': appKey,
+    },
+    body: JSON.stringify(body),
+  });
+  const parsed: unknown = await response.json().catch(() => null);
+  return { status: response.status, body: parsed };
+}
+
+/**
  * Verification goes through the `verify-passphrase` Edge Function, which rate
  * limits it. The database RPC is no longer callable with the anon key — see
  * supabase/migrations/20260724000011_auth_rate_limit.sql.
@@ -259,7 +302,10 @@ export function createSupabaseRepository(appKey: string): Repository {
     global: { headers: { 'x-app-key': appKey } },
   });
   ownerClient = client;
-  return new SupabaseRepository(client);
+  // The key travels into the repository only on the owner path. The
+  // collaborator and test constructions below pass none, which is what makes
+  // the simulation methods answer owner-only without a request.
+  return new SupabaseRepository(client, appKey);
 }
 
 /**
@@ -801,7 +847,15 @@ class SupabaseRepository implements Repository {
   /** The institution — see institutionRepository.ts. */
   readonly institution: InstitutionRepository;
 
-  constructor(private readonly client: SupabaseClient) {
+  constructor(
+    private readonly client: SupabaseClient,
+    /**
+     * The owner's passphrase, for the one Edge Function this class calls
+     * itself (finish-line-simulation). Absent on the collaborator path — the
+     * same class serves both — and absence is the owner-only answer.
+     */
+    private readonly appKey?: string,
+  ) {
     this.research = createSupabaseResearchRepository(client);
     this.lab = createSupabaseLabRepository(client);
     this.labEvidence = createSupabaseLabEvidenceRepository(client);
@@ -2300,6 +2354,30 @@ class SupabaseRepository implements Repository {
         createdBy: row.created_by,
       })),
     );
+  }
+
+  async readFinishLineSimulation(): Promise<ReadValue<FinishLineSimulation | null>> {
+    if (!this.appKey) return simulationOwnerOnly();
+    try {
+      const { status, body } = await edgeFunctionStatusCall(SIMULATION_FUNCTION, this.appKey, {
+        action: 'read',
+      });
+      return classifySimulationRead(status, body);
+    } catch (error) {
+      // fetch itself threw: offline, DNS, CORS. A failure to look, never an
+      // empty state — the tab decides from navigator.onLine whether to say
+      // "offline" or "could not check".
+      return readThrew('readFinishLineSimulation', error);
+    }
+  }
+
+  async uploadFinishLineSimulation(html: string): Promise<SimulationUploadOutcome> {
+    if (!this.appKey) throw new Error('Upload simulasi hanya untuk owner.');
+    const { status, body } = await edgeFunctionStatusCall(SIMULATION_FUNCTION, this.appKey, {
+      action: 'upload',
+      html,
+    });
+    return classifySimulationUpload(status, body);
   }
 
   async listSignInLog(): Promise<ReadResult<SignInEvent>> {

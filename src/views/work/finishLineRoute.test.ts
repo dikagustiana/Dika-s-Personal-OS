@@ -3,6 +3,7 @@ import {
   DEFAULT_PROCESS_ENTITY,
   finishLineHref,
   isFinishLinePath,
+  isProcessTab,
   parseFinishLineRoute,
   type FinishLineRoute,
 } from './finishLineRoute';
@@ -150,5 +151,54 @@ describe('the ?entity context (§4.1)', () => {
       const [pathname, search = ''] = href.split('?');
       expect(parseFinishLineRoute(pathname, search ? `?${search}` : '')).toEqual(route);
     }
+  });
+});
+
+describe('isProcessTab — the one predicate for "this tab carries the entity"', () => {
+  it('is true for exactly the two process tabs', () => {
+    expect(isProcessTab('swimlane')).toBe(true);
+    expect(isProcessTab('kebutuhan-data')).toBe(true);
+    expect(isProcessTab('matrix')).toBe(false);
+  });
+});
+
+describe('the simulation tab (/finish-line/simulasi)', () => {
+  it('parses to the tab with nothing else on it', () => {
+    expect(parseFinishLineRoute('/finish-line/simulasi', '')).toEqual({ tab: 'simulasi' });
+    expect(parseFinishLineRoute('/finish-line/simulasi/', '')).toEqual({ tab: 'simulasi' });
+  });
+
+  it('drops ?item and ?entity instead of carrying them', () => {
+    expect(
+      parseFinishLineRoute('/finish-line/simulasi', `?item=${SALES_GENERAL_TRADE}&entity=ENT1`),
+    ).toEqual({ tab: 'simulasi' });
+  });
+
+  it('is null for anything below it — no silent fallback', () => {
+    expect(parseFinishLineRoute('/finish-line/simulasi/x', '')).toBeNull();
+    expect(parseFinishLineRoute('/finish-line/simulasi-x', '')).toBeNull();
+  });
+
+  it('formats to its bare path whatever the route object carries, and round-trips', () => {
+    expect(finishLineHref({ tab: 'simulasi' })).toBe('/finish-line/simulasi');
+    expect(finishLineHref({ tab: 'simulasi', entity: 'ENT1', item: SALES_GENERAL_TRADE })).toBe(
+      '/finish-line/simulasi',
+    );
+    expect(parseFinishLineRoute(finishLineHref({ tab: 'simulasi' }), '')).toEqual({ tab: 'simulasi' });
+  });
+
+  it('is a Finish line path, and not a process tab', () => {
+    expect(isFinishLinePath('/finish-line/simulasi')).toBe(true);
+    expect(isProcessTab('simulasi')).toBe(false);
+  });
+
+  it('leaves the three existing tabs exactly as they were', () => {
+    expect(finishLineHref({ tab: 'matrix' })).toBe('/finish-line');
+    expect(finishLineHref({ tab: 'swimlane', entity: 'ENT1', item: SALES_GENERAL_TRADE })).toBe(
+      `/finish-line/swimlane?entity=ENT1&item=${SALES_GENERAL_TRADE}`,
+    );
+    expect(finishLineHref({ tab: 'kebutuhan-data', entity: 'ENT1' })).toBe(
+      '/finish-line/kebutuhan-data?entity=ENT1',
+    );
   });
 });
