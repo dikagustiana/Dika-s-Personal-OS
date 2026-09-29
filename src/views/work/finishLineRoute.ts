@@ -43,6 +43,19 @@ export interface FinishLineRoute {
   entity?: string;
 }
 
+/**
+ * THE ONE PREDICATE for "this tab shows an entity's process chain". The
+ * entity context (?entity=, prosesEntity) belongs to these tabs and to no
+ * other: the matrix IS every entity at once, and a tab that is not a process
+ * view must neither carry an entity in its address nor reset the picker by
+ * being visited. Four call sites used to spell this as `tab !== 'matrix'`,
+ * which meant the same thing only for as long as every other tab was a
+ * process tab.
+ */
+export function isProcessTab(tab: FinishLineTab): tab is 'swimlane' | 'kebutuhan-data' {
+  return tab === 'swimlane' || tab === 'kebutuhan-data';
+}
+
 const BASE = '/finish-line';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Entity codes as os_finish_line_entities stores them: short upper tokens. */
@@ -76,7 +89,7 @@ export function parseFinishLineRoute(pathname: string, search: string): FinishLi
 }
 
 export function finishLineHref(route: FinishLineRoute): string {
-  if (route.tab === 'matrix') return BASE;
+  if (!isProcessTab(route.tab)) return BASE;
   const params = new URLSearchParams();
   // The default entity stays OUT of the address: a bare URL and an
   // ?entity=SAMB URL are the same claim, and only one of them should exist.

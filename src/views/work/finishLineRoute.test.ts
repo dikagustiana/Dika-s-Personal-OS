@@ -3,6 +3,7 @@ import {
   DEFAULT_PROCESS_ENTITY,
   finishLineHref,
   isFinishLinePath,
+  isProcessTab,
   parseFinishLineRoute,
   type FinishLineRoute,
 } from './finishLineRoute';
@@ -150,5 +151,13 @@ describe('the ?entity context (§4.1)', () => {
       const [pathname, search = ''] = href.split('?');
       expect(parseFinishLineRoute(pathname, search ? `?${search}` : '')).toEqual(route);
     }
+  });
+});
+
+describe('isProcessTab — the one predicate for "this tab carries the entity"', () => {
+  it('is true for exactly the two process tabs', () => {
+    expect(isProcessTab('swimlane')).toBe(true);
+    expect(isProcessTab('kebutuhan-data')).toBe(true);
+    expect(isProcessTab('matrix')).toBe(false);
   });
 });

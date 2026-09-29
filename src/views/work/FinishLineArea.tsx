@@ -28,6 +28,7 @@ import {
   DEFAULT_PROCESS_ENTITY,
   finishLineHref,
   finishLineRouteFromLocation,
+  isProcessTab,
   type FinishLineRoute,
   type FinishLineTab,
 } from './finishLineRoute';
@@ -49,11 +50,11 @@ export function FinishLineArea() {
   );
 
   // URL → store: an address that names an entity wins on arrival and on
-  // Back/Forward; a bare process URL means the default. The matrix tab never
-  // touches the entity — it is every entity at once.
+  // Back/Forward; a bare process URL means the default. Only the process tabs
+  // touch the entity (isProcessTab) — the matrix is every entity at once.
   const syncEntityFromRoute = useCallback(
     (next: FinishLineRoute) => {
-      if (next.tab === 'matrix') return;
+      if (!isProcessTab(next.tab)) return;
       setProsesEntity(next.entity ?? DEFAULT_PROCESS_ENTITY);
     },
     [setProsesEntity],
@@ -101,7 +102,8 @@ export function FinishLineArea() {
   // store → URL: when the picker changes the entity, the address follows IN
   // PLACE — replaceState, not push, because switching chains is a view
   // change on one page, not a navigation. Skipped on first render (the
-  // arrival effect owns that direction) and on the matrix tab.
+  // arrival effect owns that direction) and on every tab that is not a
+  // process tab.
   const entitySyncSkippedRef = useRef(true);
   useEffect(() => {
     if (entitySyncSkippedRef.current) {
@@ -109,7 +111,7 @@ export function FinishLineArea() {
       return;
     }
     setRoute((current) => {
-      if (current.tab === 'matrix') return current;
+      if (!isProcessTab(current.tab)) return current;
       const next: FinishLineRoute =
         prosesEntity === DEFAULT_PROCESS_ENTITY
           ? { tab: current.tab, ...(current.item ? { item: current.item } : {}) }
@@ -133,9 +135,9 @@ export function FinishLineArea() {
             type="button"
             onClick={() =>
               go(
-                tab.id === 'matrix'
-                  ? { tab: tab.id }
-                  : { tab: tab.id, entity: prosesEntity },
+                isProcessTab(tab.id)
+                  ? { tab: tab.id, entity: prosesEntity }
+                  : { tab: tab.id },
               )
             }
             aria-current={route.tab === tab.id ? 'page' : undefined}
