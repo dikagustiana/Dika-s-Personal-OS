@@ -28,7 +28,7 @@ const SHA = 'ab12cd34'.padEnd(64, 'e');
 const POINTER = {
   path: `versions/20260929T101500Z_${SHA.slice(0, 8)}.html`,
   sha256: SHA,
-  bytes: 1_491_608,
+  bytes: 1_490_000,
   uploadedAt: '2026-09-29T10:15:00.000Z',
 };
 
@@ -59,7 +59,7 @@ describe('parsePointer — a pointer that cannot say exactly what it points to i
     ['an upper-case sha256', { ...POINTER, sha256: SHA.toUpperCase() }],
     ['a zero byte count', { ...POINTER, bytes: 0 }],
     ['a fractional byte count', { ...POINTER, bytes: 1.5 }],
-    ['a byte count as a string', { ...POINTER, bytes: '1491608' }],
+    ['a byte count as a string', { ...POINTER, bytes: '1490000' }],
     ['an unparseable date', { ...POINTER, uploadedAt: 'yesterday' }],
     ['a date that is not the upload’s own ISO form', { ...POINTER, uploadedAt: '2026-09-29' }],
     ['a missing field', { path: POINTER.path, sha256: SHA, bytes: 1 }],

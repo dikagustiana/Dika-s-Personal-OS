@@ -78,6 +78,19 @@ export function utf8ByteLength(text: string): number {
   return new TextEncoder().encode(text).byteLength;
 }
 
+/**
+ * The SIM-SIZE failure for a byte count. Exported so the tab can refuse an
+ * oversize file from its File.size alone, before reading megabytes into
+ * memory; checkSimulationUpload uses the same function, so the sentence is
+ * one sentence wherever it is shown.
+ */
+export function simulationSizeFailure(bytes: number): SimulationGuardFailure {
+  return {
+    code: 'SIM-SIZE',
+    message: `Ukuran file ${bytes.toLocaleString('id-ID')} byte, melebihi batas ${SIMULATION_MAX_BYTES.toLocaleString('id-ID')} byte (3 MB).`,
+  };
+}
+
 export function isSimulationGuardCode(value: unknown): value is SimulationGuardCode {
   return typeof value === 'string' && (SIMULATION_GUARD_CODES as readonly string[]).includes(value);
 }
@@ -86,12 +99,7 @@ export function checkSimulationUpload(html: string): SimulationUploadCheck {
   const bytes = utf8ByteLength(html);
   const failures: SimulationGuardFailure[] = [];
 
-  if (bytes > SIMULATION_MAX_BYTES) {
-    failures.push({
-      code: 'SIM-SIZE',
-      message: `Ukuran file ${bytes.toLocaleString('id-ID')} byte, melebihi batas ${SIMULATION_MAX_BYTES.toLocaleString('id-ID')} byte (3 MB).`,
-    });
-  }
+  if (bytes > SIMULATION_MAX_BYTES) failures.push(simulationSizeFailure(bytes));
   // Every guard below still runs on an empty file, on purpose: an empty
   // string also has no doctype and no watermark, and saying so is true. The
   // floor test pins that SIM-EMPTY is among them, so a validator that stopped

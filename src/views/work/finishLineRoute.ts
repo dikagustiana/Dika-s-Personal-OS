@@ -2,19 +2,24 @@
  * THE ONLY REAL URL IN THE APP, and it earns it.
  *
  * Every other view is zustand state with no address, which is fine for a
- * single-user cockpit nobody links into. The Finish line's three tabs are
+ * single-user cockpit nobody links into. The Finish line's tabs are
  * different: a cell panel links into the swimlane pre-filtered to that row,
  * and "the swimlane, filtered to Storing cost" is a thing worth bookmarking
- * and worth sending to yourself. So these three get paths, and the tab bar
+ * and worth sending to yourself. So the tabs get paths, and the tab bar
  * pushes history.
  *
- * Deliberately NOT a router: three paths and one query parameter do not need
+ * FOUR tabs since the simulation joined: matrix, swimlane, kebutuhan-data and
+ * simulasi. The fourth has an address so a reload and Back/Forward keep it,
+ * but it is not a process view and carries NOTHING — no ?item, no ?entity;
+ * both are dropped on parse like any other junk parameter.
+ *
+ * Deliberately NOT a router: four paths and two query parameters do not need
  * one, and adding one would put every other view's addresslessness up for
  * renegotiation. Parsing and formatting live here, pure, so they are
  * testable without a DOM.
  */
 
-export type FinishLineTab = 'matrix' | 'swimlane' | 'kebutuhan-data';
+export type FinishLineTab = 'matrix' | 'swimlane' | 'kebutuhan-data' | 'simulasi';
 
 /**
  * The entity a bare process URL means. A named constant rather than scattered
@@ -38,7 +43,8 @@ export interface FinishLineRoute {
    * means DEFAULT_PROCESS_ENTITY, so a bare /finish-line/swimlane bookmark
    * keeps meaning the SAMB chain. Never carried by the matrix tab — the
    * matrix IS every entity at once, and an entity context that survived into
-   * it would imply a filter that does not exist.
+   * it would imply a filter that does not exist — nor by the simulation tab,
+   * which is no entity's view at all.
    */
   entity?: string;
 }
@@ -72,6 +78,9 @@ export function parseFinishLineRoute(pathname: string, search: string): FinishLi
   if (path !== BASE && !path.startsWith(`${BASE}/`)) return null;
   const segment = path === BASE ? '' : path.slice(BASE.length + 1);
   if (segment === '') return { tab: 'matrix' };
+  // Before the parameters are even read: the simulation tab takes none, so a
+  // stale ?item or ?entity arriving with it is dropped, never carried.
+  if (segment === 'simulasi') return { tab: 'simulasi' };
   if (segment !== 'swimlane' && segment !== 'kebutuhan-data') return null;
   const params = new URLSearchParams(search);
   // A junk entity is dropped like a junk item: filtering on garbage would
@@ -89,6 +98,7 @@ export function parseFinishLineRoute(pathname: string, search: string): FinishLi
 }
 
 export function finishLineHref(route: FinishLineRoute): string {
+  if (route.tab === 'simulasi') return `${BASE}/simulasi`;
   if (!isProcessTab(route.tab)) return BASE;
   const params = new URLSearchParams();
   // The default entity stays OUT of the address: a bare URL and an

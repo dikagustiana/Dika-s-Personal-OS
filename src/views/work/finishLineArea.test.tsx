@@ -12,9 +12,14 @@
  *
  * Entity codes are synthetic (ENT1, ENT2); the default is referenced through
  * DEFAULT_PROCESS_ENTITY rather than spelled.
+ *
+ * The simulation tab's body is NOT stubbed: the owner-only cases need the
+ * real component to prove that a contributor's address mounts nothing that
+ * reads.
  */
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { MockRepository } from '../../data/mockRepository';
 import { useAppStore } from '../../store/appStore';
 import { FinishLineArea } from './FinishLineArea';
 import { DEFAULT_PROCESS_ENTITY } from './finishLineRoute';
@@ -144,5 +149,84 @@ describe('the picker drives the address in place', () => {
     arriveAt('/finish-line');
     act(() => useAppStore.setState({ prosesEntity: 'ENT2' }));
     expect(address()).toBe('/finish-line');
+  });
+});
+
+const CONTRIBUTOR = { kind: 'contributor' as const, userId: 'u1', entityCodes: ['ENT1'] };
+const tabLabels = () => screen.getAllByRole('button').map((button) => button.textContent);
+
+describe('the simulation tab is owner-only', () => {
+  it('is in the bar for the owner, after Kebutuhan data', () => {
+    arriveAt('/finish-line');
+    expect(tabLabels()).toEqual(['Matrix', 'Swimlane', 'Kebutuhan data', 'Simulasi Hari-H']);
+  });
+
+  it('is not rendered for a contributor', () => {
+    useAppStore.setState({ viewer: CONTRIBUTOR });
+    arriveAt('/finish-line');
+    expect(tabLabels()).toEqual(['Matrix', 'Swimlane', 'Kebutuhan data']);
+  });
+
+  it('answers a contributor at its address with a sentence — no repository call, no request', () => {
+    const repository = new MockRepository();
+    const read = vi.spyOn(repository, 'readFinishLineSimulation');
+    const upload = vi.spyOn(repository, 'uploadFinishLineSimulation');
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    useAppStore.setState({ viewer: CONTRIBUTOR, repository });
+    arriveAt('/finish-line/simulasi');
+    expect(screen.getByText('Tab ini hanya untuk owner.')).toBeTruthy();
+    expect(read).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it('mounts the simulation for the owner, which reads once', async () => {
+    const repository = new MockRepository();
+    const read = vi.spyOn(repository, 'readFinishLineSimulation');
+    useAppStore.setState({ repository });
+    arriveAt('/finish-line/simulasi');
+    expect(await screen.findByText('Belum ada versi simulasi.')).toBeTruthy();
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the simulation tab carries no entity', () => {
+  it('a click from a process tab pushes the bare address and leaves the picker alone', () => {
+    useAppStore.setState({ prosesEntity: 'ENT1' });
+    arriveAt('/finish-line/swimlane?entity=ENT1');
+    clickTab('Simulasi Hari-H');
+    expect(address()).toBe('/finish-line/simulasi');
+    expect(useAppStore.getState().prosesEntity).toBe('ENT1');
+  });
+
+  it('arriving at it does not reset the picker to the default', () => {
+    useAppStore.setState({ prosesEntity: 'ENT1' });
+    arriveAt('/finish-line/simulasi?entity=ENT2');
+    expect(address()).toBe('/finish-line/simulasi?entity=ENT2'); // left as found; parse ignored it
+    expect(useAppStore.getState().prosesEntity).toBe('ENT1');
+  });
+
+  it('a picker change while it is open does not write an entity into its address', () => {
+    arriveAt('/finish-line/simulasi');
+    act(() => useAppStore.setState({ prosesEntity: 'ENT2' }));
+    expect(address()).toBe('/finish-line/simulasi');
+  });
+
+  it('Back and Forward walk all four tabs and restore the process entity', () => {
+    useAppStore.setState({ prosesEntity: 'ENT1' });
+    arriveAt('/finish-line/swimlane?entity=ENT1');
+    popTo('/finish-line/simulasi');
+    expect(screen.getByRole('button', { name: 'Simulasi Hari-H' }).getAttribute('aria-current')).toBe('page');
+    expect(useAppStore.getState().prosesEntity).toBe('ENT1');
+    popTo('/finish-line/swimlane?entity=ENT1');
+    expect(tabBody()).toBe('swimlane');
+    expect(useAppStore.getState().prosesEntity).toBe('ENT1');
+    popTo('/finish-line/kebutuhan-data?entity=ENT2');
+    expect(tabBody()).toBe('kebutuhan-data');
+    expect(useAppStore.getState().prosesEntity).toBe('ENT2');
+    popTo('/finish-line');
+    expect(tabBody()).toBe('matrix');
   });
 });
