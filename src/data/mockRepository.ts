@@ -13,7 +13,8 @@ import {
 } from './finishLineGuards';
 import { guardTimeBlock } from './timeBlockGuards';
 import type { ProjectTaskWrite, Repository } from './repository';
-import { okRows, readAbsence, type ReadResult } from './readResult';
+import { simulationOwnerOnly, type FinishLineSimulation, type SimulationUploadOutcome } from './finishLineSimulation';
+import { okRows, readAbsence, type ReadResult, type ReadValue } from './readResult';
 import {
   seedDailyLogs,
   seedEntries,
@@ -1487,6 +1488,19 @@ export class MockRepository implements Repository {
         })),
       ),
     );
+  }
+
+  // No HTML in the mock, deliberately: the simulation is a private build and
+  // a bare clone must never carry one. The owner reads the honest empty
+  // state; a contributor gets the owner-only answer the Supabase path gives,
+  // without a key and without looking.
+  async readFinishLineSimulation(): Promise<ReadValue<FinishLineSimulation | null>> {
+    if (this.viewer.kind === 'contributor') return simulationOwnerOnly();
+    return { ok: true, value: null };
+  }
+
+  async uploadFinishLineSimulation(_html: string): Promise<SimulationUploadOutcome> {
+    throw new Error('Upload simulasi tidak tersedia di mode mock.');
   }
 
   async listSignInLog(): Promise<ReadResult<SignInEvent>> {
