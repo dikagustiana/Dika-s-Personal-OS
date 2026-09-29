@@ -52,10 +52,10 @@ export type SimulationUploadCheck =
 export const SIMULATION_MAX_BYTES = 3_145_728;
 
 /** Exact string, em dash U+2014 — a hyphen or an en dash is not the mark. */
-export const SIMULATION_WATERMARK = 'SIMULATION — illustrative figures';
+export const SIMULATION_WATERMARK = 'SIMULATION \u2014 illustrative figures';
 
 /** Optional BOM and leading whitespace, then the doctype, any case. */
-const DOCTYPE_RE = /^﻿?\s*<!doctype html/i;
+const DOCTYPE_RE = /^\uFEFF?\s*<!doctype html/i;
 
 /** Any absolute http(s) address, any case. */
 const URL_SCHEME_RE = /https?:\/\//gi;

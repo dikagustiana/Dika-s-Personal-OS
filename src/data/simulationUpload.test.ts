@@ -36,7 +36,7 @@ describe('a file that passes', () => {
   });
 
   it('accepts a BOM, leading whitespace and an upper-case doctype', () => {
-    expect(checkSimulationUpload(`﻿ \n\t${VALID.replace('<!doctype html>', '<!DOCTYPE HTML>')}`).ok).toBe(true);
+    expect(checkSimulationUpload(`\uFEFF \n\t${VALID.replace('<!doctype html>', '<!DOCTYPE HTML>')}`).ok).toBe(true);
   });
 
   it('does not read prefetch( or fetchAll as a fetch call', () => {
@@ -67,7 +67,7 @@ describe('one fixture per guard, each failing exactly that guard', () => {
 
   it('SIM-WATERMARK is the exact string, em dash included', () => {
     const hyphen = VALID.replace(SIMULATION_WATERMARK, 'SIMULATION - illustrative figures');
-    const enDash = VALID.replace(SIMULATION_WATERMARK, 'SIMULATION – illustrative figures');
+    const enDash = VALID.replace(SIMULATION_WATERMARK, 'SIMULATION \u2013 illustrative figures');
     expect(codesOf(checkSimulationUpload(hyphen))).toEqual(['SIM-WATERMARK']);
     expect(codesOf(checkSimulationUpload(enDash))).toEqual(['SIM-WATERMARK']);
   });
