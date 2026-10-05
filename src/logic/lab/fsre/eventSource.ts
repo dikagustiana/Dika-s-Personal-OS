@@ -118,6 +118,32 @@ export function appendEvents(current: readonly FsreEvent[], incoming: readonly F
   return [...current, ...fresh];
 }
 
+/** The bundled replay's files, as the screen names them when it says which is provisional. */
+export const REPLAY_FILE_NAMES: FsreFileNames = { stages: 'stages.json', skills: 'skills.json', replay: 'replay-unvr.json' };
+
+/**
+ * The dry run, replayed from src/data/fsre/ (copied unchanged from the GLM
+ * build; every file still says it is provisional). Dynamic imports: the
+ * three files become their own chunks, fetched only when the building is
+ * opened, and never part of the main bundle.
+ */
+export const replaySource: FsreEventSource = createReplaySource({
+  id: 'replay',
+  label: `Replay of ${REPLAY_FILE_NAMES.replay}`,
+  fileNames: REPLAY_FILE_NAMES,
+  files: async () => {
+    const [stages, skills, replay] = await Promise.all([
+      import('../../../data/fsre/stages.json'),
+      import('../../../data/fsre/skills.json'),
+      import('../../../data/fsre/replay-unvr.json'),
+    ]);
+    return { stages: stages.default, skills: skills.default, replay: replay.default };
+  },
+});
+
+/** The run switcher's entries, in order. The first is opened by default. */
+export const FSRE_SOURCES: readonly FsreEventSource[] = [replaySource, liveSource];
+
 /** A reader at the end follows new events; a reader who stepped back stays put. */
 export function followCursor(cursor: number, previousLength: number, nextLength: number): number {
   return cursor >= previousLength ? nextLength : cursor;

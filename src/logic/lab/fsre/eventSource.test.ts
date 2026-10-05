@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { FsreEvent } from './events';
-import { appendEvents, createReplaySource, followCursor, liveSource, type FsreEventSource } from './eventSource';
+import { FSRE_SOURCES, appendEvents, createReplaySource, followCursor, liveSource, replaySource, type FsreEventSource } from './eventSource';
 import { buildContext, createStateCache, reduceEvents } from './reducer';
 import { UNVR_FILES, UNVR_FILE_NAMES, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
@@ -32,6 +32,29 @@ describe('a replay source', () => {
     }).load();
     expect(result).toMatchObject({ ok: false, reason: 'failed' });
     expect(!result.ok && result.detail).toContain('chunk missing');
+  });
+});
+
+describe('the bundled replay (src/data/fsre/, copied unchanged)', () => {
+  it('validates through data.ts, with every file still saying it is provisional, and why', async () => {
+    const result = await replaySource.load();
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.run.id).toBe('unvr-dry-run');
+    expect(result.run.events).toHaveLength(17);
+    expect(result.run.stages).toHaveLength(13);
+    expect(result.run.skills).toHaveLength(10);
+    expect(result.run.timesRecorded).toBe(false);
+    expect(result.run.provenance).toEqual([
+      { file: 'stages', fileName: 'stages.json', provisional: true, stated: true, source: "Provisional stage list written in chat. Replace with the router's state machine from fs-reverse-engineering." },
+      { file: 'skills', fileName: 'skills.json', provisional: true, stated: true, source: "Roles written in chat from the suite's design; not taken from the skill files." },
+      { file: 'replay', fileName: 'replay-unvr.json', provisional: true, stated: true, source: 'Stopgap file written in chat. Replace with the export from fsre-skills when it runs.' },
+    ]);
+  });
+
+  it('is offered first, before the live pipeline', () => {
+    expect(FSRE_SOURCES.map((source) => source.id)).toEqual(['replay', 'live']);
+    expect(new Set(FSRE_SOURCES.map((source) => source.id)).size).toBe(FSRE_SOURCES.length);
   });
 });
 
