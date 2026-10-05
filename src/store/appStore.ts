@@ -59,8 +59,12 @@ export type GrowthView =
 // screen, the run log, and a linear chain builder. Owner-only — contributors
 // never see the workspace switch, and the lab tables carry no member
 // policies, so this is cosmetic scoping over a database that already refuses.
+// 'fsre' is the FSRE building (src/views/lab/fsre/): a replay of the
+// statement pipeline. It reads no table, so for it the owner-only rule is
+// enforced in App.tsx instead — a contributor who reaches it by store state
+// gets a sentence, never the view. No URL: views are state here.
 export type LabView =
-  | 'registry' | 'run' | 'runs' | 'chains' | 'flow' | 'evidence' | 'institution' | 'floor';
+  | 'registry' | 'run' | 'runs' | 'chains' | 'flow' | 'evidence' | 'institution' | 'floor' | 'fsre';
 
 /**
  * A one-shot handoff for cross-view navigation: "open Projects, scrolled to
