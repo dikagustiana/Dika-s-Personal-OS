@@ -105,3 +105,30 @@ describe('desks are generated and never collide', () => {
     expect(slotCentres(0, 30, 0)).toEqual([]);
   });
 });
+
+describe('seats named in the skill data', () => {
+  // The router's state machine ends with `closed`, run by the router: without seats, the last-stage
+  // rule would put the router at the partner desk and the owner on the modelling floor.
+  const stages = [
+    { id: 'selected', name: 'Selected', order: 1, skills: ['idx-universe'] },
+    { id: 'gate1', name: 'Gate 1', order: 2, skills: ['review-manager'] },
+    { id: 'partner_reviewed', name: 'Partner review', order: 3, skills: ['partner'] },
+    { id: 'closed', name: 'Closed', order: 4, skills: ['fs-reverse-engineering'] },
+  ];
+  const roles = (seats: Record<string, 'partner' | 'lobby'>) =>
+    ['idx-universe', 'review-manager', 'partner', 'fs-reverse-engineering'].map((name) => ({
+      name, role: `${name} role`, ...(seats[name] ? { seat: seats[name] } : {}),
+    }));
+
+  it('puts a skill where its entry says, and keeps the partner room for the seated skill', () => {
+    const plan = planFloors(stages, roles({ partner: 'partner', 'fs-reverse-engineering': 'lobby' }));
+    expect(plan.partnerSkills).toEqual(['partner']);
+    expect(plan.desks[deskKeyForSkill('partner')].floorId).toBe('f4');
+    expect(plan.desks[deskKeyForSkill('fs-reverse-engineering')].floorId).toBe('f1');
+  });
+
+  it('without seats, the last stage still takes the partner room (the provisional list)', () => {
+    const plan = planFloors(stages, roles({}));
+    expect(plan.partnerSkills).toEqual(['fs-reverse-engineering']);
+  });
+});

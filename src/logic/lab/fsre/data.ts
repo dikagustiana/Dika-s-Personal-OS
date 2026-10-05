@@ -25,6 +25,7 @@
  * that does not state the flag is treated as provisional, and the note says
  * the flag was absent — an export that wants to read as final has to say so.
  */
+import { FLOOR_ZONE_IDS, type FloorZone } from './layout';
 import { z } from 'zod';
 import { FSRE_EVENT_KINDS, type FsreEvent, type FsreFigure, type FsrePayload } from './events';
 import type { FsreFileKey } from './statuses';
@@ -42,6 +43,8 @@ export interface FsreStage {
 export interface FsreSkill {
   name: string;
   role: string;
+  /** Optional: the floor zone this skill works in, overriding the derived seat (layout.ts rule 0). */
+  seat?: FloorZone;
 }
 
 export interface FsreProvenance {
@@ -90,7 +93,7 @@ const stagesFileSchema = z.object({
 const skillsFileSchema = z.object({
   provisional: z.boolean().optional(),
   source: z.string().optional(),
-  skills: z.array(z.object({ name: z.string().min(1), role: z.string() })),
+  skills: z.array(z.object({ name: z.string().min(1), role: z.string(), seat: z.enum(FLOOR_ZONE_IDS).optional() })),
 });
 
 const isoTime = z.string().refine((value) => !Number.isNaN(Date.parse(value)), 'not an ISO date-time');
@@ -253,7 +256,7 @@ export function parseFsreRun(raw: FsreRawFiles, fileNames: FsreFileNames, label?
       id: replay.run,
       label: label ?? replay.label ?? replay.run,
       stages: [...stagesFile.stages].sort((a, b) => a.order - b.order),
-      skills: skillsFile.skills.map((skill) => ({ name: skill.name, role: skill.role })),
+      skills: skillsFile.skills.map((skill) => ({ name: skill.name, role: skill.role, ...(skill.seat ? { seat: skill.seat } : {}) })),
       companyNames,
       events,
       // Not stated → true only if every event carries a time.

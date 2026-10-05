@@ -132,6 +132,8 @@ export const FIGURE_LABELS: Record<string, string> = {
   passed: 'Passed',
   failed: 'Failed',
   skipped: 'Skipped',
+  identityPeriodsRun: 'Identity periods run',
+  escalatedNotes: 'Escalated notes',
 };
 
 export function figureLabel(key: string): string {

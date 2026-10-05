@@ -17,7 +17,13 @@
  *        when its id is a gate id (GATE_STAGE_ID); both the provisional
  *        list (gate-1) and the router's state machine (gate1) match.
  *     2. Skills that run a gate work on the review floor (3F).
- *     3. Skills that run the LAST stage sit in the partner room (4F).
+ *     0. A skill whose entry in skills.json names a `seat` (one of
+ *        FLOOR_ZONE_IDS) works there. The real export seats the owner in
+ *        the partner room and the router in the lobby: in the router's
+ *        state machine the last stage is `closed`, run by the router, so
+ *        rule 3 alone would put the router at the partner desk.
+ *     3. Without any seat on `partner`, skills that run the LAST stage sit
+ *        in the partner room (4F): the provisional list ends with sign-off.
  *     4. A skill that works in more than one segment (the router, which
  *        opens the run and holds the holdout) or in none (a skill in
  *        skills.json that runs no stage) works from the lobby (1F).
@@ -38,7 +44,9 @@ export type FloorId = (typeof FLOOR_IDS)[number];
 /** Display order, top of the building first. */
 export const FLOOR_DISPLAY_ORDER: readonly FloorId[] = ['f4', 'f3', 'f2', 'f1', 'b1'];
 
-export type FloorZone = 'data' | 'lobby' | 'modelling' | 'review' | 'partner';
+/** The floor zones, which are also the seats a skill entry may name. */
+export const FLOOR_ZONE_IDS = ['data', 'lobby', 'modelling', 'review', 'partner'] as const;
+export type FloorZone = (typeof FLOOR_ZONE_IDS)[number];
 
 export const FLOOR_ZONES: Record<FloorId, FloorZone> = {
   b1: 'data',
@@ -244,6 +252,14 @@ function folderSpotOn(surface: Box, dx?: number): { x: number; y: number; z: num
   };
 }
 
+/** Who sits in the partner room: the skills seated there, or else the last stage's (rules 0 and 3). */
+function partnerSeats(stages: readonly FsreStage[], skills: readonly FsreSkill[]): Set<string> {
+  const seated = skills.filter((skill) => skill.seat === 'partner').map((skill) => skill.name);
+  if (seated.length) return new Set(seated);
+  const lastStage = stages[stages.length - 1];
+  return new Set(lastStage && !isGateStage(lastStage) ? lastStage.skills : []);
+}
+
 /** Which floor each skill works on, by the rule in the header comment. */
 function assignFloors(stages: readonly FsreStage[], skills: readonly FsreSkill[]): Record<string, FloorId> {
   const segmentsOf = new Map<string, Set<number>>();
@@ -261,15 +277,17 @@ function assignFloors(stages: readonly FsreStage[], skills: readonly FsreSkill[]
       segmentsOf.set(skill, set);
     }
   }
-  const lastStage = stages[stages.length - 1];
-  const partnerSkills = new Set(lastStage && !isGateStage(lastStage) ? lastStage.skills : []);
+  const seated = new Map(skills.filter((skill) => skill.seat).map((skill) => [skill.name, skill.seat as FloorZone]));
+  const partnerSkills = partnerSeats(stages, skills);
 
   const floorOf: Record<string, FloorId> = {};
   const everySkill = [...stages.flatMap((stage) => stage.skills), ...skills.map((skill) => skill.name)];
   for (const skill of everySkill) {
     if (floorOf[skill]) continue;
     const segments = segmentsOf.get(skill);
-    if (partnerSkills.has(skill)) floorOf[skill] = ZONE_FLOOR.partner;
+    const seat = seated.get(skill);
+    if (seat) floorOf[skill] = ZONE_FLOOR[seat];
+    else if (partnerSkills.has(skill)) floorOf[skill] = ZONE_FLOOR.partner;
     else if (gateSkills.has(skill)) floorOf[skill] = ZONE_FLOOR.review;
     else if (!segments || segments.size !== 1) floorOf[skill] = ZONE_FLOOR.lobby;
     else floorOf[skill] = [...segments][0] === 0 ? ZONE_FLOOR.data : ZONE_FLOOR.modelling;
@@ -283,8 +301,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
   const agentSet = new Set(agentSkills);
   const floorOfSkill = assignFloors(ordered, skills);
   const gateStageIds = ordered.filter(isGateStage).map((stage) => stage.id);
-  const lastStage = ordered[ordered.length - 1];
-  const partnerSkills = lastStage && !isGateStage(lastStage) ? [...lastStage.skills] : [];
+  const partnerSkills = Object.keys(floorOfSkill).filter((skill) => floorOfSkill[skill] === ZONE_FLOOR.partner);
 
   const skillsOnFloor = emptyByFloor<string[]>(() => []);
   for (const [skill, floorId] of Object.entries(floorOfSkill)) skillsOnFloor[floorId].push(skill);
