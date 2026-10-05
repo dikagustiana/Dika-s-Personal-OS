@@ -185,3 +185,165 @@ only through an owner-checked edge function.
 - A second isometric projection beside `src/logic/lab/iso.ts`: the source's projection and
   layout are ported as they are; merging them is a separate change.
 - One more lazy view beside the 3D floor (D-22 names the floor as the only one).
+
+## Steps 1–5
+
+Branch `feat/lab-fsre-building`, from `40d4bb5`. Nothing pushed or merged. The GLM folder was only
+read (`git -C C:/work/glm/fsre-building status --short` is still empty).
+
+### Commits
+
+| Hash | Subject |
+|---|---|
+| `27a8a8f` | feat(lab): FSRE building core, fixed for many companies (step 1) |
+| `68750b2` | feat(lab): FSRE building event source (step 2) |
+| `8b76fd3` | feat(lab): FSRE building replay data, unchanged (step 3) |
+| `d6dbda6` | feat(lab): FSRE building UI (step 4) |
+| `d4ffd37` | chore(lab): LF line endings in the FSRE files and index.css |
+| `eab7ec3` | feat(lab): mount the FSRE building as an owner-only Lab view (step 5) |
+
+`d4ffd37` was not planned: see "My deviations" below.
+
+### What each step built
+
+**Step 1, the core** (`src/logic/lab/fsre/`, pure TypeScript, no React).
+- `events.ts`: the §3.3 contract (twelve kinds, `ticker: null` for run-level items, `payload.figures`).
+- `data.ts`: zod schemas for the three files, normalised into `FsreRun`. Accepts the provisional
+  shape (flat numeric payload fields read as figures; an `escalated` with no reason takes its title)
+  and the export shape (router stage ids, ISO `at`, `stage_returned`, `stage_blocked`). Refuses a
+  run whose events name a stage the stage data does not have, repeat an id or belong to another run.
+  Drops the replay's top-level `figures`, `archetypes` and `partnerQueue`, so nothing downstream can
+  read them. Keeps each file's `provisional` flag and `source`.
+- `reducer.ts`: per-ticker `companies`; gate results kept as a history; run totals summed by
+  `runTotals`, never stored; agents hold the tickers in their hands, with a derived status
+  (escalated > stalled > working > done > idle); partner items keyed by ticker and event id;
+  `approved` acts per ticker and returns the state unchanged while that ticker (or the run) has an
+  open escalation; `published` per ticker. Incremental: one event copies only what it touches;
+  agent histories are derived by scanning (`agentEventIndexes`), not stored; `createStateCache`
+  keeps a checkpoint every 64 events, so stepping back replays at most 63.
+- `layout.ts`: floors take their skills from the stage data by one rule (gates → 3F, last stage →
+  4F, a skill in several segments or in none → 1F, first segment → B1, later segments → 2F). Desks,
+  agent seats, folder spots and gate rooms are generated.
+- `projection.ts`, `geometry.ts`, `scene.ts`: the source's projection, every render constant, and a
+  floor built as finished polygons, chips, 44px hit areas and wall content. Folders are grouped per
+  desk (at most 3 drawn, chip "N folders · …"); partner-desk documents pile per kind (at most 3
+  sheets, chip "N escalations (+N not drawn)").
+- `statuses.ts`, `glyphs.ts`, `format.ts`, `search.ts`: one word map per list, one glyph and tone map
+  per list, one figure-label map, one formatter, company filter and selection by ticker.
+
+**Step 2, the event source** (`eventSource.ts`). `FsreEventSource { id, label, kind, availability,
+load(), subscribe?() }`. `load()` resolves to a result union (`ok` with a run, or `not-connected`,
+`invalid-data`, `failed` with a detail), the `ReadResult` idea: "not connected" is said, never drawn
+as an empty building. The cursor stays in the view; `appendEvents` (in order, duplicates dropped) and
+`followCursor` (a reader at the end follows, one who stepped back stays) are the whole contract with
+a live source. `liveSource` is typed and answers `not-connected`; M5 replaces its `load()` with the
+first poll of an owner-checked edge function (every 5 to 10 seconds) and adds `subscribe`.
+
+**Step 3, the data.** `stages.json`, `skills.json`, `replay-unvr.json` copied into `src/data/fsre/`
+byte for byte (sha256 `66201710…1255`, `02f72329…1007`, `9cf8ab5f…dac7`; identical in the working
+tree and in the committed blobs). `replaySource` reaches them through dynamic imports, so each is
+its own chunk. The ported reducer tests moved from step 1's hand-written mirror to these files and
+passed unchanged.
+
+**Step 4, the UI** (`src/views/lab/fsre/`). Header (run switcher, company search combobox,
+partner-room count with "⚠ N escalations" in words), metrics bar (one metric per gate stage, from
+the stage data), notes, five SVG floors with HTML chips, wall screens and buttons over them, the
+details panel (company list filtered by the search; folder by ticker; agent; gate room; partner room
+with every item and the per-ticker lock; a desk's stack), stage timeline, replay controls. Built on
+`Card`, `Button`, `Input` and the tokens. `viewModel.ts` holds the words and counts the panels show.
+
+**Step 5, the route.** `'fsre'` in `LabView`; a `labNav` entry "FSRE building" (lucide `Building2`,
+short "FSRE"); `App.tsx` renders the building through `React.lazy` + `Suspense` for the owner and
+`FsreOwnerOnly` (a sentence, no import from the building) for a contributor. No URL.
+
+### Tests and build
+
+| | Files | Tests | Exit |
+|---|---|---|---|
+| Baseline, `40d4bb5` | 132 | 2207 passed | 1: one unhandled error (below) |
+| Step 1 | 137 | 2297 passed | 1: the same error |
+| Step 2 | 138 | 2304 passed | 0 |
+| Step 3 | 138 | 2306 passed | 0 |
+| Step 4 | 140 | 2335 passed | 0 |
+| `d4ffd37` | 140 | 2335 passed | 0 |
+| Step 5 | 141 | 2338 passed | 0 |
+
++9 files, +131 tests. The baseline's error is not from this work: `useMutation`'s 1500 ms success
+timer fires after jsdom is torn down in `src/views/lab/flow/labFlowAcceptance.test.tsx` ("window is
+not defined"); the file passes alone and the error comes and goes with load. `typecheck` and `build`
+passed before every commit (one build crashed in libuv on Windows and passed on the rerun).
+
+Build at step 5: `FsreBuilding-*.js` 74,79 kB (gzip 23,57 kB); `stages-*.js` 1,09 kB, `skills-*.js`
+1,27 kB, `replay-unvr-*.js` 7,50 kB; the main chunk grew from 1.871,52 kB to 1.873,07 kB and
+contains neither `unvr-dry-run` nor `ARC-PROC`.
+
+### The seven rules
+
+| Rule | Verdict | Evidence |
+|---|---|---|
+| 1. Pure function of events | **Pass** | `reducer.test.ts`: the initial state equals `reduceEvents([])`; every prefix of the ten-company run equals the cache after a step back and forward; a refused approval returns the same object. `data.test.ts`: the run carries no `figures`, `archetypes` or `partnerQueue`. `scene.test.ts`, `fsreBuilding.test.tsx`: at cursor 0 no folder, no pile, no ticker, no "10.142", "209" or "21 checks"; the counter says "No figures yet"; the metrics say so in a sentence |
+| 2. No literals; stages and roles from data | **Pass** | `fsreRules.test.ts` parses every component with the TypeScript compiler: no numeric literal; no stage id, stage name, skill name or ticker as a literal in the view or the core; `layout.ts` names no skill. `layout.test.ts`: the router's stage ids with invented skill names place correctly; moving a stage moves its skill |
+| 3. Escalations never softened | **Pass** | `fsreBuilding.test.tsx`: the folder chip is amber with ⚠ and "UNVR · Escalated"; a pile chip "1 escalation" on the partner desk; badge 3 and "1 escalation among them"; the lock lists the full reason; the reviewer reads Escalated after a gate passed with escalation; SYN07's lock shows its own reason only. `reducer.test.ts`: every escalation (per ticker and run-level) yields an open partner item and locks approval; SYN03's failure stays worst on record after a pass |
+| 4. Colour never alone | **Pass** | Every chip, stage-screen cell and pile has a glyph and a word (`scene.test.ts`, `fsreBuilding.test.tsx`); partner-desk documents carry "⚠ N escalations" / "✎ N proposals" |
+| 5. One source per list; colours as tokens | **Pass** | `fsreRules.test.ts`: no component spells a word from any word map or the figure-label map; no FSRE file carries a colour value; the only new tokens are `--fsre-working`, `-idle`, `-stalled`, `-escalated`, `-done`, `-selection`, `-chip`, `-chip-border` |
+| 6. Placeholders as written; provisional labelled by file | **Pass** | `fsreBuilding.test.tsx`: "[Proposal 1: …]" and "[Proposal 2: …]" verbatim; one note per provisional file naming it and quoting its source; "Times were not recorded" only from `timesRecorded: false` (the ten-company run has times and shows no such note) |
+| 7. British English; one formatter | **Pass** | `format.test.ts` (10142 → "10.142", 0.45 → "0,45", 0.1 + 0.2 → "0,3", 1.005 → "1,01"). `fsreRules.test.ts`: no `toLocaleString`, `toPrecision` or `NumberFormat`; `toFixed` only in `format.ts` and `projection.ts` (SVG coordinates); the type checker finds no number rendered as text; no American spelling in any string |
+
+Each static check in `fsreRules.test.ts` was seen to fail on an injected violation, and the
+contributor case in `App.fsre.test.tsx` was seen to fail with the owner check removed.
+
+### GLM's deviations, and what the port did with them
+
+| GLM deviation (`docs/report.md`) | In the port |
+|---|---|
+| Partner items derived from events, not `partnerQueue` | Kept, keyed by ticker and event id. `data.ts` drops `partnerQueue`; a test still checks the derived items against it in kind, count and proposal titles. The escalation is titled "UNVR, Decomposition: Archetype misfit" (that company's first open issue at the stage) |
+| Extra tokens (`stateText`, plant, folder, shadow) | Mapped onto existing tokens (`--escalate` and `--success` already pass 4,5:1 as text); new tokens only for agent states, selection and chips |
+| B1 counter placed | Kept on the B1 back wall, wider (x 2–15); it shows sums over the companies, or the selected company's own figures |
+| Archetype board | Replaced: its list and its "current" marker came from the file, not from events. The 2F wall is now an open-issues board, from events |
+| "Passed with escalation" shown as "Escalated" | The word map says "Passed with escalation" in full, with ⚠ and amber |
+| `approved` cleared every escalation | Refused per ticker while one is open; `approved` with `payload.ref` decides the item it names |
+| Folder on the reception desk before the first event | No folder until an event names the ticker |
+| Speed labels in words | Kept |
+| Two disabled runs ("VPS sandbox", "Wave 1, cement pilot") | Not ported: they are not event sources. The switcher lists the replay and the live source, "not connected" |
+| Polling file watcher | Not ported |
+
+### My deviations
+
+1. **A seventh commit, `d4ffd37`.** Some edits went through a Windows Python that writes CRLF;
+   twenty files reached steps 1–4 with CRLF, and `src/index.css` showed as a whole-file rewrite in
+   step 4. `d4ffd37` restores LF (`git diff --ignore-cr-at-eol` on it is empty); from the base, the
+   branch's `index.css` diff is 270 added lines. I did not rewrite the commits because CLAUDE.md
+   asks first; squashing it into step 4 is the owner's call.
+2. **Step order.** `replaySource`'s binding to the bundled files landed in step 3 (it cannot compile
+   before the files exist); step 1's ported tests ran on a hand-written mirror of the provisional
+   files until step 3 switched them to the files.
+3. **Modules beyond the list:** `scene.ts`, `search.ts` and `viewModel.ts` in the core, so the
+   components stay free of arithmetic and literals.
+4. **`fs-normalize` sits on 2F**, not B1: by the stage data it runs after gate 1. Gates are
+   recognised by their id (`/^gate[-_]?\d+$/i`), which matches both `gate-1` and `gate1`.
+5. **`approved` with `payload.ref`** decides the escalation or proposal whose event id (or a
+   proposal's own `ref`) it names; a ref that names nothing open changes nothing. Without this, no
+   event could ever close an escalation.
+6. **Run-level escalations** (`ticker: null`) lock every company's approval.
+7. **A file without a `provisional` flag** is treated as provisional, and the note says the flag was
+   absent.
+8. **History on stage cells.** A gate failure on record shows on that gate's stage cell after a
+   later pass; the folder still says where the company stands now ("In progress").
+9. **Floor tags leave out idle agents**, so an untouched building shows no number.
+10. **Overlay text scales with `vw`**, not with a container query: `canvasWidth.test.tsx` requires
+    `.app-main` to be the only CSS container.
+11. **Motion.** `index.css` calls the drawer the one animation; Lab Flow already added its own, and
+    the building adds two that run only on an event (a chip flash, a folder arriving on another
+    floor), both off under reduced motion.
+12. **Event times are not shown** (the replay has none). The building opens at the end of the
+    replay, as GLM's did.
+
+### Open for the owner
+
+- Squash `d4ffd37` into step 4, or keep it.
+- The meaning given to `approved` + `ref` (item 5) and to run-level escalations (item 6): the
+  export (brief 04) should confirm or change them.
+- Whether stage cells should carry gate history (item 8).
+- The pre-existing teardown error in `labFlowAcceptance.test.tsx` makes `test:run` exit 1 on some
+  runs.
+- As §3.4 said, the replay is bundled: a contributor who fetched the chunk by hand could read it.
