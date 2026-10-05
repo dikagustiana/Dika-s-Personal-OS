@@ -90,6 +90,16 @@ export function toPercentRect(rect: Rect): PercentRect {
   };
 }
 
+/** The same, with left/top at the rectangle's CENTRE — for buttons that grow to 44px around it. */
+export function toPercentCentred(rect: Rect): PercentRect {
+  return {
+    left: pct(rect.left + rect.width / 2, FLOOR_SVG.width),
+    top: pct(rect.top + rect.height / 2, FLOOR_SVG.height),
+    width: pct(rect.width, FLOOR_SVG.width),
+    height: pct(rect.height, FLOOR_SVG.height),
+  };
+}
+
 export function toPercentPoint(pt: Pt): { left: string; top: string } {
   return { left: pct(pt.x, FLOOR_SVG.width), top: pct(pt.y, FLOOR_SVG.height) };
 }

@@ -516,3 +516,273 @@ button {
 .floor-toggle input {
   accent-color: hsl(var(--primary));
 }
+
+/* ===========================================================================
+   THE FSRE BUILDING (Lab, view 'fsre') — the replay of the FSRE pipeline.
+   ===========================================================================
+   PORTED FROM THE GLM BUILD, NOT COPIED. Its tokens.ts carried its own hex
+   palette; every one of those colours is mapped here onto this app's ramp:
+
+     ground / floor   #E9EEF4 -> --surface-3      wall, back  #F8FAFC -> --surface-2
+     wall, side       #E1E7EE -> --border-subtle  slab        #C4CDD9 -> --border
+     desk top/front/side      -> --surface-1 / --border-subtle / --border
+     racks, monitors          -> --foreground-secondary / --foreground
+     glass                    -> --primary-dim (tinted) with a --border edge
+     folder           #1F4E79 -> --primary        ink / heads #17283F -> --foreground
+     plant foliage            -> --success, faded (decoration, never a state)
+     shadow                   -> --foreground at 18%
+     state text (darker amber/green in the source) -> --escalate / --success,
+                                 which already pass 4.5:1 on white
+
+   NEW TOKENS, and only these three kinds (agent states, selection, chips).
+   Each aliases an existing semantic colour except --fsre-idle, which is a
+   FILL for an idle agent's body and never text (idle TEXT is
+   --foreground-muted, 5.03:1). Stalled and escalated share the amber and
+   differ by glyph: colour never carries a state alone.
+
+   SVG presentation attributes cannot take var(), so the drawing is coloured
+   by the classes below, never by fill attributes in the components. */
+:root {
+  --fsre-working: var(--primary);
+  --fsre-idle: 213.3 15.4% 65.7%; /* #9AA6B5, fill only */
+  --fsre-stalled: var(--escalate);
+  --fsre-escalated: var(--escalate);
+  --fsre-done: var(--success);
+  --fsre-selection: var(--primary);
+  --fsre-chip: var(--surface-1);
+  --fsre-chip-border: var(--border);
+}
+
+/* The building and the details panel side by side once there is room. */
+.fsre-grid {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+}
+@media (min-width: 1280px) {
+  .fsre-grid {
+    grid-template-columns: minmax(0, 1fr) 21rem;
+  }
+}
+
+/* One floor: an SVG with HTML laid over it. Overlay text scales with the
+   viewport (vw), not with a container query: .app-main must stay the only
+   container in the app (canvasWidth.test.tsx guards it, because a second
+   container would change what .canvas-bleed measures). At the widths this
+   view is used the floor is about half the viewport, which is what the vw
+   factors below assume. */
+.fsre-floor {
+  position: relative;
+  width: 100%;
+  background: hsl(var(--background));
+}
+.fsre-floor > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.fsre-slab { fill: hsl(var(--border)); }
+.fsre-ground { fill: hsl(var(--surface-3)); }
+.fsre-wall-back { fill: hsl(var(--surface-2)); }
+.fsre-wall-side { fill: hsl(var(--border-subtle)); }
+
+.fsre-face { stroke: hsl(var(--border)); stroke-width: 0.5; }
+.fsre-top[data-material='furniture'],
+.fsre-top[data-material='bench'] { fill: hsl(var(--surface-1)); }
+.fsre-front[data-material='furniture'],
+.fsre-front[data-material='bench'] { fill: hsl(var(--border-subtle)); }
+.fsre-side[data-material='furniture'],
+.fsre-side[data-material='bench'] { fill: hsl(var(--border)); }
+.fsre-top[data-material='monitor'],
+.fsre-side[data-material='monitor'] { fill: hsl(var(--foreground-secondary)); }
+.fsre-front[data-material='monitor'] { fill: hsl(var(--foreground)); }
+.fsre-face[data-material='folder'] {
+  fill: hsl(var(--primary));
+  stroke: hsl(var(--surface-1));
+}
+.fsre-face[data-material='doc-escalation'] {
+  fill: hsl(var(--fsre-escalated));
+  stroke: hsl(var(--surface-1));
+}
+.fsre-face[data-material='doc-proposal'] {
+  fill: hsl(var(--primary-dim));
+  stroke: hsl(var(--primary));
+}
+
+.fsre-rack-top { fill: hsl(var(--foreground)); }
+.fsre-rack-front { fill: hsl(var(--foreground-secondary)); }
+.fsre-rack-side { fill: hsl(var(--foreground)); }
+.fsre-rack-slat { stroke: hsl(var(--foreground)); stroke-width: 1.5; }
+
+.fsre-glass {
+  fill: hsl(var(--primary-dim) / 0.35);
+  stroke: hsl(var(--border));
+  stroke-width: 1;
+}
+.fsre-plant-pot { fill: hsl(var(--foreground-muted)); }
+.fsre-plant-leaf { fill: hsl(var(--success) / 0.45); }
+.fsre-shadow { fill: hsl(var(--foreground) / 0.18); }
+.fsre-head { fill: hsl(var(--foreground)); }
+
+.fsre-agent-body[data-status='working'] { fill: hsl(var(--fsre-working)); }
+.fsre-agent-body[data-status='idle'] { fill: hsl(var(--fsre-idle)); }
+.fsre-agent-body[data-status='stalled'] { fill: hsl(var(--fsre-stalled)); }
+.fsre-agent-body[data-status='escalated'] { fill: hsl(var(--fsre-escalated)); }
+.fsre-agent-body[data-status='done'] { fill: hsl(var(--fsre-done)); }
+
+.fsre-ring {
+  fill: none;
+  stroke: hsl(var(--fsre-selection));
+  stroke-width: 2;
+  stroke-dasharray: 6 4;
+}
+
+.fsre-wall-frame { fill: hsl(var(--foreground)); }
+.fsre-wall-screen { fill: hsl(var(--surface-1)); }
+.fsre-lift-frame { fill: hsl(var(--foreground-secondary)); }
+.fsre-lift-door {
+  fill: hsl(var(--border));
+  stroke: hsl(var(--foreground-muted));
+  stroke-width: 0.5;
+}
+
+/* Text and badges take a TONE; the tone picks the colour. Words and glyphs
+   always travel with it. */
+.fsre-tone[data-tone='working'],
+.fsre-tone[data-tone='primary'] { color: hsl(var(--primary)); }
+.fsre-tone[data-tone='idle'] { color: hsl(var(--foreground-muted)); }
+.fsre-tone[data-tone='stalled'],
+.fsre-tone[data-tone='escalated'] { color: hsl(var(--escalate)); }
+.fsre-tone[data-tone='done'] { color: hsl(var(--success)); }
+.fsre-tone[data-tone='failed'] { color: hsl(var(--destructive)); }
+.fsre-tone[data-tone='neutral'] { color: hsl(var(--foreground-secondary)); }
+
+.fsre-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border: 1px solid currentColor;
+  border-radius: 9999px;
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.fsre-badge[data-tone='escalated'],
+.fsre-badge[data-tone='stalled'] { background: hsl(var(--escalate) / 0.08); }
+.fsre-badge[data-tone='failed'] { background: hsl(var(--destructive) / 0.07); }
+
+/* Chips over the drawing. */
+.fsre-chip {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  white-space: nowrap;
+  border: 1px solid hsl(var(--fsre-chip-border));
+  border-radius: 4px;
+  background: hsl(var(--fsre-chip));
+  color: hsl(var(--foreground));
+  padding: 0 0.375rem;
+  font-size: clamp(0.5625rem, 0.62vw, 0.75rem);
+  line-height: 1.45;
+  pointer-events: none;
+  box-shadow: var(--shadow-card);
+}
+.fsre-chip[data-stagger='1'] { transform: translate(-50%, calc(-100% - 1.5em)); }
+.fsre-chip[data-strong='true'] {
+  font-weight: 600;
+  border-color: hsl(var(--primary));
+}
+.fsre-chip[data-tone='escalated'],
+.fsre-chip[data-tone='stalled'] {
+  border-color: hsl(var(--escalate));
+  box-shadow: inset 0 -2px 0 hsl(var(--escalate));
+}
+.fsre-chip[data-tone='failed'] { border-color: hsl(var(--destructive)); }
+
+.fsre-floor-tag {
+  position: absolute;
+  left: 1.25%;
+  bottom: 2%;
+  font-size: clamp(0.625rem, 0.62vw, 0.75rem);
+  color: hsl(var(--foreground-secondary));
+  pointer-events: none;
+}
+
+/* Wall screens: HTML on the screen's rectangle (the back wall is axis-aligned). */
+.fsre-wall {
+  position: absolute;
+  overflow: hidden;
+  font-size: clamp(0.4375rem, 0.5vw, 0.6875rem);
+  line-height: 1.25;
+  color: hsl(var(--foreground));
+  pointer-events: none;
+}
+.fsre-stage-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--fsre-columns), minmax(0, 1fr));
+  gap: 2px;
+  height: 100%;
+  padding: 2px;
+}
+.fsre-stage-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2em;
+  overflow: hidden;
+  white-space: nowrap;
+  border-radius: 2px;
+  background: hsl(var(--surface-2));
+}
+.fsre-stage-cell[data-tone='working'] { background: hsl(var(--primary) / 0.1); }
+.fsre-stage-cell[data-tone='done'] { background: hsl(var(--success) / 0.1); }
+.fsre-stage-cell[data-tone='escalated'],
+.fsre-stage-cell[data-tone='stalled'] { background: hsl(var(--escalate) / 0.14); }
+.fsre-stage-cell[data-tone='failed'] { background: hsl(var(--destructive) / 0.1); }
+
+/* Real buttons over the drawing: at least 44px, centred on what they cover. */
+.fsre-hit {
+  position: absolute;
+  min-width: 44px;
+  min-height: 44px;
+  transform: translate(-50%, -50%);
+  background: transparent;
+  border: 0;
+  border-radius: 9999px;
+  cursor: pointer;
+  padding: 0;
+}
+.fsre-hit:hover { outline: 1px dashed hsl(var(--border)); }
+.fsre-hit:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Motion: ONLY when an event was just applied, and never under reduced
+   motion. A chip that changed flashes once; a folder that arrives on
+   another floor slides in once. Nothing loops and nothing runs on a timer
+   of its own. (The drawer note above calls the drawer the one animation;
+   the Lab Flow already added its own, and the brief for this view asks for
+   motion on events, so this is a third, scoped to the building.) */
+@keyframes fsre-flash {
+  0% { box-shadow: 0 0 0 3px hsl(var(--fsre-selection) / 0.55); }
+  100% { box-shadow: 0 0 0 3px transparent; }
+}
+.fsre-flash { animation: fsre-flash 900ms ease-out 1; }
+
+@keyframes fsre-arrive {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+.fsre-arrive { animation: fsre-arrive 450ms ease-out 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fsre-flash,
+  .fsre-arrive {
+    animation: none !important;
+  }
+}

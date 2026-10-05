@@ -498,7 +498,8 @@ function proposalRecord(event: FsreEvent): ProposalRecord {
     stageId: event.stageId ?? null,
     raisedBy,
     title: event.payload?.title ?? `Proposal from ${raisedBy ?? 'an unnamed skill'}`,
-    detail: event.payload?.detail ?? (mode ? `Mode: ${mode}.` : null),
+    // The mode is its own field; the panel shows it once, beside who raised it.
+    detail: event.payload?.detail ?? null,
     mode,
     ref: event.payload?.ref ?? null,
     state: 'open',
@@ -571,14 +572,30 @@ export function companyList(state: FsreState): CompanyState[] {
   return state.companyOrder.map((ticker) => state.companies[ticker]);
 }
 
-/** A company's status at a stage: an open escalation there outranks whatever was recorded. */
+/**
+ * A company's status at a stage, as the stage screen and the timeline show
+ * it. An open escalation there outranks whatever was recorded; and a gate
+ * failure ON RECORD stays visible after a later pass, exactly as the gate
+ * room shows it — a later result never erases an earlier failure.
+ */
 export function effectiveStageStatus(company: CompanyState, stageId: string): StageStatus {
   if (company.escalations.some((e) => e.state === 'open' && e.stageId === stageId)) return 'escalated';
-  return company.stageStatuses[stageId] ?? 'pending';
+  const recorded: StageStatus = company.stageStatuses[stageId] ?? 'pending';
+  const failedOnRecord = company.gates.some((gate) => gate.stageId === stageId && gate.result === 'failed');
+  return failedOnRecord && STAGE_SEVERITY.failed > STAGE_SEVERITY[recorded] ? 'failed' : recorded;
 }
 
+/**
+ * Where the company stands NOW at its current stage: the recorded status,
+ * under any open escalation there. Unlike effectiveStageStatus it does not
+ * carry history — a company that failed a gate and then passed it is in
+ * progress, and its folder says so (the gate's record says the rest).
+ */
 export function currentStageStatus(company: CompanyState): StageStatus {
-  return company.stageId ? effectiveStageStatus(company, company.stageId) : 'pending';
+  const at = company.stageId;
+  if (!at) return 'pending';
+  if (company.escalations.some((e) => e.state === 'open' && e.stageId === at)) return 'escalated';
+  return company.stageStatuses[at] ?? 'pending';
 }
 
 /** Open escalations that bear on a ticker: its own, and any raised for the whole run. */
@@ -737,13 +754,15 @@ export interface GateSummary {
   /** The most severe result on record: a later pass never hides an earlier failure. */
   worst: GateResult;
   latest: GateResult;
+  latestRecord: GateRecord | null;
   results: GateRecord[];
 }
 
 export function gateSummary(company: CompanyState, stageId: string): GateSummary {
   const results = company.gates.filter((gate) => gate.stageId === stageId);
   const worst = results.reduce<GateResult>((acc, gate) => (GATE_SEVERITY[gate.result] > GATE_SEVERITY[acc] ? gate.result : acc), 'pending');
-  return { worst, latest: results.at(-1)?.result ?? 'pending', results };
+  const latestRecord = results.at(-1) ?? null;
+  return { worst, latest: latestRecord?.result ?? 'pending', latestRecord, results };
 }
 
 /** Companies per gate result at a gate stage (worst on record each); companies not there yet are pending. */

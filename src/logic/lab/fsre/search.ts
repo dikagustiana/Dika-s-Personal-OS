@@ -67,3 +67,13 @@ export function selectionForResult(ctx: FsreContext, result: SearchResult): Fsre
     }
   }
 }
+
+/* ---------- the combobox's active option ---------- */
+
+export const FIRST_RESULT = 0;
+
+/** Arrow keys move the active option, stopping at either end. */
+export function moveActive(index: number, direction: 'next' | 'previous', count: number): number {
+  if (count <= 0) return FIRST_RESULT;
+  return direction === 'next' ? Math.min(index + 1, count - 1) : Math.max(index - 1, FIRST_RESULT);
+}

@@ -360,6 +360,10 @@ describe('a run with ten companies (SYN01..SYN10, interleaved)', () => {
   it('aggregates a stage to its worst company', () => {
     expect(stageAggregate(final, 'decomposed')).toBe('escalated');
     expect(stageAggregate(final, 'normalized')).toBe('blocked');
+    // SYN03 failed gate 1 and later passed: the stage still shows the failure on record.
+    expect(stageAggregate(final, 'gate1')).toBe('failed');
+    expect(effectiveStageStatus(T(3), 'gate1')).toBe('failed');
+    expect(folderStatus(final, T(3))).toBe('in-progress');
     expect(stageAggregate(final, 'closed')).toBe('pending');
   });
 

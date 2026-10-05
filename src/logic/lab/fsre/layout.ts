@@ -141,7 +141,7 @@ export const FLOORS: Record<FloorId, FloorFurniture> = {
   f2: {
     deskRow: { x0: 1, x1: 29, y: 4, monitors: true },
     decorations: [
-      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 8, x1: 22, z0: 1.1, z1: 2.7 },
+      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 7, x1: 23, z0: 0.75, z1: 2.85 },
       { kind: 'plant', id: 'f2-plant-a', x: 1.2, y: 8.4 },
       { kind: 'plant', id: 'f2-plant-b', x: 28.2, y: 8.4 },
     ],

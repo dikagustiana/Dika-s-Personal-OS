@@ -135,8 +135,8 @@ export const WALL_FRAME = { insetX: 0.12, insetZ: 0.1 } as const;
 /** The 1F stage screen: cells per row. */
 export const STAGE_SCREEN = { columns: 7 } as const;
 
-/** The 2F board: at most this many open issues are listed on the wall. */
-export const ISSUE_BOARD = { maxShown: 3 } as const;
+/** The 2F board: at most this many open issues are listed on the wall; the panel lists them all. */
+export const ISSUE_BOARD = { maxShown: 2 } as const;
 
 /** The right panel and the search box. */
 export const PANEL = {

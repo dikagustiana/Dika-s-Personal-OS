@@ -67,6 +67,7 @@ import {
   monitorBoxes,
   plantShape,
   project,
+  toPercentCentred,
   toPercentPoint,
   toPercentRect,
   wallPoints,
@@ -197,7 +198,7 @@ export interface IssueEntry {
 export type WallBody =
   | { content: 'stages'; cells: StageCell[] }
   | { content: 'figures'; entries: WallEntry[] }
-  | { content: 'issues'; entries: IssueEntry[]; more: number }
+  | { content: 'issues'; entries: IssueEntry[]; more: string | null }
   | { content: 'lift'; doors: string[] }
   | { content: 'blank' };
 
@@ -278,8 +279,9 @@ function pileBox(kind: PartnerItemKind, index: number): Box {
   };
 }
 
+/** A hit button's box, centred: the CSS grows it to at least 44px around the centre. */
 function hitRect(rect: Rect): PercentRect {
-  return toPercentRect(rect);
+  return toPercentCentred(rect);
 }
 
 /* ---------- the builder ---------- */
@@ -530,7 +532,8 @@ function buildWall(
       return { ...base, body: { content: 'figures', entries: wallFigures(state, focus) } };
     case 'issues': {
       const entries = openIssuesOnFloor(ctx, state, floorId);
-      return { ...base, body: { content: 'issues', entries: entries.slice(0, ISSUE_BOARD.maxShown), more: Math.max(0, entries.length - ISSUE_BOARD.maxShown) } };
+      const hidden = entries.length - ISSUE_BOARD.maxShown;
+      return { ...base, body: { content: 'issues', entries: entries.slice(0, ISSUE_BOARD.maxShown), more: hidden > 0 ? `and ${formatNumber(hidden)} more` : null } };
     }
     case 'lift': {
       const middle = (wall.x0 + wall.x1) / 2;
