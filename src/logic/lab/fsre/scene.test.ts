@@ -4,7 +4,7 @@ import { DOC_SHEET, FOLDER_STACK } from './geometry';
 import { FLOOR_DISPLAY_ORDER, deskKeyForGate, deskKeyForSkill } from './layout';
 import { buildContext, createInitialState, reduceEvent, reduceEvents, type FsreState } from './reducer';
 import { agentStatuses, buildFloorScene, focusTickerOf, stageCells, touchedBy, wallFigures, type FloorScene, type FsreSelection } from './scene';
-import { AGENT_STATUS_WORDS, FOLDER_STATUS_WORDS, GATE_RESULT_WORDS } from './statuses';
+import { AGENT_STATUS_WORDS, FOLDER_STATUS_WORDS, GATE_CHIP_WORDS, GATE_RESULT_WORDS } from './statuses';
 import { provisionalRun, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
 const run = tenCompanyRun();
@@ -103,7 +103,19 @@ describe('ten companies on the floors', () => {
   it('shows the gate rooms as the worst result on record', () => {
     const chips = allChips(list);
     expect(chips.find((c) => c.id === 'gate:gate1')?.text).toBe(`Gate 1: ${GATE_RESULT_WORDS.failed}`);
-    expect(chips.find((c) => c.id === 'gate:gate2')).toMatchObject({ glyph: '⚠', text: `Gate 2: ${GATE_RESULT_WORDS.escalated}` });
+    expect(chips.find((c) => c.id === 'gate:gate2')).toMatchObject({ glyph: '⚠', tone: 'escalated', text: `Gate 2: ${GATE_CHIP_WORDS.escalated}` });
+  });
+
+  it('keeps the long chips that share a height apart: side-by-side gate rooms alternate, a gate room’s folders take the other level', () => {
+    for (const scene of list) {
+      const gates = scene.chips.filter((c) => c.id.startsWith('gate:'));
+      gates.slice(1).forEach((gate, index) => expect(gate.stagger, gate.id).not.toBe(gates[index]?.stagger));
+      for (const gate of gates) {
+        const folders = scene.chips.find((c) => c.id === `folders:${deskKeyForGate(gate.id.slice('gate:'.length))}`);
+        if (folders) expect(folders.stagger, folders.id).not.toBe(gate.stagger);
+      }
+    }
+    expect(allChips(list).some((c) => c.id === `folders:${deskKeyForGate('gate1')}`)).toBe(true);
   });
 
   it('sums the wall counter, or speaks for the selected company', () => {

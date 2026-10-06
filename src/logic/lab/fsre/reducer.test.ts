@@ -343,7 +343,8 @@ describe('the real UNVR replay, bundled in src/data/fsre/ (brief 04)', () => {
   it('locks approval with every one of the 13 reasons written out', () => {
     const lock = approvalLock(final, ticker);
     expect(lock.locked).toBe(true);
-    expect(lock.reasons.map((r) => r.reason)).toEqual(raw.filter((e) => e.kind === 'escalated').map((e) => e.payload?.title));
+    expect(lock.reasons.map((r) => r.title)).toEqual(raw.filter((e) => e.kind === 'escalated').map((e) => e.payload?.title));
+    expect(lock.reasons.every((r) => r.reason.length > 0 && r.reason !== r.title)).toBe(true);
   });
 
   it('keeps the reviewer escalated, the owner idle in the partner room, and the folder at the review desk after packing', () => {

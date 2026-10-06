@@ -103,7 +103,8 @@ function ApprovalLock({ state, company }: { state: FsreState; company: CompanySt
         <ul className="mt-1.5 list-disc space-y-1 pl-5 text-foreground">
           {lock.reasons.map((reason) => (
             <li key={`${reason.ticker ?? 'run'}:${reason.eventId}`}>
-              <span className="font-medium">{reason.title}</span> — {reason.reason}
+              <span className="font-medium">{reason.title}</span>
+              {reason.title.includes(reason.reason) ? null : ` — ${reason.reason}`}
             </li>
           ))}
         </ul>
@@ -227,7 +228,8 @@ function PartnerList({ ctx, items, empty }: { ctx: FsreContext; items: PartnerIt
             <span className="text-xs text-foreground-muted">{[item.ticker ?? 'Whole run', stageName(ctx.plan, item.stageId)].filter(Boolean).join(' · ')}</span>
           </div>
           <p className="mt-1.5 font-medium text-foreground">{item.title}</p>
-          {item.reason ? <p className="mt-0.5 text-foreground">{item.reason}</p> : null}
+          {/* The reason only when it adds words: a one-sentence finding is already the title, after its check id. */}
+          {item.reason && !item.title.includes(item.reason) ? <p className="mt-0.5 text-foreground">{item.reason}</p> : null}
           {item.detail && item.detail !== item.reason ? <p className="mt-0.5 text-foreground-secondary">{item.detail}</p> : null}
           <p className="mt-0.5 text-xs text-foreground-muted">
             {[item.raisedBy ? `Raised by ${item.raisedBy}` : null, item.mode ? `Mode: ${item.mode}` : null].filter(Boolean).join(' · ')}

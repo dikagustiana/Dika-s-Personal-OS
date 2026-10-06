@@ -90,6 +90,9 @@ export function runNotes(run: FsreRun, kind: 'replay' | 'live'): Note[] {
   if (!run.timesRecorded) {
     notes.push({ key: 'times', glyph: null, text: 'Times were not recorded in this run: the replay shows the order of events, not their timing.' });
   }
+  if (run.timesNote) {
+    notes.push({ key: 'times-note', glyph: null, text: run.timesNote });
+  }
   return notes;
 }
 

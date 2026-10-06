@@ -73,11 +73,12 @@ describe('the bundled replay: the real export (brief 04)', () => {
     expect(metrics.getByText('Tie-out checks').nextElementSibling?.textContent).toBe('386 checks: 371 passed, 0 failed, 15 skipped');
   });
 
-  it('labels nothing provisional and says nothing about times, because the files say so (rule 6)', async () => {
+  it("labels nothing provisional, because the files say so, and shows the export's own note on its times (rule 6)", async () => {
     await open();
     const notes = within(screen.getByRole('list', { name: 'About this data' }));
     expect(notes.getAllByRole('listitem').map((li) => li.textContent)).toEqual([
       'Replay of a recorded run. Nothing is running now; the building moves only when an event is applied.',
+      REAL_DATA.replay.timesNote,
     ]);
   });
 
@@ -87,7 +88,9 @@ describe('the bundled replay: the real export (brief 04)', () => {
     for (const gate of ['gate2', 'gate3']) {
       expect(chip(`gate:${gate}`)?.dataset.tone).toBe('escalated');
       expect(chip(`gate:${gate}`)?.textContent).toContain('⚠');
-      expect(chip(`gate:${gate}`)?.textContent).toContain('Passed with escalation');
+      expect(chip(`gate:${gate}`)?.textContent).toContain(`Gate ${gate.slice(-1)}: Escalated`);
+      // the chip is short; its button, which a screen reader and the panel use, keeps the full words
+      expect(screen.getByRole('button', { name: `Gate ${gate.slice(-1)} gate room, Passed with escalation` })).toBeTruthy();
     }
   });
 
@@ -176,6 +179,23 @@ describe('escalations are never softened (rule 3)', () => {
     expect(panel().getByRole('button', { name: 'Approve' })).toHaveProperty('disabled', true);
   });
 
+  it('writes no escalation twice: words the title already holds are not repeated under it', async () => {
+    await open();
+    click(/^Partner room:/);
+    const items = document.querySelectorAll('[data-partner-item]');
+    expect(items.length).toBe(15);
+    for (const item of items) {
+      const [title = '', ...rest] = [...item.querySelectorAll('p')].map((p) => p.textContent ?? '');
+      for (const line of rest.filter(Boolean)) expect(title.includes(line), `${title} / ${line}`).toBe(false);
+    }
+    const lock = panel().getByText(new RegExp(`Approval locked for ${TICKER}`)).closest('[role="note"]');
+    for (const li of lock?.querySelectorAll('li') ?? []) {
+      const title = li.querySelector('span')?.textContent ?? '';
+      const rest = (li.textContent ?? '').slice(title.length).replace(/^ — /, '');
+      if (rest) expect(title.includes(rest), rest).toBe(false);
+    }
+  });
+
   it('keeps the reviewer escalated after its gates passed with escalation — never done', async () => {
     await open();
     expect(screen.getByRole('button', { name: 'review-manager, agent, Escalated' })).toBeTruthy();
@@ -184,7 +204,7 @@ describe('escalations are never softened (rule 3)', () => {
   it('keeps a lone gate escalation escalated too (ten companies)', async () => {
     await open([tenCompanies]);
     expect(screen.getByRole('button', { name: 'reviewer, agent, Escalated' })).toBeTruthy();
-    expect(chip('gate:gate2')?.textContent).toContain('Gate 2: Passed with escalation');
+    expect(chip('gate:gate2')?.textContent).toContain('Gate 2: Escalated');
   });
 });
 

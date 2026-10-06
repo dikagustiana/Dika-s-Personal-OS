@@ -431,12 +431,12 @@ export function reduceEvent(ctx: FsreContext, state: FsreState, event: FsreEvent
       next = updateAgent(updateAgent(next, keeper, dropTicker(company.ticker)), keeper, countWork);
       next = putCompany(next, company);
       if (event.kind === 'gate_passed_with_escalation') {
-        // The export raises each escalated note as its own `escalated`
-        // event before the gate reports, and the gate's "with escalation"
-        // IS those notes (its escalatedNotes figure counts them). It opens an
-        // item of its own only when nothing is open at that stage yet: a
-        // lone gate result still reaches the partner room and locks
-        // approval, and the notes are not counted twice.
+        // The export (and the live feed) raise each escalated note as its own
+        // `escalated` event before the gate reports, and the gate's "with
+        // escalation" IS those notes. It opens an item of its own only when
+        // nothing is open at that stage yet: a lone gate result still reaches
+        // the partner room and locks approval, and the notes are not counted
+        // twice.
         if (company.escalations.some((e) => e.state === 'open' && e.stageId === (stageId ?? null))) return next;
         const name = stageName(ctx, stageId) ?? 'The gate';
         return openEscalation(ctx, next, event, keeper, `${name} passed with an escalation that needs the owner's decision.`);

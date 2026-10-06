@@ -691,7 +691,8 @@ button {
   pointer-events: none;
   box-shadow: var(--shadow-card);
 }
-.fsre-chip[data-stagger='1'] { transform: translate(-50%, calc(-100% - 1.5em)); }
+/* One whole chip higher plus a gap: a lift shorter than a chip (1.45em line + border) left stacked chips touching. */
+.fsre-chip[data-stagger='1'] { transform: translate(-50%, calc(-200% - 0.25em)); }
 .fsre-chip[data-strong='true'] {
   font-weight: 600;
   border-color: hsl(var(--primary));
@@ -743,6 +744,15 @@ button {
 .fsre-stage-cell[data-tone='escalated'],
 .fsre-stage-cell[data-tone='stalled'] { background: hsl(var(--escalate) / 0.14); }
 .fsre-stage-cell[data-tone='failed'] { background: hsl(var(--destructive) / 0.1); }
+/* On its own tint a tone colour falls under 4.5:1 (success 4.13, escalate 4.41
+   measured): the word is written in the foreground colour, the glyph keeps the tone. */
+.fsre-stage-cell.fsre-tone { color: hsl(var(--foreground)); }
+.fsre-stage-cell[data-tone='working'] > [aria-hidden='true'] { color: hsl(var(--primary)); }
+.fsre-stage-cell[data-tone='done'] > [aria-hidden='true'] { color: hsl(var(--success)); }
+.fsre-stage-cell[data-tone='escalated'] > [aria-hidden='true'],
+.fsre-stage-cell[data-tone='stalled'] > [aria-hidden='true'] { color: hsl(var(--escalate)); }
+.fsre-stage-cell[data-tone='failed'] > [aria-hidden='true'] { color: hsl(var(--destructive)); }
+.fsre-stage-cell[data-tone='idle'] > [aria-hidden='true'] { color: hsl(var(--foreground-muted)); }
 
 /* Real buttons over the drawing: at least 44px, centred on what they cover. */
 .fsre-hit {

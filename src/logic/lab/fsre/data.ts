@@ -66,6 +66,8 @@ export interface FsreRun {
   companyNames: Record<string, string>;
   events: FsreEvent[];
   timesRecorded: boolean;
+  /** The file's own note on its times, shown as written. */
+  timesNote?: string;
   provenance: FsreProvenance[];
 }
 
@@ -122,6 +124,8 @@ const replayFileSchema = z.object({
   company: companySchema.optional(),
   companies: z.array(companySchema).optional(),
   timesRecorded: z.boolean().optional(),
+  /** The export's own words on its times (e.g. why review notes carry none). */
+  timesNote: z.string().min(1).optional(),
   events: z.array(rawEventSchema),
 });
 
@@ -153,9 +157,11 @@ function normalisePayload(raw: Record<string, unknown> | undefined, kind: RawEve
   if (nested.success) Object.assign(figures, nested.data);
   if (Object.keys(figures).length > 0) payload.figures = figures;
   // An escalation without a reason still has to say why it locks approval:
-  // the title is the next-best words, and they are the export's own.
-  if (kind === 'escalated' && payload.reason === undefined && payload.title !== undefined) {
-    payload.reason = payload.title;
+  // its detail, else its title, are the next-best words, and they are the
+  // export's own.
+  if (kind === 'escalated' && payload.reason === undefined) {
+    const words = payload.detail ?? payload.title;
+    if (words !== undefined) payload.reason = words;
   }
   return Object.keys(payload).length > 0 ? payload : undefined;
 }
@@ -261,6 +267,7 @@ export function parseFsreRun(raw: FsreRawFiles, fileNames: FsreFileNames, label?
       events,
       // Not stated → true only if every event carries a time.
       timesRecorded: replay.timesRecorded ?? events.every((event) => event.at !== null),
+      ...(replay.timesNote ? { timesNote: replay.timesNote } : {}),
       provenance: [
         provenanceOf('stages', fileNames.stages, stagesFile.provisional, stagesFile.source ?? null),
         provenanceOf('skills', fileNames.skills, skillsFile.provisional, skillsFile.source ?? null),

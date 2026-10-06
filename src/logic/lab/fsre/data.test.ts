@@ -105,10 +105,36 @@ describe('the real export, bundled in src/data/fsre/ (brief 04)', () => {
     expect(run.events.filter((e) => e.ticker === null).map((e) => e.kind)).toEqual(['proposal_logged', 'proposal_logged']);
   });
 
-  it('gives every escalation a reason: the export writes a title, which stands in for it', () => {
+  it('gives every escalation a reason: the export writes a detail beside the title, which stands in for it', () => {
     const escalations = run.events.filter((e) => e.kind === 'escalated');
     expect(escalations).toHaveLength(13);
-    for (const e of escalations) expect(e.payload?.reason).toBe(e.payload?.title);
+    for (const e of escalations) {
+      expect(e.payload?.detail).toBeTruthy();
+      expect(e.payload?.reason).toBe(e.payload?.detail);
+    }
+  });
+
+  it('falls back to the title for an escalation that has no detail either', () => {
+    const [stage] = REAL_DATA.stages.stages;
+    const parsed = parseFsreRun(
+      {
+        stages: REAL_DATA.stages,
+        skills: REAL_DATA.skills,
+        replay: { provisional: false, run: 'r', events: [{ id: 'e1', run: 'r', ticker: 'X', kind: 'escalated', stageId: stage?.id, payload: { title: 'Only a title' } }] },
+      },
+      { stages: 'stages.json', skills: 'skills.json', replay: 'replay.json' },
+    );
+    if (!parsed.ok) throw new Error(parsed.detail);
+    expect(parsed.run.events[0]?.payload?.reason).toBe('Only a title');
+  });
+
+  it("keeps the export's own note on its times", () => {
+    expect(run.timesNote).toBe(REAL_DATA.replay.timesNote);
+    expect(run.timesNote).toContain('Review notes and proposals carry at: null');
+  });
+
+  it('sends no escalation count as a figure: the building counts the escalated events', () => {
+    for (const e of run.events) expect(Object.keys(e.payload?.figures ?? {})).not.toContain('escalatedNotes');
   });
 
   it('keeps the seats named in skills.json', () => {

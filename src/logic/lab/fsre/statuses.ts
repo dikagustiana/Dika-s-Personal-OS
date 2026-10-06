@@ -71,6 +71,18 @@ export const GATE_RESULT_WORDS: Record<GateResult, string> = {
   escalated: 'Passed with escalation',
 };
 
+/**
+ * The gate chips in the drawing. Three gate rooms stand side by side, and at
+ * the chips' 9px floor "Passed with escalation" ran into the next room's
+ * chip at tablet and phone widths. The chip says what the stage screen says
+ * for the same state; its button's label, the metrics and the panel keep the
+ * full words. Glyph ⚠ and the escalated tone are unchanged (rule 3).
+ */
+export const GATE_CHIP_WORDS: Record<GateResult, string> = {
+  ...GATE_RESULT_WORDS,
+  escalated: STAGE_STATUS_WORDS.escalated,
+};
+
 export const FOLDER_STATUS_WORDS: Record<FolderStatus, string> = {
   'in-progress': 'In progress',
   returned: 'Returned',
@@ -133,7 +145,6 @@ export const FIGURE_LABELS: Record<string, string> = {
   failed: 'Failed',
   skipped: 'Skipped',
   identityPeriodsRun: 'Identity periods run',
-  escalatedNotes: 'Escalated notes',
 };
 
 export function figureLabel(key: string): string {

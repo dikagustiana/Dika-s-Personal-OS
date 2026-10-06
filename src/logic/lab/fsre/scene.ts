@@ -99,6 +99,7 @@ import {
   AGENT_STATUS_WORDS,
   FOLDER_STATUS_WORDS,
   FOLDER_STATUSES,
+  GATE_CHIP_WORDS,
   GATE_RESULT_WORDS,
   ISSUE_STATE_WORDS,
   PARTNER_KIND_COUNT_NOUNS,
@@ -331,6 +332,11 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
   /* desks, agents, gate rooms */
   const deskKeys = plan.desksOnFloor[floorId];
   let agentIndex = 0;
+  // Gate rooms stand side by side on a floor (3F holds two); their long
+  // result chips alternate heights like the agents' so neither covers the other.
+  let gateIndex = 0;
+  /** Gate desk key → the level its result chip took; the room's folder chip takes the other. */
+  const gateLevels = new Map<string, number>();
   for (const key of deskKeys) {
     const desk = plan.desks[key];
     if (desk.kind === 'fallback') continue; // drawn as the lobby bench decoration
@@ -359,7 +365,9 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         tone: AGENT_TONES[status],
         glyph: AGENT_GLYPHS[status],
         text: `${skill} · ${AGENT_STATUS_WORDS[status]}`,
-        stagger: agentIndex % CHIP_STAGGER_LEVELS,
+        // In the partner room the two document piles' chips take both levels
+        // right below whoever signs off; that agent's chip goes on the upper one.
+        stagger: desk.kind === 'partner' ? 1 : agentIndex % CHIP_STAGGER_LEVELS,
         strong: false,
       });
       agentIndex += 1;
@@ -387,10 +395,12 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         anchor: toPercentPoint(project(room.x + room.w / 2, room.y, room.h + CHIP_HEADROOM.gate)),
         tone: GATE_TONES[result],
         glyph: GATE_GLYPHS[result],
-        text: `${stageNameOf(plan, stageId)}: ${GATE_RESULT_WORDS[result]}`,
-        stagger: 0,
+        text: `${stageNameOf(plan, stageId)}: ${GATE_CHIP_WORDS[result]}`,
+        stagger: gateIndex % CHIP_STAGGER_LEVELS,
         strong: false,
       });
+      gateLevels.set(key, gateIndex % CHIP_STAGGER_LEVELS);
+      gateIndex += 1;
       hits.push({
         id: `gate:${stageId}`,
         label: `${stageNameOf(plan, stageId)} gate room, ${GATE_RESULT_WORDS[result]}`,
@@ -469,7 +479,8 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
       text: single
         ? `${single.ticker} · ${FOLDER_STATUS_WORDS[worst]}`
         : `${formatCount(tickers.length, 'folder')} · ${formatNumber(worstCount)} ${FOLDER_STATUS_WORDS[worst].toLowerCase()}`,
-      stagger: 0,
+      // In a gate room the result chip stands at the same height: take the other level.
+      stagger: gateLevels.has(desk.key) ? ((gateLevels.get(desk.key) ?? 0) + 1) % CHIP_STAGGER_LEVELS : 0,
       strong: true,
     });
     // A stack reads as pressed when the desk, or any folder in it, is selected.

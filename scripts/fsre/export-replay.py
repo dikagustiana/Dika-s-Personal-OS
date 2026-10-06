@@ -242,7 +242,6 @@ def main(argv=None) -> int:
                 add("escalated", None, stage, "review-manager",
                     {"title": short_title(check, n["finding"]), "detail": scrub(n["finding"]),
                      "ref": n["note_id"], "severity": n["severity"]}, notes_src)
-            payload.setdefault("figures", {})["escalatedNotes"] = {"value": len(esc)}
             add("gate_passed_with_escalation" if esc else "gate_passed", t["at"], stage, "review-manager",
                 payload, rl_src)
         elif status == "passed":

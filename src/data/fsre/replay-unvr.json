@@ -150,10 +150,7 @@
           "tieOutChecks": 386,
           "passed": 371,
           "failed": 0,
-          "skipped": 15,
-          "escalatedNotes": {
-            "value": 0
-          }
+          "skipped": 15
         }
       },
       "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
@@ -588,13 +585,6 @@
       "at": "2026-09-30T15:46:09.211596Z",
       "stageId": "gate2",
       "skill": "review-manager",
-      "payload": {
-        "figures": {
-          "escalatedNotes": {
-            "value": 11
-          }
-        }
-      },
       "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
@@ -707,13 +697,6 @@
       "at": "2026-09-30T15:46:11.953404Z",
       "stageId": "gate3",
       "skill": "review-manager",
-      "payload": {
-        "figures": {
-          "escalatedNotes": {
-            "value": 2
-          }
-        }
-      },
       "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
