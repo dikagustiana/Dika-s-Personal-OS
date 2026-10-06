@@ -231,6 +231,8 @@ export interface FloorPlan {
   desks: Record<DeskKey, DeskAnchor>;
   /** Desk keys per floor, in drawing order. */
   desksOnFloor: Record<FloorId, DeskKey[]>;
+  /** Each floor's plants, racks, glass rooms and wall features, drawn by the scene. */
+  decorations: Record<FloorId, readonly Decoration[]>;
 }
 
 function emptyByFloor<T>(make: () => T): Record<FloorId, T> {
@@ -244,7 +246,7 @@ export function slotCentres(x0: number, x1: number, count: number): number[] {
   return Array.from({ length: count }, (_, index) => x0 + width * (index + 0.5));
 }
 
-function folderSpotOn(surface: Box, dx?: number): { x: number; y: number; z: number } {
+export function folderSpotOn(surface: Box, dx?: number): { x: number; y: number; z: number } {
   return {
     x: dx === undefined ? surface.x + (surface.w - FOLDER_BOX.w) / 2 : surface.x + dx,
     y: surface.y + (surface.d - FOLDER_BOX.d) / 2,
@@ -404,6 +406,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
     skillsOnFloor,
     desks,
     desksOnFloor,
+    decorations: { b1: FLOORS.b1.decorations, f1: FLOORS.f1.decorations, f2: FLOORS.f2.decorations, f3: FLOORS.f3.decorations, f4: FLOORS.f4.decorations },
   };
 }
 

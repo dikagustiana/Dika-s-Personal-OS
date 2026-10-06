@@ -167,8 +167,13 @@ export interface FsreContext {
   plan: FloorPlan;
 }
 
-export function buildContext(run: FsreRun): FsreContext {
-  return { run, plan: planFloors(run.stages, run.skills) };
+/**
+ * The run and its floor plan. The plan defaults to planFloors; the v2 building
+ * passes the department plan (departmentPlan.ts), which keeps the same desk
+ * keys, so nothing that folds events depends on which one it is.
+ */
+export function buildContext(run: FsreRun, plan: FloorPlan = planFloors(run.stages, run.skills)): FsreContext {
+  return { run, plan };
 }
 
 export function createInitialState(ctx: FsreContext): FsreState {

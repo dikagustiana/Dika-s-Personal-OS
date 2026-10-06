@@ -41,7 +41,6 @@ import {
   type Tone,
 } from './glyphs';
 import {
-  FLOORS,
   FLOOR_LABELS,
   FLOOR_ZONES,
   PARTNER_DESK,
@@ -289,7 +288,9 @@ function hitRect(rect: Rect): PercentRect {
 
 export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: FloorId, view: SceneView): FloorScene {
   const { plan } = ctx;
-  const furniture = FLOORS[floorId];
+  // The plan carries each floor's furniture: planFloors gives layout.ts FLOORS,
+  // the department plan (v2) its own (departmentLayout.ts).
+  const decorations = plan.decorations[floorId];
   const zone = FLOOR_ZONES[floorId];
   const items: DrawItem[] = [];
   const chips: ChipSpec[] = [];
@@ -299,7 +300,7 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
 
   /* decorations */
   const walls: WallSpec[] = [];
-  for (const decoration of furniture.decorations) {
+  for (const decoration of decorations) {
     switch (decoration.kind) {
       case 'plant':
         items.push({ kind: 'plant', key: decoration.id, sortY: decoration.y, shape: plantShape(decoration.x, decoration.y) });
@@ -438,7 +439,7 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         strong: false,
       });
     }
-    const chair = furniture.decorations.find((d) => d.kind === 'solid' && d.id === 'partner-chair');
+    const chair = decorations.find((d) => d.kind === 'solid' && d.id === 'partner-chair');
     const deskRect = boundsOfBox(PARTNER_DESK);
     const chairRect = chair && chair.kind === 'solid' ? boundsOfBox(chair.box) : deskRect;
     const left = Math.min(deskRect.left, chairRect.left);
