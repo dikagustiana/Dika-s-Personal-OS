@@ -1,0 +1,289 @@
+{
+  "provisional": true,
+  "run": "unvr-dry-run",
+  "company": {
+    "ticker": "UNVR",
+    "name": "Unilever Indonesia"
+  },
+  "timesRecorded": false,
+  "archetypes": [
+    "ARC-DIST",
+    "ARC-PROC",
+    "ARC-ASSET"
+  ],
+  "figures": {
+    "filings": {
+      "value": 5,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "detail": "Audited XBRL filings, FY2021 to FY2025"
+    },
+    "factsLoaded": {
+      "value": 10142,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    "rows": {
+      "value": 209,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    "unmappedConcepts": {
+      "value": 0,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    "rowsTraced": {
+      "value": 209,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "of": 209
+    },
+    "tieOutChecks": {
+      "value": 21,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "passed": 18,
+      "failed": 0,
+      "skipped": 3
+    },
+    "gate1": {
+      "value": "passed",
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    "decompositionFit": {
+      "value": 0,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "of": 36,
+      "unit": "identity periods",
+      "archetype": "ARC-PROC"
+    },
+    "reviewIssues": {
+      "value": 2,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    "guruhProposals": {
+      "value": 2,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "detail": "Flag-only, pending owner approval"
+    }
+  },
+  "events": [
+    {
+      "id": "e01",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "manifest",
+      "skill": "fs-reverse-engineering"
+    },
+    {
+      "id": "e02",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "manifest",
+      "skill": "fs-reverse-engineering"
+    },
+    {
+      "id": "e03",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "universe",
+      "skill": "idx-universe"
+    },
+    {
+      "id": "e04",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "universe",
+      "skill": "idx-universe"
+    },
+    {
+      "id": "e05",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "sourcing",
+      "skill": "data-sourcing"
+    },
+    {
+      "id": "e06",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "sourcing",
+      "skill": "data-sourcing",
+      "payload": {
+        "filings": 5
+      }
+    },
+    {
+      "id": "e07",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "intake",
+      "skill": "fs-intake"
+    },
+    {
+      "id": "e08",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "intake",
+      "skill": "fs-intake",
+      "payload": {
+        "factsLoaded": 10142,
+        "rows": 209,
+        "unmappedConcepts": 0,
+        "rowsTraced": 209
+      }
+    },
+    {
+      "id": "e09",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "gate_passed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "gate-1",
+      "skill": "review-manager",
+      "payload": {
+        "tieOutChecks": 21,
+        "passed": 18,
+        "failed": 0,
+        "skipped": 3
+      }
+    },
+    {
+      "id": "e10",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "normalise",
+      "skill": "fs-normalize"
+    },
+    {
+      "id": "e11",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "normalise",
+      "skill": "fs-normalize"
+    },
+    {
+      "id": "e12",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "decomposition",
+      "skill": "fs-driver-decomposition"
+    },
+    {
+      "id": "e13",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "decomposition",
+      "skill": "review-manager",
+      "payload": {
+        "title": "Archetype misfit",
+        "detail": "ARC-PROC fitted 0 of 36 identity periods."
+      }
+    },
+    {
+      "id": "e14",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "decomposition",
+      "skill": "review-manager",
+      "payload": {
+        "title": "[Second review issue: title not in the summary]"
+      }
+    },
+    {
+      "id": "e15",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "stageId": "decomposition",
+      "skill": "fs-driver-decomposition",
+      "payload": {
+        "reason": "ARC-PROC fitted 0 of 36 identity periods. The process archetype needs volume and capacity disclosures that a brand owner does not make."
+      }
+    },
+    {
+      "id": "e16",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "proposal_logged",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "skill": "guruh",
+      "payload": {
+        "title": "[Proposal 1: title not in the summary]",
+        "mode": "flag-only"
+      }
+    },
+    {
+      "id": "e17",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "proposal_logged",
+      "at": null,
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "skill": "guruh",
+      "payload": {
+        "title": "[Proposal 2: title not in the summary]",
+        "mode": "flag-only"
+      }
+    }
+  ],
+  "partnerQueue": [
+    {
+      "kind": "escalation",
+      "title": "UNVR, driver decomposition: archetype misfit",
+      "detail": "ARC-PROC fitted 0 of 36 identity periods. Raised by review-manager.",
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    {
+      "kind": "proposal",
+      "title": "[Proposal 1: title not in the summary]",
+      "detail": "Flag-only. Applies between waves, after the owner's approval.",
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    },
+    {
+      "kind": "proposal",
+      "title": "[Proposal 2: title not in the summary]",
+      "detail": "Flag-only. Applies between waves, after the owner's approval.",
+      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    }
+  ],
+  "note": "Stopgap file written in chat. Replace with the export from fsre-skills when it runs."
+}

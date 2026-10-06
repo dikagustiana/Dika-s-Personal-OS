@@ -21,18 +21,32 @@ import { LabChains } from './views/lab/LabChains';
 import { LabFlow } from './views/lab/flow/LabFlow';
 import { LabEvidence } from './views/lab/evidence/LabEvidence';
 import { InstitutionDirector } from './views/lab/institution/InstitutionDirector';
+import { FsreOwnerOnly } from './views/lab/fsre/FsreOwnerOnly';
 
 /**
- * B-11: the floor is the ONLY lazy view in the app, and it is lazy for one
- * measured reason — it pulls three.js, drei and the postprocessing stack,
- * which together are larger than the rest of the bundle. Every other view
- * is small enough that a second request costs more than it saves. The
- * bundle report in PROGRESS.md is the proof that this boundary holds; a
- * static import added anywhere in src/ that reaches this tree would put
- * Three back in the main chunk without any error to notice.
+ * B-11: the floor was the only lazy view in the app, lazy for one measured
+ * reason — it pulls three.js, drei and the postprocessing stack, which
+ * together are larger than the rest of the bundle. Every other view is small
+ * enough that a second request costs more than it saves. The bundle report
+ * in PROGRESS.md is the proof that this boundary holds; a static import
+ * added anywhere in src/ that reaches this tree would put Three back in the
+ * main chunk without any error to notice.
  */
 const LabFloor = lazy(() =>
   import('./views/lab/floor/hud/OfficeApp').then((module) => ({ default: module.OfficeApp })),
+);
+
+/**
+ * The FSRE building is the second lazy view, for a different reason: not
+ * size but WHO. Its replay data (a dry run's events) is owner material, so
+ * it lives in a chunk only the owner's branch below ever requests, and the
+ * contributor's branch renders FsreOwnerOnly, which imports nothing from it.
+ * (A contributor who fetched the chunk by hand could still read the bundled
+ * replay; the live feed, M5, is served only through an owner-checked edge
+ * function — mount report §3.4.)
+ */
+const LabFsreBuilding = lazy(() =>
+  import('./views/lab/fsre/FsreBuilding').then((module) => ({ default: module.FsreBuilding })),
 );
 
 export default function App() {
@@ -41,6 +55,7 @@ export default function App() {
   const workView = useAppStore((state) => state.workView);
   const growthView = useAppStore((state) => state.growthView);
   const labView = useAppStore((state) => state.labView);
+  const viewer = useAppStore((state) => state.viewer);
 
   // The Finish line owns the only address in the app; every other view is
   // state with no URL. Leaving it therefore has to put the address back,
@@ -75,6 +90,22 @@ export default function App() {
           <LabFloor />
         </Suspense>
       );
+    }
+    else if (labView === 'fsre') {
+      // Owner only. A contributor never sees the Lab nav, but the store can
+      // still say 'fsre' (a stale session, a hand-set state): they get a
+      // sentence and no request — the lazy chunk is never asked for.
+      view =
+        viewer.kind === 'owner' ? (
+          <Suspense
+            key="lab"
+            fallback={<p className="p-6 text-sm text-foreground-muted">Loading the FSRE building…</p>}
+          >
+            <LabFsreBuilding />
+          </Suspense>
+        ) : (
+          <FsreOwnerOnly key="lab" />
+        );
     }
     else view = <LabRegistry key="lab" />;
   } else if (workspace === 'work') {

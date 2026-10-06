@@ -1,0 +1,52 @@
+{
+  "provisional": false,
+  "source": "skills/*/SKILL.md (names); each role is one sentence in our own words; seats as the building's rule 0",
+  "skills": [
+    {
+      "name": "data-sourcing",
+      "role": "Plans which filings and reports each company needs and searches for missing operating figures."
+    },
+    {
+      "name": "financial-modeling",
+      "role": "Calibrates the driver model against history and writes the workbook and its JSON twin."
+    },
+    {
+      "name": "fs-driver-decomposition",
+      "role": "Breaks the statements into operating drivers such as volume, price and cost per unit."
+    },
+    {
+      "name": "fs-intake",
+      "role": "Reads the filings into a standard chart of accounts and checks that every line ties to its source."
+    },
+    {
+      "name": "fs-normalize",
+      "role": "Adjusts reported figures for one-off and non-operating items, with each adjustment evidenced."
+    },
+    {
+      "name": "fs-reverse-engineering",
+      "role": "Runs the pipeline: moves each company through the stages in order, keeps the gates and budgets, and records every transition.",
+      "seat": "lobby"
+    },
+    {
+      "name": "guruh",
+      "role": "Learns from review findings and proposes changes to the skills, which only the owner approves."
+    },
+    {
+      "name": "idx-universe",
+      "role": "Chooses which listed companies go into a wave, one pair per sub-industry, and records why."
+    },
+    {
+      "name": "peer-benchmark",
+      "role": "Builds ranges for each driver from the companies in the same sub-industry."
+    },
+    {
+      "name": "review-manager",
+      "role": "Reviews the work at each of the three gates, writes review notes and escalates what only the owner can decide."
+    },
+    {
+      "name": "partner",
+      "role": "The owner: decides escalations and proposals, and approves a model for publication.",
+      "seat": "partner"
+    }
+  ]
+}

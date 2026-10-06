@@ -1,0 +1,111 @@
+{
+  "provisional": false,
+  "source": "skills/fs-reverse-engineering/scripts/manifest.py (STAGES); skills per stage from skills/fs-reverse-engineering/references/pipeline.md",
+  "stages": [
+    {
+      "id": "selected",
+      "name": "Selected",
+      "order": 1,
+      "skills": [
+        "idx-universe"
+      ]
+    },
+    {
+      "id": "doc_plan",
+      "name": "Document plan",
+      "order": 2,
+      "skills": [
+        "data-sourcing"
+      ]
+    },
+    {
+      "id": "intake",
+      "name": "Intake",
+      "order": 3,
+      "skills": [
+        "fs-intake"
+      ]
+    },
+    {
+      "id": "gate1",
+      "name": "Gate 1",
+      "order": 4,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "normalized",
+      "name": "Normalised",
+      "order": 5,
+      "skills": [
+        "fs-normalize"
+      ]
+    },
+    {
+      "id": "decomposed",
+      "name": "Decomposed",
+      "order": 6,
+      "skills": [
+        "fs-driver-decomposition",
+        "data-sourcing"
+      ]
+    },
+    {
+      "id": "benchmarked",
+      "name": "Benchmarked",
+      "order": 7,
+      "skills": [
+        "peer-benchmark"
+      ]
+    },
+    {
+      "id": "gate2",
+      "name": "Gate 2",
+      "order": 8,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "calibrated",
+      "name": "Calibrated",
+      "order": 9,
+      "skills": [
+        "financial-modeling"
+      ]
+    },
+    {
+      "id": "gate3",
+      "name": "Gate 3",
+      "order": 10,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "packed",
+      "name": "Packed",
+      "order": 11,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "partner_reviewed",
+      "name": "Partner review",
+      "order": 12,
+      "skills": [
+        "partner"
+      ]
+    },
+    {
+      "id": "closed",
+      "name": "Closed",
+      "order": 13,
+      "skills": [
+        "fs-reverse-engineering"
+      ]
+    }
+  ]
+}

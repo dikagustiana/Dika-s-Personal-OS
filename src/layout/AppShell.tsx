@@ -2,6 +2,7 @@ import {
   BookMarked,
   BookOpen,
   Bot,
+  Building2,
   CalendarDays,
   ChevronRight,
   Factory,
@@ -93,6 +94,10 @@ const labNav: Array<{ id: LabView; label: string; short: string; icon: typeof Fo
   // seats are empty, where a document is being carried. It reads the rows
   // the other views read and writes nothing.
   { id: 'floor', label: 'The floor', short: 'Floor', icon: Grid3x3 },
+  // The FSRE building: the statement pipeline as a building, replayed from
+  // its events. Owner-only like every Lab entry; App.tsx also refuses it to
+  // a contributor viewer whose store says 'fsre'.
+  { id: 'fsre', label: 'FSRE building', short: 'FSRE', icon: Building2 },
 ];
 
 function WorkspaceSwitch({
