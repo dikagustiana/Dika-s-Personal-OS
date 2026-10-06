@@ -565,7 +565,10 @@ yes with no open escalation, second click, cancel, refusal reasons, a check that
 button without the approval). Negative controls: the lock condition removed, and the owner check
 moved after the database call, each turn a test red.
 
-### Known gap
+### Stage figures, live
 
-Live stage cards show no figures yet: the suite's transition events carry only a reason, and the
-export reads figures from other files. A later suite proposal can put figures on stage events.
+The suite's transition events carried only a reason, so live stage cards would show no figures.
+CP-wave-2026-02-007 amendment 4 (waiting for the owner's decision with the rest of CP-007) has the
+router carry a stage's headline figures on its result's event (`manifest.py move --figures`) and
+pins their shape to what the building reads (a number or `{value, of}`, by name); the live mapper
+already passes them through. Until it is decided, live stage cards show no figures.
