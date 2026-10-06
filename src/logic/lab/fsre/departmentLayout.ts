@@ -113,7 +113,8 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
     staffStrip: STAFF_ROW,
     special: [],
     decorations: [
-      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 7, x1: 23, z0: 0.75, z1: 2.85 },
+      // Between the two back-row desks, so their chips never cover the board's last line (review R3).
+      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 10.6, x1: 19.8, z0: 0.75, z1: 2.85 },
       { kind: 'plant', id: 'f2-plant-a', x: 1.2, y: 8.4 },
       { kind: 'plant', id: 'f2-plant-b', x: 28.2, y: 8.4 },
     ],
@@ -149,7 +150,8 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
     staffStrip: STAFF_ROW,
     special: [],
     decorations: [
-      { kind: 'wall', id: 'data-counter', content: 'figures', x0: 2, x1: 15, z0: 1.1, z1: 2.5 },
+      // High on the wall: one row of figures needs no more, and the back row's chips stay below it (review R3).
+      { kind: 'wall', id: 'data-counter', content: 'figures', x0: 2, x1: 15, z0: 1.4, z1: 2.65 },
       { kind: 'rack', id: 'rack-a', box: { x: 22.6, y: 8.6, w: 1.1, d: 1, h: 2.4 } },
       { kind: 'rack', id: 'rack-b', box: { x: 23.9, y: 8.6, w: 1.1, d: 1, h: 2.4 } },
       { kind: 'rack', id: 'rack-c', box: { x: 25.2, y: 8.6, w: 1.1, d: 1, h: 2.4 } },
