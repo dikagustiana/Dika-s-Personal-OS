@@ -707,6 +707,7 @@ button {
    state. Long task text is cut, not wrapped: the desk panel holds it whole. */
 .fsre-chip-detail {
   display: block;
+  /* CHIP_CSS.detailMaxPx in geometry.ts */
   max-width: 11rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -717,6 +718,15 @@ button {
    each says so in words ("other work: …"), the fade only quietens it. */
 .fsre-chip[data-dim='true'],
 .fsre-dim { opacity: 0.45; }
+/* v2: a department lead's chip is capped, so even a long task never reaches
+   the staff desks either side of the aisle behind it (FX-11; the width is
+   CHIP_CSS.leadMaxPx in geometry.ts, and the test reasons with it). */
+.fsre-chip[data-lead='true'] {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fsre-chip[data-lead='true'] .fsre-chip-detail { max-width: 100%; }
 
 .fsre-floor-tag {
   position: absolute;

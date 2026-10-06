@@ -16,6 +16,7 @@ import { formatCount, formatNumber } from './format';
 import {
   AGENT_FIGURE,
   CHIP_HEADROOM,
+  CHIP_NEIGHBOUR,
   CHIP_STAGGER_LEVELS,
   DOC_SHEET,
   FOLDER_BOX,
@@ -146,6 +147,24 @@ export function selectionKey(selection: FsreSelection | null): string {
 /** Sinks things resting on a surface just in front of it in the painter's order. */
 export const ON_TOP = 0.001;
 
+/** A person's chip already placed on a floor: where its person stands, and its level. */
+export interface PlacedChip {
+  x: number;
+  y: number;
+  level: number;
+}
+
+/**
+ * The lowest chip level no neighbour (CHIP_NEIGHBOUR) already takes. Desks
+ * are visited left to right, so neighbours alternate and a chip with no
+ * neighbour stays on the lower level.
+ */
+export function chipLevel(placed: readonly PlacedChip[], x: number, y: number): number {
+  const near = placed.filter((p) => Math.abs(p.y - y) < CHIP_NEIGHBOUR.rowDepth && Math.abs(p.x - x) < CHIP_NEIGHBOUR.width);
+  for (let level = 0; level < CHIP_STAGGER_LEVELS; level += 1) if (!near.some((p) => p.level === level)) return level;
+  return near.length % CHIP_STAGGER_LEVELS;
+}
+
 /* ---------- scene types ---------- */
 
 export type BoxMaterial = 'furniture' | 'monitor' | 'bench' | 'folder' | 'doc-escalation' | 'doc-proposal';
@@ -172,6 +191,8 @@ export interface ChipSpec {
   detail?: string[];
   /** v2: the desk belongs to another engagement than the one the building is filtered to. */
   dim?: boolean;
+  /** v2: a department lead's chip: never raised, and capped in width (FX-11). */
+  lead?: boolean;
 }
 
 export interface HitSpec {
@@ -343,7 +364,12 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
 
   /* desks, agents, gate rooms */
   const deskKeys = plan.desksOnFloor[floorId];
-  let agentIndex = 0;
+  const placed: PlacedChip[] = [];
+  const levelAt = (x: number, y: number) => {
+    const level = chipLevel(placed, x, y);
+    placed.push({ x, y, level });
+    return level;
+  };
   // Gate rooms stand side by side on a floor (3F holds two); their long
   // result chips alternate heights like the agents' so neither covers the other.
   let gateIndex = 0;
@@ -379,10 +405,9 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         text: `${skill} · ${AGENT_STATUS_WORDS[status]}`,
         // In the partner room the two document piles' chips take both levels
         // right below whoever signs off; that agent's chip goes on the upper one.
-        stagger: desk.kind === 'partner' ? 1 : agentIndex % CHIP_STAGGER_LEVELS,
+        stagger: desk.kind === 'partner' ? 1 : levelAt(spot.x, spot.y),
         strong: false,
       });
-      agentIndex += 1;
       hits.push({
         id: `agent:${skill}`,
         label: `${skill}, agent, ${AGENT_STATUS_WORDS[status]}`,
@@ -408,10 +433,9 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         tone: AGENT_TONES.idle,
         glyph: AGENT_GLYPHS.idle,
         text: `${desk.title ?? ''} · ${UNASSIGNED_DESK_WORD}`,
-        stagger: agentIndex % CHIP_STAGGER_LEVELS,
+        stagger: levelAt(spot.x, spot.y),
         strong: false,
       });
-      agentIndex += 1;
     }
     if (desk.kind === 'gate' && desk.stageId && desk.room) {
       const stageId = desk.stageId;

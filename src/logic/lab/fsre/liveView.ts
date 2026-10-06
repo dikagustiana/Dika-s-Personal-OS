@@ -180,12 +180,20 @@ export interface IndustriesTopLine {
   escalationsOpen: number;
 }
 
+/**
+ * The board's top line. Escalations open is the larger of what the rows below
+ * it count and what this session's events count: the rows cover engagements
+ * whose escalations opened before the page subscribed, the events cover the
+ * moments before the rows refresh. Never fewer than either (brief v2 §2:
+ * counts always shown in full; review R2).
+ */
 export function industriesTopLine(progress: readonly IndustryProgressRow[], engagements: readonly Engagement[], state: LiveState): IndustriesTopLine {
+  const inRows = progress.reduce((sum, row) => sum + row.companies.reduce((n, company) => n + company.escalationsOpen, 0), 0);
   return {
     covered: progress.filter((row) => row.covered).length,
     total: progress.length,
     running: engagements.filter((e) => e.status === 'running').length,
-    escalationsOpen: escalationsOpenCount(state),
+    escalationsOpen: Math.max(inRows, escalationsOpenCount(state)),
   };
 }
 
@@ -207,10 +215,17 @@ export function stageSegments(stageIndex: number, stagesTotal: number): boolean[
 
 /* ---------- the plan card ---------- */
 
-/** "Chain position 3 of 8", or "Not placed on the chain yet". */
-export function chainPositionText(chainNodeId: string | null): string {
+/**
+ * "Basic industry · chain position 2", or "Not placed on the chain yet". The
+ * plan carries the chain node, not its group; the group comes from the
+ * industries board's row for the same sub-industry. (GLM wrote "N of 8",
+ * counting sub-industries against chain groups: "9 of 8" for logistics.)
+ */
+export function chainPositionText(chainNodeId: string | null, subIndustryCode: string, progress: readonly IndustryProgressRow[]): string {
   const [notPlaced] = CHAIN_GROUPS.slice(-1);
   if (chainNodeId === null) return notPlaced;
-  const placedGroups = CHAIN_GROUPS.length - 1;
-  return `Chain position ${chainNodeId.replace('chain-', '')} of ${formatNumber(placedGroups)}`;
+  const position = Number(chainNodeId.replace('chain-', ''));
+  const group = progress.find((row) => row.subIndustryCode === subIndustryCode)?.chainGroup ?? null;
+  const where = Number.isFinite(position) ? `chain position ${formatNumber(position)}` : chainNodeId;
+  return group ? `${group} · ${where}` : where;
 }

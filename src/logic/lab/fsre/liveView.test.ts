@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentEvent } from '../../../data/fsreTransport/contract';
 import { MockTransport } from '../../../data/fsreTransport/mockTransport';
 import { createInitialLiveState, mergeAgents, reduceAgentEvent, type LiveState } from './liveReducer';
-import { approvalLock, chainPositionText, gateLine, industriesGroups, summaryCard } from './liveView';
+import { approvalLock, chainPositionText, gateLine, industriesGroups, industriesTopLine, summaryCard } from './liveView';
 import { CHAIN_GROUPS } from './statuses';
 
 const transports: MockTransport[] = [];
@@ -64,9 +64,22 @@ describe('the partner room', () => {
 });
 
 describe('the plan card and the industries board', () => {
-  it('writes the chain position out of the placed groups, or says it is not placed', () => {
-    expect(chainPositionText('chain-3')).toBe(`Chain position 3 of ${CHAIN_GROUPS.length - 1}`);
-    expect(chainPositionText(null)).toBe('Not placed on the chain yet');
+  it('names the chain position by its group, never "9 of 8", or says it is not placed', async () => {
+    const transport = new MockTransport();
+    transports.push(transport);
+    const progress = await transport.getIndustryProgress();
+    expect(chainPositionText('chain-2', 'SYN-CEM', progress)).toBe('Basic industry · chain position 2');
+    expect(chainPositionText('chain-9', 'SYN-LOG', progress)).toBe('Spanning layers — Logistics · chain position 9');
+    expect(chainPositionText(null, 'SYN-AUT', progress)).toBe('Not placed on the chain yet');
+  });
+
+  it('never counts fewer escalations on the board’s top line than its own rows show (review R2)', async () => {
+    const transport = new MockTransport();
+    transports.push(transport);
+    const progress = await transport.getIndustryProgress();
+    const inRows = progress.flatMap((row) => row.companies).reduce((n, c) => n + c.escalationsOpen, 0);
+    expect(inRows).toBeGreaterThan(0);
+    expect(industriesTopLine(progress, await transport.listEngagements(), createInitialLiveState([])).escalationsOpen).toBe(inRows);
   });
 
   it('groups the board by chain group in chain order, leaving empty groups out', async () => {

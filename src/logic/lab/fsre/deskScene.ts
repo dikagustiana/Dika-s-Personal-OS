@@ -17,11 +17,11 @@ import { agentShape, boundsOf, boundsOfBox, boxFaces, floorShell, footprintPoint
 import { DEPARTMENT_FLOORS } from './departmentLayout';
 import { floorTagParts, type DeskView, type FloorDesks } from './deskViews';
 import { formatCount, formatNumber } from './format';
-import { AGENT_FIGURE, CHIP_HEADROOM, CHIP_STAGGER_LEVELS, HIT, RACK_FIGURE, RING } from './geometry';
+import { AGENT_FIGURE, CHIP_HEADROOM, HIT, RACK_FIGURE, RING } from './geometry';
 import { DESK_FIGURE_STATUS } from './glyphs';
 import { FLOOR_LABELS, PARTNER_DESK, type FloorId } from './layout';
-import { ON_TOP, hitRect, liftDoors, selectionKey, wallGeometry, type ChipSpec, type DrawItem, type FloorScene, type FsreSelection, type HitSpec, type WallSpec } from './scene';
-import { IN_TRAY_WORD } from './statuses';
+import { ON_TOP, chipLevel, hitRect, liftDoors, selectionKey, wallGeometry, type ChipSpec, type DrawItem, type FloorScene, type FsreSelection, type HitSpec, type PlacedChip, type WallSpec } from './scene';
+import { IN_TRAY_WORD, OTHER_WORK_WORD } from './statuses';
 
 /** The in-tray: a short stack of sheets on the desk's right-hand corner. */
 const IN_TRAY = { insetX: 0.25, insetY: 0.2, w: 0.55, d: 0.4, sheet: 0.05, maxSheets: 4 } as const;
@@ -57,10 +57,14 @@ function stateLine(desk: DeskView): string {
   return desk.trayCount > 0 ? `${desk.stateWord} · ${IN_TRAY_WORD} ${formatNumber(desk.trayCount)}` : desk.stateWord;
 }
 
-/** The name plate, the monitor's words, and the dim label when the building is filtered elsewhere. */
+/**
+ * The name plate with the monitor's words after it. On a desk of another
+ * engagement while the building is filtered, the dim label takes the
+ * monitor's place, so every chip stays two lines.
+ */
 function detailLines(desk: DeskView): string[] {
-  const plate = desk.monitorText ? `${plateText(desk)} — ${desk.monitorText}` : plateText(desk);
-  return desk.dimLabel ? [plate, `other work: ${desk.dimLabel}`] : [plate];
+  if (desk.dimLabel) return [`${plateText(desk)} · ${OTHER_WORK_WORD} ${desk.dimLabel}`];
+  return [desk.monitorText ? `${plateText(desk)} — ${desk.monitorText}` : plateText(desk)];
 }
 
 function walls(floorId: FloorId): WallSpec[] {
@@ -113,9 +117,11 @@ export function buildDeskFloorScene(floorId: FloorId, floor: FloorDesks, view: D
   const selKey = selectionKey(view.selection);
   let ring: string | null = null;
 
-  // Left to right: neighbouring chips alternate heights and the buttons tab in reading order.
+  // Left to right: neighbours alternate chip levels and the buttons tab in reading order.
+  // A lead's chip stays on the lower level, in the front row's own band (FX-11).
   const byPosition = [...floor.desks].sort((a, b) => a.seat.surface.x - b.seat.surface.x);
-  byPosition.forEach((desk, index) => {
+  const placed: PlacedChip[] = [];
+  byPosition.forEach((desk) => {
     const surface = desk.seat.surface;
     const dim = desk.dimLabel !== null;
     const spot = { x: surface.x + surface.w / 2, y: surface.y + AGENT_FIGURE.behindDesk };
@@ -134,16 +140,20 @@ export function buildDeskFloorScene(floorId: FloorId, floor: FloorDesks, view: D
     if (desk.agentId) {
       items.push({ kind: 'agent', key: `person:${desk.agentId}`, sortY: spot.y, skill: desk.agentId, status: DESK_FIGURE_STATUS[desk.state], shape: agentShape(spot.x, spot.y), dim });
     }
+    const lead = desk.seatKind === 'lead';
+    const level = lead ? 0 : chipLevel(placed, spot.x, spot.y);
+    placed.push({ x: spot.x, y: spot.y, level });
     chips.push({
       id: desk.deskId,
       anchor: toPercentPoint(project(spot.x, spot.y, CHIP_HEADROOM.agent)),
       tone: desk.tone,
       glyph: desk.glyph,
       text: stateLine(desk),
-      stagger: index % CHIP_STAGGER_LEVELS,
-      strong: desk.seatKind === 'lead',
+      stagger: level,
+      strong: lead,
       detail: detailLines(desk),
       dim,
+      lead,
     });
     if (!desk.agentId) return;
     const selection: FsreSelection = { kind: 'seat', agentId: desk.agentId };

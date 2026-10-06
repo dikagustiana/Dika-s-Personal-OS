@@ -59,12 +59,13 @@ describe('the real replay on the department floors', () => {
     expect(plan.partnerSkills).toEqual([partner]);
   });
 
-  it('draws the review checkers and one spare desk on each per-company floor as vacant, by their roster titles', () => {
+  it('draws the review checkers as vacant desks by their roster titles, and no spare desk', () => {
     const checkers = ROSTER_V2.filter((e) => e.role === 'staff' && e.departmentId === 'review').map((e) => e.title);
     expect(vacantOn(plan, 'f3').map((d) => d.title)).toEqual(checkers);
-    expect(vacantOn(plan, 'b1')).toHaveLength(1);
-    expect(vacantOn(plan, 'f2')).toHaveLength(1);
-    for (const desk of [...vacantOn(plan, 'b1'), ...vacantOn(plan, 'f2'), ...vacantOn(plan, 'f3')]) {
+    // The run's two staff skills per department fill their two desks; no spare is drawn in a replay.
+    expect(vacantOn(plan, 'b1')).toHaveLength(0);
+    expect(vacantOn(plan, 'f2')).toHaveLength(0);
+    for (const desk of vacantOn(plan, 'f3')) {
       expect(desk.skill).toBeNull();
       expect(desk.agentSpot).toBeNull();
     }

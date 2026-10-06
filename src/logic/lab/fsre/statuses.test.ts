@@ -43,7 +43,8 @@ describe('the v2 vocabulary', () => {
   it('never prints a softened escalation count (audit F2)', () => {
     const label = gateStatusLabel('passed_with_open_escalations', 0);
     expect(label).not.toContain('0 escalation');
-    expect(label).toBe('Passed, 1 escalation open');
+    // FX-3's wording: an escalation is open, its count unknown — not an invented "1".
+    expect(label).toBe('Passed, escalation open');
   });
 
   it('derives the summary label and the room word from one status', () => {

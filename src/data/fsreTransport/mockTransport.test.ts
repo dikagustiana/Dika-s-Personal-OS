@@ -421,3 +421,23 @@ describe('the mock matches brief v2 §4 (v2.1 FX-13)', () => {
   });
 });
 
+describe('overrides resolve an escalation once (review R8)', () => {
+  it('a second override while the first is in flight, or one after Cancel, resolves nothing more', async () => {
+    const transport = new MockTransport();
+    const events: AgentEvent[] = [];
+    transport.subscribeEvents((e) => events.push(e));
+    for (let s = 0; s < 14 * 60; s += 1) {
+      transport.clock.advanceMs(1000);
+      transport.flush();
+    }
+    const ask = { toAgentId: 'review-lead', engagementId: 'eng-syn-cem-1', kind: 'override' as const, text: 'Close the escalation: flag only', reason: 'Owner decision' };
+    await transport.sendCommand(ask);
+    await transport.sendCommand(ask);
+    for (let s = 0; s < 60; s += 1) {
+      transport.clock.advanceMs(1000);
+      transport.flush();
+    }
+    expect(events.filter((e) => e.type === 'escalation_closed')).toHaveLength(1);
+    transport.dispose();
+  });
+});

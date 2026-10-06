@@ -20,7 +20,7 @@ import { DEPARTMENT_FLOORS, DEPARTMENT_FLOOR, staffSlotBoxes, staffSlotCount, ty
 import { formatCount, formatHHMM, formatNumber } from './format';
 import { DESK_GLYPHS, DESK_TONES, type Tone } from './glyphs';
 import { FLOOR_DISPLAY_ORDER, FLOOR_IDS, type FloorId } from './layout';
-import { commandsPendingFor, escalationsOfAgent, type LiveState } from './liveReducer';
+import { commandsPendingFor, escalationsOfAgent, escalationsOpenCount, type LiveState } from './liveReducer';
 import {
   DESK_STATES,
   DESK_STATE_WORDS,
@@ -68,16 +68,28 @@ function emptyFloors(): Record<FloorId, FloorDesks> {
   return { b1: none(), f1: none(), f2: none(), f3: none(), f4: none() };
 }
 
-function liveDeskView(agent: Agent, floorId: FloorId, seat: SeatBox, seatKind: SeatKind, slot: number, live: LiveState, now: string): DeskView {
+/**
+ * The owner is a person, not an agent: the partner desk never reads Working
+ * or "No signal". It waits while anything waits for the owner — an open
+ * escalation, or an engagement at sign-off — and is idle otherwise (review R6).
+ */
+function ownerDeskState(live: LiveState, ownerWaiting: boolean): DeskState {
+  return ownerWaiting || escalationsOpenCount(live) > 0 ? 'waiting' : 'idle';
+}
+
+function liveDeskView(agent: Agent, floorId: FloorId, seat: SeatBox, seatKind: SeatKind, slot: number, live: LiveState, now: string, ownerWaiting = false): DeskView {
   const view = live.agents[agent.id];
   const lastSignalAt = view?.lastSignalAt ?? null;
-  const state = deriveDeskState({
-    openEscalations: escalationsOfAgent(live, agent.id).open,
-    hasOpenTask: view?.currentTask != null,
-    waitingOn: view?.waitingOn ?? null,
-    lastSignalAt,
-    now,
-  });
+  const state =
+    agent.role === OWNER_ROLE
+      ? ownerDeskState(live, ownerWaiting)
+      : deriveDeskState({
+          openEscalations: escalationsOfAgent(live, agent.id).open,
+          hasOpenTask: view?.currentTask != null,
+          waitingOn: view?.waitingOn ?? null,
+          lastSignalAt,
+          now,
+        });
   const stateWord = state === 'no_signal' && lastSignalAt ? noSignalSinceText(formatHHMM(lastSignalAt)) : DESK_STATE_WORDS[state];
   return {
     deskId: `desk:${agent.id}`,
@@ -140,7 +152,8 @@ function agentForSpecial(agents: readonly Agent[], kind: Exclude<SeatKind, 'lead
   return agents.find((agent) => agent.role === kind) ?? null;
 }
 
-export function syntheticDeskViews(live: LiveState, agents: readonly Agent[], now: string): Record<FloorId, FloorDesks> {
+/** `ownerWaiting`: an engagement waits for the owner's sign-off (from the transport's engagement list). */
+export function syntheticDeskViews(live: LiveState, agents: readonly Agent[], now: string, ownerWaiting = false): Record<FloorId, FloorDesks> {
   const views = emptyFloors();
   for (const floorId of FLOOR_DISPLAY_ORDER) {
     const floor = DEPARTMENT_FLOORS[floorId];
@@ -155,7 +168,7 @@ export function syntheticDeskViews(live: LiveState, agents: readonly Agent[], no
 
     for (const special of floor.special) {
       const agent = agentForSpecial(agents, special.kind);
-      if (agent) desks.push(liveDeskView(agent, floorId, special.seat, special.kind, 0, live, now));
+      if (agent) desks.push(liveDeskView(agent, floorId, special.seat, special.kind, 0, live, now, ownerWaiting));
     }
 
     if (floor.staffStrip && floor.departmentId) {

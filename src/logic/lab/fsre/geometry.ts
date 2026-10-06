@@ -108,6 +108,25 @@ export const CHIP_HEADROOM = {
 /** Chip levels: neighbouring agents alternate so their chips never overlap. */
 export const CHIP_STAGGER_LEVELS = 2;
 
+/**
+ * Two chips are neighbours when they stand in the same row (their people
+ * less than `rowDepth` apart in depth) and less than `width` apart across:
+ * about a chip's width at the building's design size. Only neighbours take
+ * different levels; a chip with no neighbour stays on the lower one, so a
+ * raised chip never climbs onto a wall screen for nothing.
+ */
+export const CHIP_NEIGHBOUR = { width: 6, rowDepth: 1 } as const;
+
+/**
+ * The chips' CSS sizes in px (index.css: .fsre-chip, .fsre-chip-detail,
+ * .fsre-chip[data-lead]), for the tests that check on screen that a lead's
+ * chip covers no staff desk or chip (FX-11). Keep both in step.
+ */
+export const CHIP_CSS = { minFontPx: 9, lineHeight: 1.45, lines: 2, paddingXPx: 6, borderPx: 1, staggerGapEm: 0.25, detailMaxPx: 176, leadMaxPx: 128 } as const;
+
+/** The building's narrowest drawn width in px (its scroll container's min-w-[40rem]): chips are largest against the drawing there. */
+export const BUILDING_MIN_PX = 640;
+
 /** Hit areas over the drawing, in floor units (the CSS adds the 44px floor). */
 export const HIT = {
   agentHalfWidth: 0.9,

@@ -69,21 +69,12 @@ export const SPARE_STAFF_DESKS = 1;
 /** A department shows at least this many staff desks (brief v2 WO-2). */
 export const MIN_STAFF_DESKS = 2;
 
-/**
- * Half a desk chip's width, in floor units, at the building's design width:
- * a two-line chip ("Idle" over "Modelling staff · SYNA") measures about four
- * floor units; a long task on the second line is cut, not wrapped. A chip is
- * centred on its desk. Seats are placed so the lead's chip footprint never
- * meets a staff desk's (FX-11; departmentLayout.test.ts).
- */
-export const CHIP_HALF_WIDTH = 2;
-
 /** The lead's seat: centred on the floor, at the front. */
 const LEAD_X = 13.8;
 const LEAD_Y = 2.4;
 
 /** The back row of a per-company department, parted around the lead: up to four desks either side. */
-const STAFF_ROW = { x0: 1.5, x1: 28.5, y: 6, aisle: { x0: 11.8, x1: 18.2 } } as const;
+const STAFF_ROW = { x0: 1.5, x1: 28.5, y: 6, aisle: { x0: 11.3, x1: 18.7 } } as const;
 
 function desk(id: string, x: number, y: number, monitor = true): SeatBox {
   return { id, surface: { x, y, w: STANDARD_DESK.w, d: STANDARD_DESK.d, h: STANDARD_DESK.h }, monitor };
@@ -108,7 +99,7 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
     departmentId: 'review',
     lead: desk('f3-lead', LEAD_X, LEAD_Y),
     // The two checkers' row: behind the lead, left of the gate rooms (planFloors spans them from x 10).
-    staffStrip: { x0: 1.5, x1: 8.5, y: 5, aisle: null },
+    staffStrip: { x0: 1, x1: 8, y: 5, aisle: null },
     special: [],
     decorations: [
       { kind: 'plant', id: 'f3-plant-a', x: 9.8, y: 1 },

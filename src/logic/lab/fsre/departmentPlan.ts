@@ -22,13 +22,15 @@
  *
  * A department lead with two skills (the data lead's) is two people at one
  * station, side by side at the lead's seat: the replay records each skill as
- * its own agent. Staff desks nobody holds are drawn vacant ("Idle, no
- * assignment"), the review checkers among them.
+ * its own agent. The review checkers, standing desks of the roster, are drawn
+ * vacant ("Idle, no assignment"); the synthetic office's spare desk per
+ * department is not: a recorded run has no next company to seat, and an empty
+ * desk's chip would only cover the wall screens the replay writes on.
  */
 import type { DepartmentId } from '../../../data/fsreTransport/contract';
 import { ROSTER_V2, type RosterEntry } from '../../../data/fsreTransport/provisional';
 import type { FsreSkill, FsreStage } from './data';
-import { DEPARTMENT_FLOOR, DEPARTMENT_FLOORS, agentSpotAt, staffSlotBoxes, staffSlotCount } from './departmentLayout';
+import { DEPARTMENT_FLOOR, DEPARTMENT_FLOORS, MAX_STAFF_SLOTS, MIN_STAFF_DESKS, agentSpotAt, staffSlotBoxes } from './departmentLayout';
 import {
   FALLBACK_DESK_KEY,
   FLOOR_IDS,
@@ -149,7 +151,7 @@ export function planDepartmentFloors(stages: readonly FsreStage[], skills: reado
     // The staff row: the department's staff skills, then vacant desks.
     const staff = skillsWith((p) => p.kind === 'staff' && p.departmentId === departmentId);
     const titles = standingTitles(departmentId, roster);
-    const slots = staffSlotBoxes(floorId, Math.max(staffSlotCount(departmentId, staff.length), titles.length));
+    const slots = staffSlotBoxes(floorId, Math.min(MAX_STAFF_SLOTS, Math.max(MIN_STAFF_DESKS, staff.length, titles.length)));
     // Seat by slot (companies either side of the lead), draw and tab left to right:
     // the scene alternates neighbouring chips' heights in this order.
     const bySlot = slots.map((slot, index) => ({ slot, index })).sort((a, b) => a.slot.surface.x - b.slot.surface.x);

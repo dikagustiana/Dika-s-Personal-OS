@@ -185,6 +185,7 @@ function Chip({ chip, flash, motionKey }: { chip: ChipSpec; flash: boolean; moti
       data-stagger={chip.stagger}
       data-strong={chip.strong}
       data-dim={chip.dim ? 'true' : undefined}
+      data-lead={chip.lead ? 'true' : undefined}
       style={chip.anchor}
     >
       {chip.glyph ? <Glyph glyph={chip.glyph} tone={chip.tone} /> : null} {chip.text}

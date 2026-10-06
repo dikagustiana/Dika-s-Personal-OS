@@ -49,3 +49,20 @@ describe('floorTagParts (FX-9)', () => {
     expect(parts).toContain('2 more not drawn');
   });
 });
+
+describe('the owner’s desk (review R6)', () => {
+  const owner: Agent = { id: 'owner', role: 'owner', departmentId: null, title: 'Owner', skills: [], assignedTicker: null };
+
+  it('never reads Working or No signal: it waits while something waits for the owner, else rests', () => {
+    let state = baseState([owner]);
+    state = reduceAgentEvent(state, {
+      id: 'o1', seq: 1, at: '2026-10-06T09:40:00.000Z', agentId: 'owner', engagementId: 'eng-1',
+      ticker: 'SYNB', stageId: 'sign-off', type: 'task_started', summary: 'SYNB v1 is ready for sign-off',
+      sourceRef: null, counts: null, waitingOn: null, commandId: null, escalationId: null,
+    });
+    const idle = syntheticDeskViews(state, [owner], NOW).f4.desks.find((d) => d.agentId === 'owner');
+    expect(idle?.state).toBe('idle');
+    const waiting = syntheticDeskViews(state, [owner], NOW, true).f4.desks.find((d) => d.agentId === 'owner');
+    expect(waiting?.state).toBe('waiting');
+  });
+});

@@ -4,7 +4,8 @@
  * (src/live/liveStore.test.ts at 5b5d186).
  */
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import type { AgentEvent } from '../../../data/fsreTransport/contract';
+import type { Agent, AgentEvent, FsreTransport } from '../../../data/fsreTransport/contract';
+import { syntheticDeskViews } from '../../../logic/lab/fsre/deskViews';
 import { useFsreLiveStore as useLiveStore } from './useFsreLiveStore';
 import { hasMockControls } from '../../../data/fsreTransport/controls';
 import { lastSignalEvent } from '../../../logic/lab/fsre/liveReducer';
@@ -70,3 +71,50 @@ describe('lastSignalEvent (FX-8)', () => {
     expect(last?.type).toBe('action');
   });
 });
+
+describe('the clock without mock controls (review R5)', () => {
+  /** A transport with no mock clock, as the real backend will be; `push` delivers one event to its subscriber. */
+  function silentTransport(): { transport: FsreTransport; push: (e: AgentEvent) => void } {
+    const agent: Agent = { id: 'data-staff-x', role: 'staff', departmentId: 'data', title: 'Data staff', skills: [], assignedTicker: 'SYNX' };
+    let deliver: (e: AgentEvent) => void = () => undefined;
+    const refuse = async (): Promise<never> => {
+      throw new Error('not in this test');
+    };
+    const transport: FsreTransport = {
+      subscribeEvents: (cb) => {
+        deliver = cb;
+        return () => {
+          deliver = () => undefined;
+        };
+      },
+      listAgents: async () => [agent],
+      listEngagements: async () => [],
+      proposeEngagement: refuse,
+      startEngagement: refuse,
+      cancelEngagement: refuse,
+      sendCommand: refuse,
+      listCommands: async () => [],
+      getIndustryProgress: async () => [],
+      approveVersion: async () => ({ ok: false, lockedReason: 'not in this test' }),
+    };
+    return { transport, push: (e) => deliver(e) };
+  }
+
+  it('reads the wall clock, so a silent open task turns to No signal', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-06T09:00:00.000Z'));
+    const { transport, push } = silentTransport();
+    await useLiveStore.getState().start(() => transport);
+    expect(hasMockControls(transport)).toBe(false);
+    expect(useLiveStore.getState().now).toBe('2026-10-06T09:00:00.000Z');
+    push({ ...event('t1', 'data-staff-x', 'task_started'), at: '2026-10-06T09:00:00.000Z' });
+    const deskState = () => {
+      const { state, agents, now } = useLiveStore.getState();
+      return syntheticDeskViews(state, agents, now).b1.desks.find((d) => d.agentId === 'data-staff-x')?.state;
+    };
+    expect(deskState()).toBe('working');
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
+    expect(deskState()).toBe('no_signal');
+  });
+});
+

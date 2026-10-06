@@ -242,9 +242,10 @@ export function gateStatusLabel(status: LiveGateStatus, openEscalations: number)
     case 'failed':
       return GATE_RESULT_WORDS.failed;
     case 'passed_with_open_escalations':
-      // Never a softened count (audit F2): a count below one cannot be true
-      // while the status says an escalation is open, so it reads as one.
-      return openEscalations <= 1 ? 'Passed, 1 escalation open' : `Passed, ${openEscalations} escalations open`;
+      // Never a softened count (audit F2), and never an invented one: without
+      // a count the label says an escalation is open, not how many (FX-3).
+      if (openEscalations < 1) return 'Passed, escalation open';
+      return openEscalations === 1 ? 'Passed, 1 escalation open' : `Passed, ${openEscalations} escalations open`;
   }
 }
 
@@ -357,6 +358,18 @@ export const FLOOR_TAG_WORDS = {
 
 /** The name plate of a staff desk with nobody at it, outside the review department. */
 export const VACANT_DESK_TITLE = 'Staff desk';
+
+/** An industries row whose sub-industry has at least two published companies. */
+export const COVERED_WORD = 'Covered';
+
+/** An industries row with no engagement yet. */
+export const NOT_STARTED_WORD = 'Not started';
+
+/** The summary card's gates when no engagement is running or waiting for the owner. */
+export const NO_LIVE_ENGAGEMENT_WORD = 'No engagement running';
+
+/** Before a dimmed desk's label: what it works on instead of the filtered engagement. */
+export const OTHER_WORK_WORD = 'other work:';
 
 /** The dim label of a desk whose work belongs to no ticker of the filtered engagement. */
 export const OTHER_ENGAGEMENT_WORD = 'other engagement';

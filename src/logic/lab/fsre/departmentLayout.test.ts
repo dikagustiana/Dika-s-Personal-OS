@@ -1,23 +1,17 @@
 /**
- * Leads read as leads by position (brief v2 WO-2; v2.1 FX-11), checked on
- * the geometry rather than on a screenshot.
- *
- * A desk's chip stands above its person and reads upward on screen, which in
- * floor units is toward the back of the room: a front-row chip covers what
- * stands behind it at the same x. So "the lead's desk and chip never cover a
- * staff desk or its chip" is a statement about x-ranges: a desk's footprint
- * is the wider of the desk and its chip, centred on the desk, and the lead's
- * must not meet any staff desk's, for every staff count a floor can draw.
+ * Leads read as leads by position (brief v2 WO-2; v2.1 FX-11): the seats.
+ * The lead sits at the head of the room with no staff desk behind it, wider
+ * than the lead's capped chip either side; deskScene.test.ts checks the chips
+ * themselves on screen, at the building's narrowest width.
  */
 import { describe, expect, it } from 'vitest';
-import { CHIP_HALF_WIDTH, DEPARTMENT_FLOORS, MAX_STAFF_SLOTS, MIN_STAFF_DESKS, staffSlotBoxes } from './departmentLayout';
+import { DEPARTMENT_FLOORS, MAX_STAFF_SLOTS, MIN_STAFF_DESKS, staffSlotBoxes } from './departmentLayout';
 import { GATE_ROOMS, type FloorId } from './layout';
 import type { Box } from './projection';
 
-function chipFootprint(box: Box): { x0: number; x1: number } {
-  const centre = box.x + box.w / 2;
-  const half = Math.max(CHIP_HALF_WIDTH, box.w / 2);
-  return { x0: centre - half, x1: centre + half };
+/** A desk widened by the given margin either side, across the room. */
+function across(box: Box, margin = 0): { x0: number; x1: number } {
+  return { x0: box.x - margin, x1: box.x + box.w + margin };
 }
 
 function meets(a: { x0: number; x1: number }, b: { x0: number; x1: number }): boolean {
@@ -31,12 +25,10 @@ const COUNTS: Array<[FloorId, number]> = [
 ];
 
 describe('the department floors (FX-11)', () => {
-  it.each(COUNTS)('%s with %i staff desks: the lead’s chip footprint meets no staff desk’s', (floorId, count) => {
+  it.each(COUNTS)('%s with %i staff desks: no staff desk stands behind the lead', (floorId, count) => {
     const lead = DEPARTMENT_FLOORS[floorId].lead;
     if (!lead) throw new Error(`${floorId} has no lead`);
-    for (const staff of staffSlotBoxes(floorId, count)) {
-      expect(meets(chipFootprint(lead.surface), chipFootprint(staff.surface)), staff.id).toBe(false);
-    }
+    for (const staff of staffSlotBoxes(floorId, count)) expect(meets(across(lead.surface), across(staff.surface)), staff.id).toBe(false);
   });
 
   it.each(COUNTS)('%s with %i staff desks: the lead sits at the head of the room, in front of the staff row', (floorId, count) => {
@@ -62,11 +54,11 @@ describe('the department floors (FX-11)', () => {
     expect(b.surface.x).toBeGreaterThan(lead.surface.x + lead.surface.w);
   });
 
-  it('would have caught GLM’s seats (negative control): a lead in front of the middle staff desk', () => {
+  it('would have caught GLM’s seats (negative control): a staff desk right behind the lead', () => {
     // GLM's floorLayout.ts at 5b5d186: the lead at x 13.8 in front of a staff row spread evenly over 2.5–27.5.
     const glmLead: Box = { x: 13.8, y: 2.6, w: 2.4, d: 1, h: 0.75 };
     const step = (27.5 - 2.5) / 3;
     const glmStaff: Box[] = [0, 1, 2].map((i) => ({ x: 2.5 + step * (i + 0.5) - 1.2, y: 6, w: 2.4, d: 1, h: 0.75 }));
-    expect(glmStaff.some((staff) => meets(chipFootprint(glmLead), chipFootprint(staff)))).toBe(true);
+    expect(glmStaff.some((staff) => meets(across(glmLead), across(staff)))).toBe(true);
   });
 });

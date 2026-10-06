@@ -12,7 +12,7 @@ import { formatCount, formatNumber } from '../../../logic/lab/fsre/format';
 import { LIVE_GATE_GLYPHS, LIVE_GATE_TONES, LOCK_GLYPH } from '../../../logic/lab/fsre/glyphs';
 import type { LiveState } from '../../../logic/lab/fsre/liveReducer';
 import { summaryCard } from '../../../logic/lab/fsre/liveView';
-import { figureLabel, gateStatusLabel } from '../../../logic/lab/fsre/statuses';
+import { NO_LIVE_ENGAGEMENT_WORD, figureLabel, gateStatusLabel } from '../../../logic/lab/fsre/statuses';
 import { Glyph } from './fsreUi';
 
 function Metric({ label, children }: { label: string; children: React.ReactNode }) {
@@ -39,11 +39,16 @@ export function FsreLiveMetrics({ state, engagements, filterEngagementId }: { st
             'None open'
           )}
         </Metric>
-        {card.gates.map((gate) => (
-          <Metric key={gate.label} label={gate.label}>
-            <Glyph glyph={LIVE_GATE_GLYPHS[gate.status]} tone={LIVE_GATE_TONES[gate.status]} /> {gateStatusLabel(gate.status, gate.open)}
-          </Metric>
-        ))}
+        {card.focus ? (
+          card.gates.map((gate) => (
+            <Metric key={gate.label} label={gate.label}>
+              <Glyph glyph={LIVE_GATE_GLYPHS[gate.status]} tone={LIVE_GATE_TONES[gate.status]} /> {gateStatusLabel(gate.status, gate.open)}
+            </Metric>
+          ))
+        ) : (
+          // With nothing running, the gates speak for no engagement: say so, not "Pending".
+          <Metric label="Gates">{NO_LIVE_ENGAGEMENT_WORD}</Metric>
+        )}
         <Metric label="Waiting for the owner">{formatCount(card.waitingOwner, 'engagement')}</Metric>
         <Metric label={figureLabel('factsLoaded')}>{formatNumber(card.factsLoaded)}</Metric>
       </dl>

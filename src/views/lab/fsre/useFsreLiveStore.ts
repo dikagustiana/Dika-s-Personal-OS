@@ -14,6 +14,12 @@
  * The lists refresh once, 250 ms after the last event of a burst, and after
  * the owner's own actions; never on a timer (FX-8).
  *
+ * The clock reading `now` is the one input that is not an event: "No signal
+ * since HH.MM" needs time to pass. The mock streams its simulated clock; a
+ * transport without one (the Supabase stub now, the real backend at M3) gets
+ * the wall clock, read every WALL_CLOCK_TICK_MS, so a silent desk still turns
+ * to No signal rather than reading Working for ever (review R5).
+ *
  * Ported from the GLM workspace (src/live/liveStore.ts at 5b5d186).
  */
 import { create } from 'zustand';
@@ -24,6 +30,9 @@ import { createInitialLiveState, mergeAgents, mergeCommands, reduceAgentEvent, t
 
 /** One refresh this long after the last event of a burst. */
 export const REFRESH_AFTER_EVENTS_MS = 250;
+
+/** How often the wall clock is read when the transport has no clock of its own. */
+export const WALL_CLOCK_TICK_MS = 15_000;
 
 /**
  * The clock reading before the transport's clock first ticks: unknown. It
@@ -42,7 +51,8 @@ interface FsreLiveStore {
   now: string;
   speed: MockSpeed;
   error: string | null;
-  start: () => Promise<void>;
+  /** Opens the office on a transport; the synthetic mode's MockTransport unless a factory is given (tests). */
+  start: (make?: () => FsreTransport) => Promise<void>;
   stop: () => void;
   setSpeed: (speed: MockSpeed) => void;
   refreshLists: () => Promise<void>;
@@ -51,6 +61,7 @@ interface FsreLiveStore {
 let unsubscribe: (() => void) | null = null;
 let clockUnsubscribe: (() => void) | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+let wallClock: ReturnType<typeof setInterval> | null = null;
 
 function clearRefresh(): void {
   if (refreshTimer !== null) clearTimeout(refreshTimer);
@@ -68,9 +79,9 @@ export const useFsreLiveStore = create<FsreLiveStore>((set, get) => ({
   speed: '1x',
   error: null,
 
-  start: async () => {
+  start: async (make = () => createTransport('synthetic')) => {
     if (get().active) return;
-    const transport = createTransport('synthetic');
+    const transport = make();
     const controls: MockControls | null = hasMockControls(transport) ? transport : null;
     const scheduleRefresh = () => {
       clearRefresh();
@@ -84,7 +95,8 @@ export const useFsreLiveStore = create<FsreLiveStore>((set, get) => ({
       scheduleRefresh();
     });
     clockUnsubscribe = controls ? controls.subscribeClock((iso) => set({ now: iso })) : null;
-    set({ active: true, transport, state: createInitialLiveState([]), error: null, speed: '1x' });
+    if (!controls) wallClock = setInterval(() => set({ now: new Date().toISOString() }), WALL_CLOCK_TICK_MS);
+    set({ active: true, transport, state: createInitialLiveState([]), error: null, speed: '1x', now: controls ? BEFORE_START : new Date().toISOString() });
     await get().refreshLists();
   },
 
@@ -94,6 +106,8 @@ export const useFsreLiveStore = create<FsreLiveStore>((set, get) => ({
     unsubscribe = null;
     clockUnsubscribe?.();
     clockUnsubscribe = null;
+    if (wallClock !== null) clearInterval(wallClock);
+    wallClock = null;
     clearRefresh();
     if (transport && hasMockControls(transport)) transport.dispose();
     set({ active: false, transport: null, agents: [], engagements: [], progress: [], state: createInitialLiveState([]), now: BEFORE_START, speed: '1x', error: null });

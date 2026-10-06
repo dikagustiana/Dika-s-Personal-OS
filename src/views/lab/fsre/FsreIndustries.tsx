@@ -14,7 +14,7 @@ import { formatCount, formatNumber } from '../../../logic/lab/fsre/format';
 import { FOLDER_GLYPHS, LIVE_GATE_GLYPHS, LIVE_GATE_TONES, LOCK_GLYPH } from '../../../logic/lab/fsre/glyphs';
 import { LIVE_GATE_STAGES } from '../../../logic/lab/fsre/liveReducer';
 import { INDUSTRIES_COLUMNS, gateShortName, industriesGroups, industriesTopLine, openableEngagement, stageSegments } from '../../../logic/lab/fsre/liveView';
-import { FOLDER_STATUS_WORDS, gateStatusLabel } from '../../../logic/lab/fsre/statuses';
+import { COVERED_WORD, FOLDER_STATUS_WORDS, NOT_STARTED_WORD, gateStatusLabel } from '../../../logic/lab/fsre/statuses';
 import { Button } from '../../../components/ui/Button';
 import { cn } from '../../../lib/utils';
 import { Glyph } from './fsreUi';
@@ -78,7 +78,7 @@ function Row({ row, onOpen, onNewEngagement, engagementId }: { row: IndustryProg
           {row.subIndustryName}
           {row.covered ? (
             <span className="fsre-tone ml-2 text-xs font-semibold" data-tone="done">
-              ★ Covered
+              {FOLDER_GLYPHS.published} {COVERED_WORD}
             </span>
           ) : null}
         </div>
@@ -100,7 +100,7 @@ function Row({ row, onOpen, onNewEngagement, engagementId }: { row: IndustryProg
           </div>
         ) : (
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-sm text-foreground-secondary">Not started</span>
+            <span className="text-sm text-foreground-secondary">{NOT_STARTED_WORD}</span>
             <Button type="button" variant="secondary" size="sm" className="min-h-11" onClick={() => onNewEngagement(row.subIndustryName)}>
               + New engagement
             </Button>

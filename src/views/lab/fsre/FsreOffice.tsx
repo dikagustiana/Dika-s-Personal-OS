@@ -11,7 +11,7 @@
  * Opening the mode starts the transport; leaving it stops the transport and
  * its clock.
  */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { hasMockControls } from '../../../data/fsreTransport/controls';
 import { buildDeskFloorScene } from '../../../logic/lab/fsre/deskScene';
@@ -100,6 +100,33 @@ function Toolbar({ waiting }: { waiting: number }) {
   );
 }
 
+/**
+ * The office's floors. One flash per event, on the desk it touched;
+ * heartbeats never move it (FX-8). The event already on screen when the
+ * floors appear (coming back from the industries board) does not flash
+ * again: nothing arrived (review R7).
+ */
+function OfficeFloors({ views, selection, onSelect, waiting, reducedMotion }: { views: ReturnType<typeof syntheticDeskViews>; selection: FsreSelection | null; onSelect: (next: FsreSelection) => void; waiting: number; reducedMotion: boolean }) {
+  const state = useFsreLiveStore((s) => s.state);
+  const lastEvent = lastSignalEvent(state.events);
+  const [shownFrom] = useState(() => lastEvent?.id ?? null);
+  const fresh = lastEvent !== null && lastEvent.id !== shownFrom;
+  const touched: Touched = fresh && !reducedMotion ? { chips: new Set([`desk:${lastEvent.agentId}`]), arrivals: new Set() } : NOTHING_MOVED;
+  const motionKey = lastEvent?.id ?? 'start';
+  return (
+    <section aria-label="The building" className="min-w-0">
+      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+        <div className="min-w-[40rem]">
+          {FLOOR_DISPLAY_ORDER.map((floorId) => (
+            <FsreFloor key={floorId} scene={buildDeskFloorScene(floorId, views[floorId], { selection, partnerWaiting: waiting })} onSelect={onSelect} touched={touched} motionKey={motionKey} />
+          ))}
+        </div>
+      </div>
+      <FsreLegend kind="office" />
+    </section>
+  );
+}
+
 export function FsreOffice() {
   const transport = useFsreLiveStore((s) => s.transport);
   const agents = useFsreLiveStore((s) => s.agents);
@@ -118,14 +145,13 @@ export function FsreOffice() {
     return () => useFsreLiveStore.getState().stop();
   }, []);
 
-  const views = useMemo(() => applyDimming(syntheticDeskViews(state, agents, now), engagements, industriesFilter), [state, agents, now, engagements, industriesFilter]);
+  const ownerWaiting = engagements.some((e) => e.status === 'waiting_owner');
+  const views = useMemo(
+    () => applyDimming(syntheticDeskViews(state, agents, now, ownerWaiting), engagements, industriesFilter),
+    [state, agents, now, ownerWaiting, engagements, industriesFilter],
+  );
   const waiting = partnerWaiting(state);
-  // One flash per event, on the desk it touched; heartbeats never move it (FX-8).
-  const lastEvent = lastSignalEvent(state.events);
-  const touched: Touched = lastEvent && !reducedMotion ? { chips: new Set([`desk:${lastEvent.agentId}`]), arrivals: new Set() } : NOTHING_MOVED;
-  const motionKey = lastEvent?.id ?? 'start';
   const filtered = engagements.find((e) => e.id === industriesFilter) ?? null;
-  const onSelect = (next: FsreSelection) => select(next);
 
   return (
     <>
@@ -144,22 +170,7 @@ export function FsreOffice() {
 
       {liveView === 'building' ? (
         <div className="fsre-grid canvas-bleed mt-6">
-          <section aria-label="The building" className="min-w-0">
-            <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
-              <div className="min-w-[40rem]">
-                {FLOOR_DISPLAY_ORDER.map((floorId) => (
-                  <FsreFloor
-                    key={floorId}
-                    scene={buildDeskFloorScene(floorId, views[floorId], { selection, partnerWaiting: waiting })}
-                    onSelect={onSelect}
-                    touched={touched}
-                    motionKey={motionKey}
-                  />
-                ))}
-              </div>
-            </div>
-            <FsreLegend kind="office" />
-          </section>
+          <OfficeFloors views={views} selection={selection} onSelect={(next) => select(next)} waiting={waiting} reducedMotion={reducedMotion} />
           <aside aria-label="Selection details" className="min-w-0">
             <FsreLivePanel agents={agents} state={state} desks={(agentId) => deskViewOf(views, agentId)} />
           </aside>

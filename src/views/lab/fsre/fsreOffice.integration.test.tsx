@@ -203,6 +203,18 @@ describe('synthetic mode', () => {
     expect(screen.getAllByText(/published v1$/).length).toBe(2);
   }, 30_000);
 
+  it('flashes a desk once per event, and not again on coming back from the industries board (review R7)', async () => {
+    await openSynthetic();
+    await advance(30_000);
+    await press('Pause');
+    await press('Industries');
+    await press('Building');
+    expect(document.querySelectorAll('.fsre-flash')).toHaveLength(0);
+    await press('1×');
+    await advance(10_000);
+    expect(document.querySelectorAll('.fsre-flash').length).toBeGreaterThan(0);
+  });
+
   it('scrolls the building inside its own section on a narrow screen, never the page (FX-11)', async () => {
     await openSynthetic();
     const building = screen.getByRole('region', { name: 'The building' });

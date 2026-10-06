@@ -131,6 +131,8 @@ export class MockTransport implements FsreTransport {
   private engagementSeq = 0;
   private staffSeq = 0;
   private openEscalations = new Map<string, OpenEscalation[]>();
+  /** Escalations an override is already resolving: a second override does not resolve them again (review R8). */
+  private resolving = new Set<string>();
   private runs = new Map<string, Map<string, CompanyRun>>();
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private baseProgress = baseIndustryProgress();
@@ -494,13 +496,13 @@ export class MockTransport implements FsreTransport {
 
     const [doneMin, doneMax] = MOCK_COMMAND_AFTER_SEC.done;
     const doneDelay = (doneMin + (this.commandSeq % (doneMax - doneMin + 1))) * 1000;
-    const resolveEscalation =
-      command.kind === 'override' &&
-      /escalat/i.test(command.text) &&
-      (this.openEscalations.get(command.engagementId ?? '') ?? []).length > 0;
+    const target = this.engagements.get(command.engagementId ?? '');
+    const pending = (this.openEscalations.get(command.engagementId ?? '') ?? []).filter((e) => !this.resolving.has(e.id));
+    const resolveEscalation = command.kind === 'override' && /escalat/i.test(command.text) && target?.status !== 'cancelled' && pending.length > 0;
 
     if (resolveEscalation) {
-      const escalation = (this.openEscalations.get(command.engagementId ?? '') ?? [])[0];
+      const [escalation] = pending;
+      this.resolving.add(escalation.id);
       this.scheduleAt(nowMs + doneDelay, {
         agentId: recipientId,
         engagementId: command.engagementId,

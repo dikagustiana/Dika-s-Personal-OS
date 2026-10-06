@@ -95,6 +95,7 @@ export function FsreComposerDialog() {
 }
 
 function PlanCard({ plan, started, busy, onStart, onCancel }: { plan: Engagement; started: boolean; busy: boolean; onStart: () => void; onCancel: () => void }) {
+  const progress = useFsreLiveStore((s) => s.progress);
   const blocked = Boolean(plan.plan.blockedReasons.length);
   const reasons = plan.plan.blockedReasons.join('; ');
   return (
@@ -104,7 +105,7 @@ function PlanCard({ plan, started, busy, onStart, onCancel }: { plan: Engagement
         <StatusBadge glyph={ENGAGEMENT_GLYPHS[plan.status]} word={ENGAGEMENT_STATUS_WORDS[plan.status]} tone={ENGAGEMENT_TONES[plan.status]} />
       </div>
       <div className="mt-2 text-sm">
-        <FigureRow label="Chain position" value={chainPositionText(plan.plan.chainNodeId)} />
+        <FigureRow label="Chain position" value={chainPositionText(plan.plan.chainNodeId, plan.plan.subIndustryCode, progress)} />
         <FigureRow label="Peer pair" value={plan.plan.tickers.join(' + ')} />
         <FigureRow label="Archetype" value={plan.plan.archetype.status === 'available' ? `${plan.plan.archetype.id ?? ''} — available` : 'Missing — not built yet'} />
         <FigureRow label="Conflict check" value={plan.plan.conflictCheck.result === 'clear' ? 'Clear' : `Excluded — ${plan.plan.conflictCheck.reason ?? ''}`} />
@@ -170,9 +171,12 @@ export function FsreEngagementDialog() {
   const propose = () =>
     run(async () => {
       if (!transport || !text.trim()) return;
+      // A plan proposed here and never started is withdrawn when another replaces it (review R10).
+      if (plan && !started && (plan.status === 'proposed' || plan.status === 'blocked')) await transport.cancelEngagement(plan.id);
       setPlan(null);
       setStarted(false);
       setPlan(await transport.proposeEngagement(text.trim()));
+      await refreshLists();
     });
   const start = () =>
     run(async () => {
