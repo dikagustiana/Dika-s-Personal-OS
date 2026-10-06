@@ -24,6 +24,7 @@ import {
   routerFiles,
   tenCompanyEvents,
 } from '../../../logic/lab/fsre/__fixtures__/fsreFixtures';
+import { ROSTER_V2 } from '../../../data/fsreTransport/provisional';
 import { FsreBuilding } from './FsreBuilding';
 import { useFsreViewStore } from './useFsreViewStore';
 
@@ -105,6 +106,31 @@ describe('the bundled replay: the real export (brief 04)', () => {
     click(/^Partner room:/);
     for (const title of [...ESCALATED_TITLES, ...PROPOSAL_TITLES]) expect(panel().getAllByText(title).length, title).toBeGreaterThan(0);
     expect(document.querySelectorAll('[data-partner-item]')).toHaveLength(ESCALATED_TITLES.length + PROPOSAL_TITLES.length);
+  });
+});
+
+describe('v2: the replay on the department floors (brief v2 WO-2)', () => {
+  it('seats the run’s per-skill agents at their departments’ lead and staff desks', async () => {
+    await open();
+    const leadSkills = ROSTER_V2.filter((e) => e.role === 'lead' && e.departmentId === 'data').flatMap((e) => e.skills);
+    for (const skill of leadSkills) expect(floorOf(chip(`agent:${skill}`) as HTMLElement), skill).toBe('b1');
+    const [modellingLead] = ROSTER_V2.filter((e) => e.role === 'lead' && e.departmentId === 'modelling').flatMap((e) => e.skills);
+    expect(floorOf(chip(`agent:${modellingLead}`) as HTMLElement)).toBe('f2');
+  });
+
+  it('draws the review checkers as vacant desks, "Idle, no assignment", and counts them unstaffed', async () => {
+    await open();
+    const checkers = ROSTER_V2.filter((e) => e.role === 'staff' && e.departmentId === 'review').map((e) => e.title);
+    for (const title of checkers) expect(document.body.textContent).toContain(`${title} · Idle, no assignment`);
+    expect(document.querySelector('[data-floor="f3"]')?.textContent).toMatch(/2 unstaffed/);
+  });
+
+  it('offers Replay and Synthetic, and shows Live disabled as not wired yet', async () => {
+    await open();
+    const modes = within(screen.getByRole('group', { name: 'Mode' }));
+    expect(modes.getByRole('button', { name: 'Replay' }).getAttribute('aria-pressed')).toBe('true');
+    expect(modes.getByRole('button', { name: /Live/ }).hasAttribute('disabled')).toBe(true);
+    expect(modes.getByRole('button', { name: /Live/ }).textContent).toContain('Not wired yet');
   });
 });
 

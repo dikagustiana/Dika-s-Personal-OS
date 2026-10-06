@@ -69,7 +69,7 @@ export const FLOOR_LABELS: Record<FloorId, string> = {
   f3: '3F Review',
   f2: '2F Modelling',
   f1: '1F Lobby',
-  b1: 'B1 Data room',
+  b1: 'B1 Data',
 };
 
 /** The one gate predicate. Matches `gate-1` (provisional) and `gate1` (router). */
@@ -198,7 +198,8 @@ export const FALLBACK_DESK_KEY: DeskKey = 'lobby:fallback';
 export interface DeskAnchor {
   key: DeskKey;
   floorId: FloorId;
-  kind: 'desk' | 'gate' | 'partner' | 'fallback';
+  /** `vacant`: a v2 staff desk nobody holds (departmentPlan.ts); drawn, never seated. */
+  kind: 'desk' | 'gate' | 'partner' | 'fallback' | 'vacant';
   /** The skill at the desk (desks), or null (gate rooms, fallback). */
   skill: string | null;
   /** The gate stage (gate rooms), or null. */
@@ -212,6 +213,8 @@ export interface DeskAnchor {
   /** The glass room around a gate table. */
   room: Box | null;
   monitor: boolean;
+  /** A vacant desk's name plate ("Tie-out checker", "Staff desk"); null for every other kind. */
+  title: string | null;
 }
 
 export interface FloorPlan {
@@ -332,6 +335,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
           agentSpot: agentSet.has(skill) ? { x: PARTNER_DESK.x + PARTNER_DESK.w / 2, y: PARTNER_DESK.y + AGENT_FIGURE.behindDesk } : null,
           room: null,
           monitor: false,
+          title: null,
         });
       }
       continue;
@@ -354,6 +358,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
         agentSpot: agentSet.has(skill) ? { x: centre, y: row.y + AGENT_FIGURE.behindDesk } : null,
         room: null,
         monitor: row.monitors,
+        title: null,
       });
     });
   }
@@ -379,6 +384,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
       agentSpot: null,
       room,
       monitor: false,
+      title: null,
     });
   });
 
@@ -393,6 +399,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
     agentSpot: null,
     room: null,
     monitor: false,
+    title: null,
   });
 
   return {

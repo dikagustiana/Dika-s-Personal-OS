@@ -703,6 +703,20 @@ button {
   box-shadow: inset 0 -2px 0 hsl(var(--escalate));
 }
 .fsre-chip[data-tone='failed'] { border-color: hsl(var(--destructive)); }
+/* v2 desks: the name plate, the monitor's words and the in-tray under the
+   state. Long task text is cut, not wrapped: the desk panel holds it whole. */
+.fsre-chip-detail {
+  display: block;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 400;
+  color: hsl(var(--foreground-secondary));
+}
+/* v2: desks of another engagement while the building is filtered to one (WO-5);
+   each says so in words ("other work: …"), the fade only quietens it. */
+.fsre-chip[data-dim='true'],
+.fsre-dim { opacity: 0.45; }
 
 .fsre-floor-tag {
   position: absolute;

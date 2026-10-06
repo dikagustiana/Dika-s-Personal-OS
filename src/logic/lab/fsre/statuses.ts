@@ -357,3 +357,13 @@ export const VACANT_DESK_TITLE = 'Staff desk';
 
 /** The dim label of a desk whose work belongs to no ticker of the filtered engagement. */
 export const OTHER_ENGAGEMENT_WORD = 'other engagement';
+
+/** A desk's in-tray, on its chip: queued items plus open commands. */
+export const IN_TRAY_WORD = 'In-tray';
+
+/** The three departments of the v2 office, by their contract ids. */
+export const DEPARTMENT_WORDS: Record<'data' | 'modelling' | 'review', string> = {
+  data: 'Data department',
+  modelling: 'Modelling department',
+  review: 'Review department',
+};

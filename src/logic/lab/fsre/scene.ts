@@ -14,6 +14,7 @@
  */
 import { formatCount, formatNumber } from './format';
 import {
+  AGENT_FIGURE,
   CHIP_HEADROOM,
   CHIP_STAGGER_LEVELS,
   DOC_SHEET,
@@ -96,6 +97,7 @@ import {
 import {
   AGENT_STATUSES,
   AGENT_STATUS_WORDS,
+  FLOOR_TAG_WORDS,
   FOLDER_STATUS_WORDS,
   FOLDER_STATUSES,
   GATE_CHIP_WORDS,
@@ -103,6 +105,7 @@ import {
   ISSUE_STATE_WORDS,
   PARTNER_KIND_COUNT_NOUNS,
   STAGE_STATUS_WORDS,
+  UNASSIGNED_DESK_WORD,
   figureLabel,
   type AgentStatus,
   type FolderStatus,
@@ -118,7 +121,9 @@ export type FsreSelection =
   | { kind: 'agent'; skill: string }
   | { kind: 'gate'; stageId: string }
   | { kind: 'partner' }
-  | { kind: 'desk'; deskKey: DeskKey };
+  | { kind: 'desk'; deskKey: DeskKey }
+  /** v2: a seat of the synthetic office, by the agent at it (deskScene.ts). */
+  | { kind: 'seat'; agentId: string };
 
 export function selectionKey(selection: FsreSelection | null): string {
   if (!selection) return '';
@@ -133,20 +138,22 @@ export function selectionKey(selection: FsreSelection | null): string {
       return 'partner';
     case 'desk':
       return `desk:${selection.deskKey}`;
+    case 'seat':
+      return `seat:${selection.agentId}`;
   }
 }
 
 /** Sinks things resting on a surface just in front of it in the painter's order. */
-const ON_TOP = 0.001;
+export const ON_TOP = 0.001;
 
 /* ---------- scene types ---------- */
 
 export type BoxMaterial = 'furniture' | 'monitor' | 'bench' | 'folder' | 'doc-escalation' | 'doc-proposal';
 
 export type DrawItem =
-  | { kind: 'box'; key: string; sortY: number; faces: BoxFaces; material: BoxMaterial }
+  | { kind: 'box'; key: string; sortY: number; faces: BoxFaces; material: BoxMaterial; dim?: boolean }
   | { kind: 'rack'; key: string; sortY: number; faces: BoxFaces; slats: Array<{ x1: number; y1: number; x2: number; y2: number }> }
-  | { kind: 'agent'; key: string; sortY: number; skill: string; status: AgentStatus; shape: AgentShape }
+  | { kind: 'agent'; key: string; sortY: number; skill: string; status: AgentStatus; shape: AgentShape; dim?: boolean }
   | { kind: 'plant'; key: string; sortY: number; shape: PlantShape }
   | { kind: 'glass'; key: string; sortY: number; polygons: string[] }
   | { kind: 'folders'; key: string; sortY: number; deskKey: DeskKey; boxes: BoxFaces[] }
@@ -161,6 +168,10 @@ export interface ChipSpec {
   /** 0 or 1: neighbouring chips sit at different heights. */
   stagger: number;
   strong: boolean;
+  /** v2 desks: lines under the state (name plate, monitor text, in-tray). */
+  detail?: string[];
+  /** v2: the desk belongs to another engagement than the one the building is filtered to. */
+  dim?: boolean;
 }
 
 export interface HitSpec {
@@ -280,7 +291,7 @@ function pileBox(kind: PartnerItemKind, index: number): Box {
 }
 
 /** A hit button's box, centred: the CSS grows it to at least 44px around the centre. */
-function hitRect(rect: Rect): PercentRect {
+export function hitRect(rect: Rect): PercentRect {
   return toPercentCentred(rect);
 }
 
@@ -386,6 +397,21 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
           ]),
         ),
       });
+    }
+    if (desk.kind === 'vacant') {
+      // A staff desk nobody holds (v2): its name plate and "Idle, no
+      // assignment", never a state an event did not give it.
+      const spot = { x: desk.surface.x + desk.surface.w / 2, y: desk.surface.y + AGENT_FIGURE.behindDesk };
+      chips.push({
+        id: key,
+        anchor: toPercentPoint(project(spot.x, spot.y, CHIP_HEADROOM.agent)),
+        tone: AGENT_TONES.idle,
+        glyph: AGENT_GLYPHS.idle,
+        text: `${desk.title ?? ''} · ${UNASSIGNED_DESK_WORD}`,
+        stagger: agentIndex % CHIP_STAGGER_LEVELS,
+        strong: false,
+      });
+      agentIndex += 1;
     }
     if (desk.kind === 'gate' && desk.stageId && desk.room) {
       const stageId = desk.stageId;
@@ -523,6 +549,24 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
   };
 }
 
+/** A wall feature's frame and screen, before anything is written on it. */
+export function wallGeometry(wall: { id: string; x0: number; x1: number; z0: number; z1: number }): Omit<WallSpec, 'body'> {
+  const inner = { x0: wall.x0 + WALL_FRAME.insetX, x1: wall.x1 - WALL_FRAME.insetX, z0: wall.z0 + WALL_FRAME.insetZ, z1: wall.z1 - WALL_FRAME.insetZ };
+  return {
+    id: wall.id,
+    frame: wallPoints(wall.x0, wall.x1, wall.z0, wall.z1),
+    screen: wallPoints(inner.x0, inner.x1, inner.z0, inner.z1),
+    rect: toPercentRect(wallRect(inner.x0, inner.x1, inner.z0, inner.z1)),
+  };
+}
+
+/** The lift's two doors inside its frame. */
+export function liftDoors(wall: { x0: number; x1: number; z0: number; z1: number }): string[] {
+  const inner = { x0: wall.x0 + WALL_FRAME.insetX, x1: wall.x1 - WALL_FRAME.insetX, z0: wall.z0 + WALL_FRAME.insetZ, z1: wall.z1 - WALL_FRAME.insetZ };
+  const middle = (wall.x0 + wall.x1) / 2;
+  return [wallPoints(inner.x0, middle - WALL_FRAME.insetX / 2, inner.z0, inner.z1), wallPoints(middle + WALL_FRAME.insetX / 2, inner.x1, inner.z0, inner.z1)];
+}
+
 function buildWall(
   ctx: FsreContext,
   state: FsreState,
@@ -632,6 +676,9 @@ function selectionRing(ctx: FsreContext, state: FsreState, floorId: FloorId, sel
       if (!desk || desk.floorId !== floorId || !desk.room) return null;
       return footprintPoints({ x: desk.room.x, y: desk.room.y, w: desk.room.w, d: desk.room.d }, RING.lift);
     }
+    case 'seat':
+      // The synthetic office draws its own rings (deskScene.ts).
+      return null;
     case 'partner':
       return FLOOR_ZONES[floorId] === 'partner'
         ? footprintPoints(
@@ -663,6 +710,8 @@ function floorTag(ctx: FsreContext, state: FsreState, floorId: FloorId, view: Sc
     const word = AGENT_STATUS_WORDS[status].toLowerCase();
     if (count > 0) parts.push(formatCount(count, word, word));
   }
+  const vacant = ctx.plan.desksOnFloor[floorId].filter((key) => ctx.plan.desks[key]?.kind === 'vacant').length;
+  if (vacant > 0) parts.push(`${formatNumber(vacant)} ${FLOOR_TAG_WORDS.unstaffed}`);
   return parts;
 }
 

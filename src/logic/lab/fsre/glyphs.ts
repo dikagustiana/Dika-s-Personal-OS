@@ -210,3 +210,16 @@ export const COMMAND_STATUS_TONES: Record<CommandStatusV, Tone> = {
   done: 'done',
   declined: 'escalated',
 };
+
+/**
+ * The person at a v2 desk is drawn in the replay agent's colours: no signal
+ * takes stalled's amber, waiting rests like idle. The chip beside the person
+ * carries the glyph and the word, so the figure's colour never stands alone.
+ */
+export const DESK_FIGURE_STATUS: Record<DeskState, AgentStatus> = {
+  escalated: 'escalated',
+  no_signal: 'stalled',
+  waiting: 'idle',
+  working: 'working',
+  idle: 'idle',
+};

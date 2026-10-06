@@ -13,8 +13,12 @@
  * through the roster in the data layer (planDepartmentFloors, in
  * departmentPlan.ts). Like layout.ts, this file names no skill and no stage.
  *
- * Positions are GLM's (src/layout/floorLayout.ts at 5b5d186), carried over as
- * they were; brief v2.1 FX-11 moves the leads, in its own commit.
+ * Seat positions are GLM's (src/layout/floorLayout.ts at 5b5d186), carried
+ * over as they were; brief v2.1 FX-11 moves the leads, in its own commit. The
+ * wall screens keep this repository's v1 sizes (layout.ts FLOORS) wherever
+ * the v2 rooms leave the wall free: the replay writes its stage screen, data
+ * counter and issue board on them, and GLM's smaller screens (drawn blank in
+ * its synthetic mode) could not hold that text legibly.
  */
 import type { DepartmentId } from '../../../data/fsreTransport/contract';
 import { AGENT_FIGURE } from './geometry';
@@ -87,7 +91,7 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
     staffStrip: { x0: 2.5, x1: 27.5, y: 6 },
     special: [],
     decorations: [
-      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 10, x1: 20, z0: 1.1, z1: 2.5 },
+      { kind: 'wall', id: 'issue-board', content: 'issues', x0: 7, x1: 23, z0: 0.75, z1: 2.85 },
       { kind: 'plant', id: 'f2-plant-a', x: 1.2, y: 8.4 },
       { kind: 'plant', id: 'f2-plant-b', x: 28.2, y: 8.4 },
     ],
@@ -102,8 +106,10 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
       { kind: 'methodology', seat: desk('f1-methodology', 4.5, 7.2, false) },
     ],
     decorations: [
-      { kind: 'wall', id: 'stage-screen', content: 'stages', x0: 11, x1: 19, z0: 1, z1: 2.6 },
-      { kind: 'wall', id: 'lift-doors', content: 'lift', x0: 23, x1: 26, z0: 0, z1: 2.4 },
+      // The training room's glass stands at the left of the back wall, so the
+      // stage screen starts right of it; the lift keeps the v1 corner.
+      { kind: 'wall', id: 'stage-screen', content: 'stages', x0: 10, x1: 25, z0: 0.55, z1: 2.85 },
+      { kind: 'wall', id: 'lift-doors', content: 'lift', x0: 26, x1: 29, z0: 0, z1: 2.4 },
       { kind: 'solid', id: 'reception', box: { x: 12, y: 3, w: 6, d: 1.2, h: 0.9 } },
       { kind: 'glass', id: 'training-room', box: { x: 1, y: 5, w: 8, d: 5, h: 2.2 } },
       { kind: 'wall', id: 'training-board', content: 'blank', x0: 2, x1: 7, z0: 1.2, z1: 2.4 },
@@ -121,7 +127,7 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
     staffStrip: { x0: 2.5, x1: 27.5, y: 6 },
     special: [],
     decorations: [
-      { kind: 'wall', id: 'data-counter', content: 'figures', x0: 2, x1: 11, z0: 1.2, z1: 2.2 },
+      { kind: 'wall', id: 'data-counter', content: 'figures', x0: 2, x1: 15, z0: 1.1, z1: 2.5 },
       { kind: 'rack', id: 'rack-a', box: { x: 22.6, y: 8.6, w: 1.1, d: 1, h: 2.4 } },
       { kind: 'rack', id: 'rack-b', box: { x: 23.9, y: 8.6, w: 1.1, d: 1, h: 2.4 } },
       { kind: 'rack', id: 'rack-c', box: { x: 25.2, y: 8.6, w: 1.1, d: 1, h: 2.4 } },

@@ -184,9 +184,15 @@ function Chip({ chip, flash, motionKey }: { chip: ChipSpec; flash: boolean; moti
       data-tone={chip.tone}
       data-stagger={chip.stagger}
       data-strong={chip.strong}
+      data-dim={chip.dim ? 'true' : undefined}
       style={chip.anchor}
     >
       {chip.glyph ? <Glyph glyph={chip.glyph} tone={chip.tone} /> : null} {chip.text}
+      {chip.detail?.map((line) => (
+        <span key={line} className="fsre-chip-detail">
+          {line}
+        </span>
+      ))}
     </div>
   );
 }
@@ -219,7 +225,10 @@ export function FsreFloor({ scene, onSelect, touched, motionKey }: FsreFloorProp
           <Wall key={wall.id} wall={wall} />
         ))}
         {scene.items.map((item) => (
-          <g key={item.kind === 'folders' && touched.arrivals.has(item.deskKey) ? `${item.key}:${motionKey}` : item.key}>
+          <g
+            key={item.kind === 'folders' && touched.arrivals.has(item.deskKey) ? `${item.key}:${motionKey}` : item.key}
+            className={(item.kind === 'box' || item.kind === 'agent') && item.dim ? 'fsre-dim' : undefined}
+          >
             <Item item={item} arriving={item.kind === 'folders' && touched.arrivals.has(item.deskKey)} />
           </g>
         ))}
