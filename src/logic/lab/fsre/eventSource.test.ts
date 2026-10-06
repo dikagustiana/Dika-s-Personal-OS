@@ -2,14 +2,14 @@ import { describe, expect, it } from 'vitest';
 import type { FsreEvent } from './events';
 import { FSRE_SOURCES, appendEvents, createReplaySource, followCursor, liveSource, replaySource, type FsreEventSource } from './eventSource';
 import { buildContext, createStateCache, reduceEvents } from './reducer';
-import { UNVR_FILES, UNVR_FILE_NAMES, tenCompanyRun } from './__fixtures__/fsreFixtures';
+import { PROVISIONAL_FILES, REAL_DATA, UNVR_FILE_NAMES, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
-const replay = (files: () => Promise<typeof UNVR_FILES>) =>
+const replay = (files: () => Promise<typeof PROVISIONAL_FILES>) =>
   createReplaySource({ id: 'replay-test', label: 'Replay of the test run', fileNames: UNVR_FILE_NAMES, files });
 
-describe('a replay source', () => {
+describe('a replay source (over the provisional GLM fixture)', () => {
   it('loads, validates and labels its run', async () => {
-    const source = replay(async () => UNVR_FILES);
+    const source = replay(async () => PROVISIONAL_FILES);
     expect(source).toMatchObject({ id: 'replay-test', kind: 'replay', availability: 'ready' });
     expect(source.subscribe).toBeUndefined();
     const result = await source.load();
@@ -21,7 +21,7 @@ describe('a replay source', () => {
   });
 
   it('says the data is invalid, and where, instead of showing an empty building', async () => {
-    const result = await replay(async () => ({ ...UNVR_FILES, stages: { stages: 'none' } })).load();
+    const result = await replay(async () => ({ ...PROVISIONAL_FILES, stages: { stages: 'none' } })).load();
     expect(result).toMatchObject({ ok: false, reason: 'invalid-data' });
     expect(!result.ok && result.detail).toContain('stages.json');
   });
@@ -35,20 +35,21 @@ describe('a replay source', () => {
   });
 });
 
-describe('the bundled replay (src/data/fsre/, copied unchanged)', () => {
-  it('validates through data.ts, with every file still saying it is provisional, and why', async () => {
+describe('the bundled replay (src/data/fsre/, the real export of brief 04)', () => {
+  it('validates through data.ts, with no file provisional and each file giving its own source', async () => {
     const result = await replaySource.load();
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.run.id).toBe('unvr-dry-run');
-    expect(result.run.events).toHaveLength(17);
+    expect(result.run.id).toBe(REAL_DATA.replay.run);
+    expect(result.run.events).toHaveLength(REAL_DATA.replay.events.length);
+    expect(result.run.events).toHaveLength(50);
     expect(result.run.stages).toHaveLength(13);
-    expect(result.run.skills).toHaveLength(10);
-    expect(result.run.timesRecorded).toBe(false);
+    expect(result.run.skills).toHaveLength(11);
+    expect(result.run.timesRecorded).toBe(true);
     expect(result.run.provenance).toEqual([
-      { file: 'stages', fileName: 'stages.json', provisional: true, stated: true, source: "Provisional stage list written in chat. Replace with the router's state machine from fs-reverse-engineering." },
-      { file: 'skills', fileName: 'skills.json', provisional: true, stated: true, source: "Roles written in chat from the suite's design; not taken from the skill files." },
-      { file: 'replay', fileName: 'replay-unvr.json', provisional: true, stated: true, source: 'Stopgap file written in chat. Replace with the export from fsre-skills when it runs.' },
+      { file: 'stages', fileName: 'stages.json', provisional: false, stated: true, source: REAL_DATA.stages.source },
+      { file: 'skills', fileName: 'skills.json', provisional: false, stated: true, source: REAL_DATA.skills.source },
+      { file: 'replay', fileName: 'replay-unvr.json', provisional: false, stated: true, source: REAL_DATA.replay.source },
     ]);
   });
 

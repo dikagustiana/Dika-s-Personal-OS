@@ -1,0 +1,110 @@
+{
+  "provisional": true,
+  "source": "Provisional stage list written in chat. Replace with the router's state machine from fs-reverse-engineering.",
+  "stages": [
+    {
+      "id": "manifest",
+      "name": "Manifest",
+      "order": 1,
+      "skills": [
+        "fs-reverse-engineering"
+      ]
+    },
+    {
+      "id": "universe",
+      "name": "Universe",
+      "order": 2,
+      "skills": [
+        "idx-universe"
+      ]
+    },
+    {
+      "id": "sourcing",
+      "name": "Sourcing",
+      "order": 3,
+      "skills": [
+        "data-sourcing"
+      ]
+    },
+    {
+      "id": "intake",
+      "name": "Intake",
+      "order": 4,
+      "skills": [
+        "fs-intake"
+      ]
+    },
+    {
+      "id": "gate-1",
+      "name": "Gate 1",
+      "order": 5,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "normalise",
+      "name": "Normalise",
+      "order": 6,
+      "skills": [
+        "fs-normalize"
+      ]
+    },
+    {
+      "id": "decomposition",
+      "name": "Decomposition",
+      "order": 7,
+      "skills": [
+        "fs-driver-decomposition"
+      ]
+    },
+    {
+      "id": "benchmark",
+      "name": "Benchmark",
+      "order": 8,
+      "skills": [
+        "peer-benchmark"
+      ]
+    },
+    {
+      "id": "model",
+      "name": "Model",
+      "order": 9,
+      "skills": [
+        "financial-modeling"
+      ]
+    },
+    {
+      "id": "gate-2",
+      "name": "Gate 2",
+      "order": 10,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "holdout",
+      "name": "Holdout",
+      "order": 11,
+      "skills": [
+        "fs-reverse-engineering"
+      ]
+    },
+    {
+      "id": "gate-3",
+      "name": "Gate 3",
+      "order": 12,
+      "skills": [
+        "review-manager"
+      ]
+    },
+    {
+      "id": "sign-off",
+      "name": "Sign-off",
+      "order": 13,
+      "skills": [
+        "owner"
+      ]
+    }
+  ]
+}

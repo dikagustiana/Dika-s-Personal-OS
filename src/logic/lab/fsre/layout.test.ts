@@ -11,11 +11,11 @@ import {
   resolveDesk,
   slotCentres,
 } from './layout';
-import { tenCompanyRun, unvrRun } from './__fixtures__/fsreFixtures';
+import { provisionalRun, realRun, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
 describe('floors take their skills from the stage data', () => {
   it('places the provisional stage list by the rule, not by a second list', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     const plan = planFloors(run.stages, run.skills);
     expect(plan.skillsOnFloor).toEqual({
       b1: ['idx-universe', 'data-sourcing', 'fs-intake'],
@@ -43,7 +43,7 @@ describe('floors take their skills from the stage data', () => {
   });
 
   it('puts every skill on exactly one floor, and nothing that is in neither file', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     const plan = planFloors(run.stages, run.skills);
     const placed = FLOOR_IDS.flatMap((id) => plan.skillsOnFloor[id]).sort();
     const named = [...new Set([...run.stages.flatMap((s) => s.skills), ...run.skills.map((s) => s.name)])].sort();
@@ -56,9 +56,34 @@ describe('floors take their skills from the stage data', () => {
   });
 
   it('moves a skill when the stage data moves it', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     const moved = run.stages.map((stage) => (stage.id === 'normalise' ? { ...stage, order: 4.5 } : stage));
     expect(planFloors(moved, run.skills).floorOfSkill['fs-normalize']).toBe('b1');
+  });
+});
+
+describe('the real export (brief 04) places by its seats and its stages', () => {
+  const run = realRun();
+  const plan = planFloors(run.stages, run.skills);
+
+  it('seats the owner in the partner room and the router in the lobby', () => {
+    expect(plan.partnerSkills).toEqual(['partner']);
+    expect(plan.floorOfSkill.partner).toBe('f4');
+    expect(plan.floorOfSkill['fs-reverse-engineering']).toBe('f1');
+    // An agent: the owner sits at the partner desk.
+    expect(plan.desks[deskKeyForSkill('partner')].agentSpot).not.toBeNull();
+  });
+
+  it('places everyone else by the stage rule', () => {
+    expect(plan.gateStageIds).toEqual(['gate1', 'gate2', 'gate3']);
+    expect(plan.skillsOnFloor).toEqual({
+      b1: ['idx-universe', 'fs-intake'],
+      // data-sourcing works in two segments (doc_plan, decomposed); guruh runs no stage.
+      f1: ['data-sourcing', 'fs-reverse-engineering', 'guruh'],
+      f2: ['fs-normalize', 'fs-driver-decomposition', 'peer-benchmark', 'financial-modeling'],
+      f3: ['review-manager'],
+      f4: ['partner'],
+    });
   });
 });
 

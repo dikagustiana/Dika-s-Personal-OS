@@ -347,3 +347,86 @@ contributor case in `App.fsre.test.tsx` was seen to fail with the owner check re
 - The pre-existing teardown error in `labFlowAcceptance.test.tsx` makes `test:run` exit 1 on some
   runs.
 - As §3.4 said, the replay is bundled: a contributor who fetched the chunk by hand could read it.
+
+## Brief 04: the real replay
+
+Two commits. `feat(lab): seats from the skill data (the partner room is the owner's)` carries the
+seat rule (layout.ts rule 0, `seat` in data.ts, two figure labels, its layout tests). The second,
+`feat(lab): the real UNVR replay, exported from fsre-skills (brief 04)`, carries the data and
+everything that follows from it.
+
+### What changed
+
+- `src/data/fsre/` now holds the real export, written by `scripts/fsre/export-replay.py`: 13 router
+  stages (`selected` … `closed`), 11 skills (with `partner`, seated in the partner room, and the
+  router seated in the lobby), 50 events (22 timed by the router; review notes and proposals carry
+  `at: null`), and `provisional: false` in all three files.
+- GLM's three provisional files are kept byte for byte as a test fixture in
+  `src/logic/lab/fsre/__fixtures__/provisional/` (sha256 `66201710…`, `02f72329…`, `9cf8ab5f…`,
+  identical to `C:/work/glm/fsre-building/data`).
+- One reducer change, because of the real data. The export raises each escalated note as its own
+  `escalated` event, and then the gate reports `gate_passed_with_escalation`. The reducer used to
+  open one more item for the gate, which put 15 escalations on the desk for 13 notes. A
+  `gate_passed_with_escalation` now opens its own item only when nothing is open at that gate for
+  that company. On its own it still reaches the partner room and locks approval; it is no longer
+  counted twice.
+
+### Tests moved to the provisional fixture
+
+Everything that exists to prove the provisional *shape*: the per-file provisional labels and
+"times not recorded" (rule 6); bracketed placeholders shown as written; flat numeric payload
+fields read as figures; a missing `provisional` flag; the static `figures`, `archetypes` and
+`partnerQueue` dropped; the ported GLM reducer cases (the 17-event sequence and its partner queue);
+and the stage-to-floor rule without seats.
+
+### Tests rewritten for the real data
+
+Expected values are read from the files where they are numbers in the files:
+- 50 events, and facts loaded 45.996 (e006, the intake `stage_completed`).
+- The Gate 1 tie-out: 386 checks, 371 passed, 0 failed, 15 skipped (e008).
+- Gate 1 passed, and Gates 2 and 3 passed with escalation.
+- The 13 escalated notes in the partner room, each keyed by its event, and the 2 run-level
+  proposals with their titles.
+- Approval locked with all 13 reasons written out.
+- The reviewer escalated, the owner seated and idle in the partner room, the router in the lobby.
+- `timesRecorded` true, with `at: null` exactly on the issue, escalation and proposal events.
+- No file provisional, so no provisional note and no times note.
+
+Counts: commit (a) 141 files / 2340 tests; this commit 141 files / 2368 tests (exit 0).
+
+### Rule tests: one changed, and why
+
+Rules 1, 3, 4, 5, 6 and 7 are proven as before (on the real data, the fixture or both), and
+their negative controls still hold.
+
+**Rule 2, the literal scan, cannot hold on the real data as written.** The real data names a skill
+`partner`, which is also a floor zone (`FLOOR_ZONE_IDS`, and the seat that skill is given), and a
+stage `closed`, which is also an issue state. Both words therefore appear as literals in the core
+for reasons that have nothing to do with a skill or a stage, and a text scan cannot tell them
+apart. So:
+
+- The scan against the provisional names is unchanged and still finds nothing.
+- The scan against the real names leaves out exactly the words that are also in the building's
+  own declared vocabularies (zones and status lists). The test pins that set to
+  `['closed', 'partner']`, so any new collision fails.
+- A new behavioural test closes the gap. It renames every stage id (gates keep a gate id), every
+  stage name, every skill name and the ticker in the real export, and requires the same result
+  under the renaming: the same floors, agent statuses, gate results, partner items, folder desk
+  and run totals. A planted `if (skill === 'partner')` branch in `agentStatus` passes the
+  exempted scan but turns this test red; it is green again once the branch is removed.
+
+The rule-3 invariant was restated precisely rather than loosened. After every `escalated` event
+there is an open item keyed by that event, and the lock names it. After every
+`gate_passed_with_escalation` there is an open escalation item at that gate for that company (its
+own, or the notes it reports), and the lock names one. A lone gate escalation is still tested to
+open its own item.
+
+### Seen on screen (local dev server, real data)
+
+The owner sits in the partner room (4F) and the router in the lobby (1F). Gate 1 reads Passed;
+Gates 2 and 3 read "⚠ Passed with escalation". The partner desk shows "⚠ 13 escalations (+10 not
+drawn)" and "✎ 2 proposals", the badge says 15, and the panel lists all 15 items and the lock with
+13 reasons. Two cosmetic defects are left for a follow-up:
+- the long Gate 2 and Gate 3 chips overlap each other on 3F;
+- an escalation whose reason fell back to its title prints that title twice, in the panel item
+  and in the lock list.

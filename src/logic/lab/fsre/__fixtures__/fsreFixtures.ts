@@ -1,9 +1,15 @@
 /**
  * Test fixtures for the FSRE building core. Imported by tests only.
  *
- * UNVR_FILES are the bundled provisional input files in their raw shape
- * (flat numeric payload fields, a top-level `figures` block and a
- * `partnerQueue`), which the ported source tests run against.
+ * PROVISIONAL_FILES are GLM's original three files, kept byte for byte in
+ * ./provisional/ after brief 04 replaced the bundled ones: the provisional
+ * SHAPE (flat numeric payload fields, a top-level `figures` block, a
+ * `partnerQueue`, `provisional: true`, bracketed placeholders) still has to
+ * be handled, and the ported source tests run against it.
+ *
+ * REAL_FILES are the bundled files in src/data/fsre/, the real export from
+ * fsre-skills (scripts/fsre/export-replay.py). Tests about "the bundled
+ * replay" assert them, reading expected values from the files.
  *
  * ROUTER_FILES and tenCompanyRun() use the EXPORT shape (mount report §3.3):
  * router stage ids, `payload.figures`, ISO `at`, `ticker: null` for a
@@ -12,21 +18,29 @@
  * provisional skill name was spelled somewhere in it, these runs would show
  * it.
  */
-import replayJson from '../../../../data/fsre/replay-unvr.json';
-import skillsJson from '../../../../data/fsre/skills.json';
-import stagesJson from '../../../../data/fsre/stages.json';
+import realReplay from '../../../../data/fsre/replay-unvr.json';
+import realSkills from '../../../../data/fsre/skills.json';
+import realStages from '../../../../data/fsre/stages.json';
 import type { FsreRawFiles, FsreRun } from '../data';
 import { parseFsreRun } from '../data';
+import provisionalReplay from './provisional/replay-unvr.json';
+import provisionalSkills from './provisional/skills.json';
+import provisionalStages from './provisional/stages.json';
 
-/**
- * The bundled provisional files themselves (src/data/fsre/, copied unchanged
- * from the GLM build). Until step 3 this was a hand-written mirror.
- */
-export const UNVR_FILES: FsreRawFiles = { stages: stagesJson, skills: skillsJson, replay: replayJson };
+/** GLM's provisional files, unchanged (C:/work/glm/fsre-building/data at 71b64b4). */
+export const PROVISIONAL_FILES: FsreRawFiles = { stages: provisionalStages, skills: provisionalSkills, replay: provisionalReplay };
+
+/** The real export, as bundled in src/data/fsre/. */
+export const REAL_FILES: FsreRawFiles = { stages: realStages, skills: realSkills, replay: realReplay };
+
+/** Both generations use the same three file names. */
+export const UNVR_FILE_NAMES = { stages: 'stages.json', skills: 'skills.json', replay: 'replay-unvr.json' } as const;
+
+/** The raw files typed, for tests that read expected values from them. */
+export const REAL_DATA = { stages: realStages, skills: realSkills, replay: realReplay };
+export const PROVISIONAL_DATA = { stages: provisionalStages, skills: provisionalSkills, replay: provisionalReplay };
 
 type RawEvent = Record<string, unknown>;
-
-export const UNVR_FILE_NAMES = { stages: 'stages.json', skills: 'skills.json', replay: 'replay-unvr.json' } as const;
 
 /* ---------- the router's stage ids, invented skill names ---------- */
 
@@ -196,8 +210,12 @@ export function parsedOrThrow(files: FsreRawFiles, names: { stages: string; skil
   return parsed.run;
 }
 
-export function unvrRun(): FsreRun {
-  return parsedOrThrow(UNVR_FILES, UNVR_FILE_NAMES);
+export function provisionalRun(): FsreRun {
+  return parsedOrThrow(PROVISIONAL_FILES, UNVR_FILE_NAMES);
+}
+
+export function realRun(): FsreRun {
+  return parsedOrThrow(REAL_FILES, UNVR_FILE_NAMES);
 }
 
 export function tenCompanyRun(): FsreRun {

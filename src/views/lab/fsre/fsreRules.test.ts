@@ -12,10 +12,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
-import replayJson from '../../../data/fsre/replay-unvr.json';
-import skillsJson from '../../../data/fsre/skills.json';
-import stagesJson from '../../../data/fsre/stages.json';
+import { parseFsreRun, type FsreRawFiles } from '../../../logic/lab/fsre/data';
+import { FLOOR_ZONE_IDS, planFloors } from '../../../logic/lab/fsre/layout';
+import { agentStatus, buildContext, gateSummary, partnerItems, reduceEvents, runTotals } from '../../../logic/lab/fsre/reducer';
+import { PROVISIONAL_DATA, REAL_DATA, REAL_FILES, UNVR_FILE_NAMES } from '../../../logic/lab/fsre/__fixtures__/fsreFixtures';
 import {
+  AGENT_STATUSES,
   AGENT_STATUS_WORDS,
   EVENT_KIND_WORDS,
   FIGURE_LABELS,
@@ -25,6 +27,12 @@ import {
   ISSUE_STATE_WORDS,
   ITEM_STATE_WORDS,
   PARTNER_KIND_WORDS,
+  FOLDER_STATUSES,
+  GATE_RESULTS,
+  ISSUE_STATES,
+  ITEM_STATES,
+  PARTNER_ITEM_KINDS,
+  STAGE_STATUSES,
   STAGE_STATUS_WORDS,
 } from '../../../logic/lab/fsre/statuses';
 
@@ -103,23 +111,114 @@ describe('rule 2: no number literals in components', () => {
 });
 
 describe('rule 2: stage ids and names, skill names and tickers come only from the data', () => {
-  const stageIds = stagesJson.stages.map((stage) => stage.id);
-  const stageNames = stagesJson.stages.map((stage) => stage.name);
-  const skillNames = [...new Set([...skillsJson.skills.map((skill) => skill.name), ...stagesJson.stages.flatMap((stage) => stage.skills)])];
-  const tickers = [replayJson.company.ticker];
-  const forbidden = new Set([...stageIds, ...stageNames, ...skillNames, ...tickers]);
+  type Vocabulary = { stages: { stages: Array<{ id: string; name: string; skills: string[] }> }; skills: { skills: Array<{ name: string }> }; replay: { company: { ticker: string } } };
+  const namesIn = (data: Vocabulary) => ({
+    stageIds: data.stages.stages.map((stage) => stage.id),
+    stageNames: data.stages.stages.map((stage) => stage.name),
+    skillNames: [...new Set([...data.skills.skills.map((skill) => skill.name), ...data.stages.stages.flatMap((stage) => stage.skills)])],
+    tickers: [data.replay.company.ticker],
+  });
+  const all = (data: Vocabulary) => {
+    const names = namesIn(data);
+    return new Set([...names.stageIds, ...names.stageNames, ...names.skillNames, ...names.tickers]);
+  };
 
-  it('writes none of them as a literal anywhere in the view or the core', () => {
-    const found = textTokens(ALL_CODE)
+  /**
+   * The building's OWN closed vocabularies. Since brief 04 two of their words
+   * are also names in the real data: the owner's skill is called `partner`,
+   * which is also a floor zone (and the seat the skill data gives it), and
+   * the router's last stage is `closed`, which is also an issue state. A
+   * text scan cannot tell a zone from a skill, so those two words are pinned
+   * here — any NEW collision fails — and the rename test below proves the
+   * code depends on no stage or skill NAME, these two included.
+   */
+  const codeVocabulary = new Set<string>([
+    ...FLOOR_ZONE_IDS,
+    ...ISSUE_STATES,
+    ...ITEM_STATES,
+    ...AGENT_STATUSES,
+    ...STAGE_STATUSES,
+    ...GATE_RESULTS,
+    ...FOLDER_STATUSES,
+    ...PARTNER_ITEM_KINDS,
+  ]);
+  const provisional = all(PROVISIONAL_DATA);
+  const real = all(REAL_DATA);
+  const collisions = [...real].filter((word) => codeVocabulary.has(word)).sort();
+
+  const literalsNaming = (forbidden: Set<string>) =>
+    textTokens(ALL_CODE)
       .filter((token) => !token.classList)
       .filter((token) => forbidden.has(token.text) || [...forbidden].some((name) => (name.includes('-') || name === name.toUpperCase()) && new RegExp(`\\b${name}\\b`).test(token.text)))
       .map((token) => `${where(token.file, token.node)} ${JSON.stringify(token.text)}`);
-    expect(found).toEqual([]);
+
+  it('writes no name from the provisional data as a literal anywhere in the view or the core', () => {
+    expect(literalsNaming(provisional)).toEqual([]);
+  });
+
+  it('writes no name from the real export either, beyond the two words the code owns', () => {
+    expect(collisions).toEqual(['closed', 'partner']);
+    expect(provisional.has('partner') || provisional.has('closed')).toBe(false);
+    expect(literalsNaming(new Set([...real].filter((word) => !collisions.includes(word))))).toEqual([]);
   });
 
   it('keeps the floor plan free of a second skill list (layout.ts names no skill)', () => {
     const layout = readFileSync(path.join(CORE_DIR, 'layout.ts'), 'utf8');
-    for (const skill of skillNames) expect(layout.includes(`'${skill}'`), skill).toBe(false);
+    const skills = [...namesIn(PROVISIONAL_DATA).skillNames, ...namesIn(REAL_DATA).skillNames].filter((skill) => !collisions.includes(skill));
+    for (const skill of skills) expect(layout.includes(`'${skill}'`), skill).toBe(false);
+  });
+
+  it('behaves the same when every stage, skill and ticker in the real export is renamed', () => {
+    // Gates keep a gate id (the one documented id rule, GATE_STAGE_ID); every
+    // other stage id, every stage name, every skill name and the ticker change.
+    const stages = REAL_DATA.stages.stages;
+    const gateCount = { n: 0 };
+    const stageId = new Map(stages.map((stage, i) => [stage.id, /^gate/i.test(stage.id) ? `gate_${(gateCount.n += 1) + 90}` : `stage_${i}`]));
+    const stageName = new Map(stages.map((stage, i) => [stage.name, `Renamed stage ${String.fromCharCode(65 + i)}`]));
+    const skillNames = [...new Set([...REAL_DATA.skills.skills.map((skill) => skill.name), ...stages.flatMap((stage) => stage.skills)])];
+    const skill = new Map(skillNames.map((name, i) => [name, `renamed-skill-${String.fromCharCode(97 + i)}`]));
+    const ticker = new Map([[REAL_DATA.replay.company.ticker, 'ZZZZ']]);
+    const map = <T,>(m: Map<T, T>, value: T) => m.get(value) ?? value;
+    const renamed: FsreRawFiles = {
+      stages: { ...REAL_DATA.stages, stages: stages.map((st) => ({ ...st, id: map(stageId, st.id), name: map(stageName, st.name), skills: st.skills.map((x) => map(skill, x)) })) },
+      skills: { ...REAL_DATA.skills, skills: REAL_DATA.skills.skills.map((x) => ({ ...x, name: map(skill, x.name) })) },
+      replay: {
+        ...REAL_DATA.replay,
+        company: { ...REAL_DATA.replay.company, ticker: 'ZZZZ' },
+        events: REAL_DATA.replay.events.map((event) => ({
+          ...event,
+          ticker: event.ticker === null ? null : map(ticker, event.ticker),
+          ...('stageId' in event && event.stageId ? { stageId: map(stageId, event.stageId) } : {}),
+          ...('skill' in event && event.skill ? { skill: map(skill, event.skill) } : {}),
+        })),
+      },
+    };
+    const parse = (files: FsreRawFiles) => {
+      const parsed = parseFsreRun(files, UNVR_FILE_NAMES);
+      if (!parsed.ok) throw new Error(parsed.detail);
+      return parsed.run;
+    };
+    const original = parse(REAL_FILES);
+    const other = parse(renamed);
+    const projection = (run: typeof original, back: (name: string) => string, backTicker: (t: string) => string, backStage: (s: string) => string) => {
+      const ctx = buildContext(run);
+      const plan = planFloors(run.stages, run.skills);
+      const state = reduceEvents(ctx, run.events);
+      const [company] = state.companyOrder.map((t) => state.companies[t]);
+      return {
+        floors: Object.fromEntries(Object.entries(plan.floorOfSkill).map(([name, floor]) => [back(name), floor])),
+        agents: Object.fromEntries(plan.agentSkills.map((name) => [back(name), agentStatus(ctx, state, name)])),
+        gates: plan.gateStageIds.map((id) => gateSummary(company, id).worst),
+        items: partnerItems(state).map((item) => [item.kind, item.state, item.ticker && backTicker(item.ticker), item.stageId && backStage(item.stageId), item.eventId, item.title]),
+        desk: company.deskKey?.replace(/^desk:/, '') && back(company.deskKey.replace(/^desk:/, '')),
+        figures: runTotals(state).figures,
+      };
+    };
+    const inverse = <T,>(m: Map<T, T>) => new Map([...m].map(([a, b]) => [b, a]));
+    const identity = (x: string) => x;
+    expect(projection(other, (n) => map(inverse(skill), n), (t) => map(inverse(ticker), t), (s) => map(inverse(stageId), s))).toEqual(
+      projection(original, identity, identity, identity),
+    );
   });
 });
 

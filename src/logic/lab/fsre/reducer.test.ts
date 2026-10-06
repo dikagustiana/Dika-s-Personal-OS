@@ -25,11 +25,11 @@ import {
   type FsreState,
 } from './reducer';
 import { filterCompanies, searchResults, selectionForResult } from './search';
-import { FACTS_BY_TICKER, UNVR_FILES, syn, tenCompanyRun, unvrRun } from './__fixtures__/fsreFixtures';
+import { FACTS_BY_TICKER, PROVISIONAL_FILES, REAL_DATA, provisionalRun, realRun, syn, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
-/* ---------- the UNVR replay (ported from the source's reducer.test.ts) ---------- */
+/* ---------- the provisional UNVR replay (GLM fixture; ported from the source's reducer.test.ts) ---------- */
 
-const unvr = unvrRun();
+const unvr = provisionalRun();
 const uctx = buildContext(unvr);
 const all = unvr.events;
 const after = (count: number) => reduceEvents(uctx, all.slice(0, count));
@@ -41,7 +41,7 @@ const eventOf = (id: string): FsreEvent => {
 const UNVR = (state: FsreState) => state.companies.UNVR;
 const extra = (event: Partial<FsreEvent> & Pick<FsreEvent, 'id' | 'kind'>): FsreEvent => ({ run: unvr.id, ticker: 'UNVR', at: null, ...event });
 
-describe('the reducer, on the UNVR replay', () => {
+describe('the reducer, on the provisional UNVR replay (GLM fixture)', () => {
   it('is deterministic: folding the same events twice gives the same state', () => {
     expect(reduceEvents(uctx, all)).toEqual(reduceEvents(uctx, all));
   });
@@ -129,7 +129,7 @@ describe('the reducer, on the UNVR replay', () => {
   });
 
   it('ends with a partner room that matches the recorded queue in kind, count and proposal titles', () => {
-    const recorded = (UNVR_FILES.replay as { partnerQueue: Array<{ kind: string; title: string }> }).partnerQueue;
+    const recorded = (PROVISIONAL_FILES.replay as { partnerQueue: Array<{ kind: string; title: string }> }).partnerQueue;
     const derived = partnerItems(reduceEvents(uctx, all));
     expect(derived.map((i) => i.kind)).toEqual(recorded.map((i) => i.kind));
     expect(derived.filter((i) => i.kind === 'proposal').map((i) => i.title)).toEqual(recorded.filter((i) => i.kind === 'proposal').map((i) => i.title));
@@ -227,6 +227,14 @@ describe('stepping', () => {
 });
 
 describe('an escalation always yields a partner-room item and locks approval', () => {
+  /**
+   * After every `escalated` event: an open item keyed by that event, and the
+   * approval lock naming it. After every `gate_passed_with_escalation`: an
+   * open escalation item at that gate for that ticker — its own when nothing
+   * was open there, else the notes the export raised before the gate
+   * reported (the gate's "with escalation" is those notes; it does not add
+   * a duplicate) — and the lock naming one of them.
+   */
   const check = (ctx: FsreContext, events: readonly FsreEvent[]) => {
     let state = createInitialState(ctx);
     let seen = 0;
@@ -234,20 +242,41 @@ describe('an escalation always yields a partner-room item and locks approval', (
       state = reduceEvent(ctx, state, event);
       if (event.kind !== 'escalated' && event.kind !== 'gate_passed_with_escalation') continue;
       seen += 1;
-      const item = partnerItems(state).find((i) => i.key === partnerKey(event.ticker, event.id));
-      expect(item, event.id).toMatchObject({ kind: 'escalation', state: 'open' });
+      const atStage = partnerItems(state).filter(
+        (i) => i.kind === 'escalation' && i.state === 'open' && i.ticker === event.ticker && i.stageId === (event.stageId ?? null),
+      );
+      if (event.kind === 'escalated') expect(atStage.map((i) => i.key), event.id).toContain(partnerKey(event.ticker, event.id));
+      else expect(atStage.length, event.id).toBeGreaterThan(0);
       const tickers = event.ticker ? [event.ticker] : state.companyOrder;
       for (const ticker of tickers) {
         const lock = approvalLock(state, ticker);
         expect(lock.locked).toBe(true);
-        expect(lock.reasons.some((r) => r.eventId === event.id)).toBe(true);
+        expect(lock.reasons.some((r) => atStage.some((i) => i.eventId === r.eventId)), event.id).toBe(true);
       }
     }
     return seen;
   };
 
-  it('on the UNVR replay', () => {
+  it('on the provisional UNVR replay', () => {
     expect(check(uctx, all)).toBe(1);
+  });
+
+  it('on the real UNVR replay: 13 notes and 2 gates passed with escalation', () => {
+    const run = realRun();
+    expect(check(buildContext(run), run.events)).toBe(15);
+  });
+
+  it('a gate passed with escalation opens its own item when nothing is open at the gate, and never a duplicate', () => {
+    const run = realRun();
+    const ctx = buildContext(run);
+    const final = reduceEvents(ctx, run.events);
+    const gateEvents = run.events.filter((e) => e.kind === 'gate_passed_with_escalation');
+    expect(gateEvents).toHaveLength(2);
+    for (const gate of gateEvents) expect(partnerItems(final).some((i) => i.eventId === gate.id), gate.id).toBe(false);
+    // Alone, the same event still reaches the partner room and locks approval.
+    const lone = reduceEvent(ctx, createInitialState(ctx), gateEvents[0]);
+    expect(partnerItems(lone).map((i) => i.key)).toEqual([partnerKey(gateEvents[0].ticker, gateEvents[0].id)]);
+    expect(approvalLock(lone, gateEvents[0].ticker ?? '').locked).toBe(true);
   });
 
   it('on the ten-company run', () => {
@@ -262,6 +291,71 @@ describe('an escalation always yields a partner-room item and locks approval', (
     expect(check(ctx, [...run.events, runEscalation])).toBe(4);
     const state = reduceEvents(ctx, [...run.events, runEscalation]);
     expect(approvalLock(state, 'SYN05').reasons.map((r) => r.reason)).toEqual(['The wave as a whole needs a decision.']);
+  });
+});
+
+/* ---------- the real UNVR replay (brief 04) ---------- */
+
+describe('the real UNVR replay, bundled in src/data/fsre/ (brief 04)', () => {
+  const run = realRun();
+  const ctx = buildContext(run);
+  const final = reduceEvents(ctx, run.events);
+  const raw: ReadonlyArray<{ id: string; kind: string; ticker: string | null; stageId?: string; payload?: { title?: string; figures?: Record<string, unknown> } }> =
+    REAL_DATA.replay.events;
+  const ticker = REAL_DATA.replay.company.ticker;
+  const company = final.companies[ticker];
+  const figuresOf = (kind: string, stageId: string): Record<string, unknown> =>
+    raw.find((e) => e.kind === kind && e.stageId === stageId)?.payload?.figures ?? {};
+
+  it('has one company and fifty events', () => {
+    expect(run.events).toHaveLength(50);
+    expect(final.companyOrder).toEqual([ticker]);
+  });
+
+  it('sums facts loaded from the intake payload (45.996 in replay-unvr.json, event e006)', () => {
+    const intake = figuresOf('stage_completed', 'intake');
+    expect(intake.factsLoaded).toBe(45996);
+    expect(runTotals(final).figures.factsLoaded?.value).toBe(intake.factsLoaded);
+  });
+
+  it('records the Gate 1 tie-out from its gate payload (386 checks: 371 passed, 0 failed, 15 skipped)', () => {
+    const gate1 = figuresOf('gate_passed', 'gate1');
+    expect([gate1.tieOutChecks, gate1.passed, gate1.failed, gate1.skipped]).toEqual([386, 371, 0, 15]);
+    expect(gateSummary(company, 'gate1').latestRecord?.figures).toEqual(gate1);
+    const totals = runTotals(final).figures;
+    expect([totals.tieOutChecks?.value, totals.passed?.value, totals.failed?.value, totals.skipped?.value]).toEqual([386, 371, 0, 15]);
+  });
+
+  it('reads Gate 1 as passed and Gates 2 and 3 as passed with escalation', () => {
+    expect(['gate1', 'gate2', 'gate3'].map((stageId) => gateSummary(company, stageId).worst)).toEqual(['passed', 'escalated', 'escalated']);
+  });
+
+  it('puts the 13 escalated notes in the partner room, each keyed by its event, and the 2 proposals with their titles', () => {
+    const items = partnerItems(final);
+    const notes = raw.filter((e) => e.kind === 'escalated');
+    expect(notes).toHaveLength(13);
+    expect(items.filter((i) => i.kind === 'escalation').map((i) => i.key)).toEqual(notes.map((e) => partnerKey(e.ticker, e.id)));
+    const proposals = raw.filter((e) => e.kind === 'proposal_logged');
+    expect(items.filter((i) => i.kind === 'proposal').map((i) => [i.key, i.title])).toEqual(proposals.map((e) => [partnerKey(null, e.id), e.payload?.title]));
+    expect(openPartnerCount(final)).toBe(15);
+  });
+
+  it('locks approval with every one of the 13 reasons written out', () => {
+    const lock = approvalLock(final, ticker);
+    expect(lock.locked).toBe(true);
+    expect(lock.reasons.map((r) => r.reason)).toEqual(raw.filter((e) => e.kind === 'escalated').map((e) => e.payload?.title));
+  });
+
+  it('keeps the reviewer escalated, the owner idle in the partner room, and the folder at the review desk after packing', () => {
+    expect(agentStatus(ctx, final, 'review-manager')).toBe('escalated');
+    expect(agentStatus(ctx, final, 'partner')).toBe('idle');
+    expect(company.deskKey).toBe(deskKeyForSkill('review-manager'));
+    expect(folderStatus(final, company)).toBe('escalated');
+  });
+
+  it('closes each review note as its gate reports, and keeps it on record', () => {
+    expect(company.issues).toHaveLength(13);
+    expect(company.issues.every((issue) => issue.state === 'closed')).toBe(true);
   });
 });
 

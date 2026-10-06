@@ -5,7 +5,7 @@ import { FLOOR_DISPLAY_ORDER, deskKeyForGate, deskKeyForSkill } from './layout';
 import { buildContext, createInitialState, reduceEvent, reduceEvents, type FsreState } from './reducer';
 import { agentStatuses, buildFloorScene, focusTickerOf, stageCells, touchedBy, wallFigures, type FloorScene, type FsreSelection } from './scene';
 import { AGENT_STATUS_WORDS, FOLDER_STATUS_WORDS, GATE_RESULT_WORDS } from './statuses';
-import { tenCompanyRun, unvrRun } from './__fixtures__/fsreFixtures';
+import { provisionalRun, tenCompanyRun } from './__fixtures__/fsreFixtures';
 
 const run = tenCompanyRun();
 const ctx = buildContext(run);
@@ -121,8 +121,8 @@ describe('ten companies on the floors', () => {
 });
 
 describe('motion follows events only', () => {
-  const uctx = buildContext(unvrRun());
-  const events = unvrRun().events;
+  const uctx = buildContext(provisionalRun());
+  const events = provisionalRun().events;
 
   it('names nothing when no event was applied', () => {
     const state = createInitialState(uctx);

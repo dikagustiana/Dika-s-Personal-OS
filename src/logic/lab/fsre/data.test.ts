@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { parseFsreEvent, parseFsreRun, type FsreRawFiles } from './data';
 import {
   ROUTER_FILE_NAMES,
-  UNVR_FILES,
+  PROVISIONAL_FILES,
+  REAL_DATA,
   UNVR_FILE_NAMES,
   routerFiles,
   tenCompanyEvents,
   tenCompanyRun,
-  unvrRun,
+  provisionalRun,
+  realRun,
 } from './__fixtures__/fsreFixtures';
 
 function withReplay(files: FsreRawFiles, patch: Record<string, unknown>): FsreRawFiles {
@@ -18,22 +20,22 @@ function firstEvents(files: FsreRawFiles): Array<Record<string, unknown>> {
   return (files.replay as { events: Array<Record<string, unknown>> }).events;
 }
 
-describe('the provisional file shape', () => {
+describe('the provisional file shape (GLM fixture, __fixtures__/provisional/)', () => {
   it('validates and keeps every event in order', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     expect(run.id).toBe('unvr-dry-run');
-    expect(run.events.map((e) => e.id)).toEqual(firstEvents(UNVR_FILES).map((e) => e.id));
+    expect(run.events.map((e) => e.id)).toEqual(firstEvents(PROVISIONAL_FILES).map((e) => e.id));
     expect(run.stages.map((s) => s.id)[0]).toBe('manifest');
   });
 
   it('accepts flat numeric payload fields as figures', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     expect(run.events.find((e) => e.id === 'e08')?.payload?.figures).toEqual({ factsLoaded: 10142, rows: 209, unmappedConcepts: 0, rowsTraced: 209 });
     expect(run.events.find((e) => e.id === 'e09')?.payload?.figures).toEqual({ tieOutChecks: 21, passed: 18, failed: 0, skipped: 3 });
   });
 
   it('keeps each file’s provisional flag and source, by file', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     expect(run.provenance.map((p) => [p.file, p.fileName, p.provisional, p.stated])).toEqual([
       ['stages', 'stages.json', true, true],
       ['skills', 'skills.json', true, true],
@@ -47,7 +49,7 @@ describe('the provisional file shape', () => {
   });
 
   it('drops the static figures, archetypes and partner queue: nothing can read them past this point', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     expect(Object.keys(run)).not.toContain('figures');
     expect(Object.keys(run)).not.toContain('archetypes');
     expect(Object.keys(run)).not.toContain('partnerQueue');
@@ -55,12 +57,70 @@ describe('the provisional file shape', () => {
   });
 
   it('names companies from the file, never figures', () => {
-    expect(unvrRun().companyNames).toEqual({ UNVR: 'Unilever Indonesia' });
+    expect(provisionalRun().companyNames).toEqual({ UNVR: 'Unilever Indonesia' });
   });
 
   it('keeps bracketed placeholders exactly as written', () => {
-    const run = unvrRun();
+    const run = provisionalRun();
     expect(run.events.find((e) => e.id === 'e14')?.payload?.title).toBe('[Second review issue: title not in the summary]');
+  });
+});
+
+describe('the real export, bundled in src/data/fsre/ (brief 04)', () => {
+  const run = realRun();
+  const raw = REAL_DATA.replay.events;
+
+  it('validates and keeps every event in order', () => {
+    expect(run.id).toBe(REAL_DATA.replay.run);
+    expect(run.events.map((e) => e.id)).toEqual(raw.map((e) => e.id));
+    expect(run.events).toHaveLength(50);
+    expect(run.stages.map((s) => s.id)).toEqual(REAL_DATA.stages.stages.map((s) => s.id));
+  });
+
+  it('says no file is provisional, and keeps each file’s own source', () => {
+    expect(run.provenance.map((p) => [p.file, p.provisional, p.stated])).toEqual([
+      ['stages', false, true],
+      ['skills', false, true],
+      ['replay', false, true],
+    ]);
+    expect(run.provenance.map((p) => p.source)).toEqual([REAL_DATA.stages.source, REAL_DATA.skills.source, REAL_DATA.replay.source]);
+  });
+
+  it('records times as the file says: the router timed its events, review notes and proposals carry none', () => {
+    expect(run.timesRecorded).toBe(REAL_DATA.replay.timesRecorded);
+    const untimed = run.events.filter((e) => e.at === null);
+    expect(untimed).toHaveLength(raw.filter((e) => e.at === null).length);
+    expect(new Set(untimed.map((e) => e.kind))).toEqual(new Set(['issue_raised', 'escalated', 'proposal_logged']));
+    expect(run.events.filter((e) => e.at !== null).every((e) => !Number.isNaN(Date.parse(e.at ?? '')))).toBe(true);
+  });
+
+  it('keeps payload.figures as written, {value, of} included', () => {
+    const intake = run.events.find((e) => e.kind === 'stage_completed' && e.stageId === 'intake');
+    const rawIntake = raw.find((e) => e.kind === 'stage_completed' && e.stageId === 'intake');
+    expect(intake?.payload?.figures).toEqual(rawIntake?.payload?.figures);
+    expect(intake?.payload?.figures?.rowsTraced).toEqual({ value: 976, of: 976 });
+  });
+
+  it('puts the two proposals at run level (ticker null)', () => {
+    expect(run.events.filter((e) => e.ticker === null).map((e) => e.kind)).toEqual(['proposal_logged', 'proposal_logged']);
+  });
+
+  it('gives every escalation a reason: the export writes a title, which stands in for it', () => {
+    const escalations = run.events.filter((e) => e.kind === 'escalated');
+    expect(escalations).toHaveLength(13);
+    for (const e of escalations) expect(e.payload?.reason).toBe(e.payload?.title);
+  });
+
+  it('keeps the seats named in skills.json', () => {
+    expect(run.skills.filter((s) => s.seat).map((s) => [s.name, s.seat])).toEqual(
+      REAL_DATA.skills.skills.filter((s) => 'seat' in s).map((s) => [s.name, (s as { seat: string }).seat]),
+    );
+  });
+
+  it('drops the static figures and archetypes here too', () => {
+    expect(Object.keys(run)).not.toContain('figures');
+    expect(Object.keys(run)).not.toContain('archetypes');
+    expect(run.companyNames).toEqual({ [REAL_DATA.replay.company.ticker]: REAL_DATA.replay.company.name });
   });
 });
 
@@ -164,7 +224,7 @@ describe('one live event', () => {
 
 describe('file names travel with the run', () => {
   it('uses the names the source passes', () => {
-    const parsed = parseFsreRun(UNVR_FILES, { ...UNVR_FILE_NAMES, replay: 'replay-x.json' });
+    const parsed = parseFsreRun(PROVISIONAL_FILES, { ...UNVR_FILE_NAMES, replay: 'replay-x.json' });
     expect(parsed.ok && parsed.run.provenance[2].fileName).toBe('replay-x.json');
   });
 });

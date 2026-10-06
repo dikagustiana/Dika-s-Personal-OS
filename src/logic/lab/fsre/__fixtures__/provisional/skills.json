@@ -1,0 +1,46 @@
+{
+  "provisional": true,
+  "source": "Roles written in chat from the suite's design; not taken from the skill files.",
+  "skills": [
+    {
+      "name": "fs-reverse-engineering",
+      "role": "Router: runs the stage sequence, keeps the holdout values away from the other skills, and hands work between them."
+    },
+    {
+      "name": "idx-universe",
+      "role": "Lists IDX companies by sub-industry and picks the ones a wave will model."
+    },
+    {
+      "name": "data-sourcing",
+      "role": "Finds each company's filings and records where every document came from."
+    },
+    {
+      "name": "fs-intake",
+      "role": "Loads XBRL facts into the dataset and ties them out against the statements."
+    },
+    {
+      "name": "fs-normalize",
+      "role": "Maps reported concepts onto one set of lines so companies can be compared."
+    },
+    {
+      "name": "fs-driver-decomposition",
+      "role": "Splits reported lines into operating drivers using the company's archetype."
+    },
+    {
+      "name": "peer-benchmark",
+      "role": "Builds sub-industry ranges for each driver from two or more companies."
+    },
+    {
+      "name": "financial-modeling",
+      "role": "Builds the calibrated historical model and its forward mode."
+    },
+    {
+      "name": "review-manager",
+      "role": "Runs the three gates and raises issues or escalations to the owner."
+    },
+    {
+      "name": "guruh",
+      "role": "Logs errors across runs and proposes methodology changes between waves."
+    }
+  ]
+}

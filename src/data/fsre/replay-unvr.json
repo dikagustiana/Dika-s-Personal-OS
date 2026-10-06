@@ -1,289 +1,771 @@
 {
-  "provisional": true,
+  "provisional": false,
   "run": "unvr-dry-run",
+  "wave": "wave-2026-02",
   "company": {
     "ticker": "UNVR",
-    "name": "Unilever Indonesia"
+    "name": "Unilever Indonesia Tbk"
   },
-  "timesRecorded": false,
+  "timesRecorded": true,
+  "timesNote": "Times are the router's own (run_log.json). Review notes and proposals carry at: null: the router did not time them, and their own created_at stamps come from an earlier rebuild of the run, so they would read out of order.",
   "archetypes": [
-    "ARC-DIST",
-    "ARC-PROC",
-    "ARC-ASSET"
+    "ARC-PROC"
   ],
   "figures": {
     "filings": {
       "value": 5,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "detail": "Audited XBRL filings, FY2021 to FY2025"
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
     "factsLoaded": {
-      "value": 10142,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+      "value": 45996,
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
     "rows": {
-      "value": 209,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+      "value": 976,
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
     "unmappedConcepts": {
       "value": 0,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
     "rowsTraced": {
-      "value": 209,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "of": 209
+      "value": 976,
+      "of": 976,
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
     "tieOutChecks": {
-      "value": 21,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "passed": 18,
+      "value": 386,
       "failed": 0,
-      "skipped": 3
+      "skipped": 15,
+      "passed": 371,
+      "source": "docs/dry-run-unvr/wave-2026-02/commands.json"
     },
-    "gate1": {
-      "value": "passed",
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
-    },
-    "decompositionFit": {
+    "identityPeriodsRun": {
       "value": 0,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
       "of": 36,
-      "unit": "identity periods",
-      "archetype": "ARC-PROC"
+      "source": "docs/dry-run-unvr/wave-2026-02/calibration.json"
     },
-    "reviewIssues": {
-      "value": 2,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+    "escalatedNotes": {
+      "value": 13,
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
     },
-    "guruhProposals": {
+    "proposalsWaiting": {
       "value": 2,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "detail": "Flag-only, pending owner approval"
+      "source": "docs/dry-run-unvr/wave-2026-02/change_proposals.json"
     }
   },
   "events": [
     {
-      "id": "e01",
+      "id": "e001",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "manifest",
-      "skill": "fs-reverse-engineering"
+      "at": "2026-09-30T15:45:51.683947Z",
+      "stageId": "selected",
+      "skill": "idx-universe",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e02",
+      "id": "e002",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_completed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "manifest",
-      "skill": "fs-reverse-engineering"
+      "at": "2026-09-30T15:45:51.821927Z",
+      "stageId": "selected",
+      "skill": "idx-universe",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e03",
+      "id": "e003",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "universe",
-      "skill": "idx-universe"
-    },
-    {
-      "id": "e04",
-      "run": "unvr-dry-run",
-      "ticker": "UNVR",
-      "kind": "stage_completed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "universe",
-      "skill": "idx-universe"
-    },
-    {
-      "id": "e05",
-      "run": "unvr-dry-run",
-      "ticker": "UNVR",
-      "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "sourcing",
-      "skill": "data-sourcing"
-    },
-    {
-      "id": "e06",
-      "run": "unvr-dry-run",
-      "ticker": "UNVR",
-      "kind": "stage_completed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "sourcing",
+      "at": "2026-09-30T15:45:52.191942Z",
+      "stageId": "doc_plan",
       "skill": "data-sourcing",
-      "payload": {
-        "filings": 5
-      }
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e07",
-      "run": "unvr-dry-run",
-      "ticker": "UNVR",
-      "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "intake",
-      "skill": "fs-intake"
-    },
-    {
-      "id": "e08",
+      "id": "e004",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_completed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
+      "at": "2026-09-30T15:45:52.491724Z",
+      "stageId": "doc_plan",
+      "skill": "data-sourcing",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e005",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:45:52.778817Z",
+      "stageId": "intake",
+      "skill": "fs-intake",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e006",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": "2026-09-30T15:45:57.766185Z",
       "stageId": "intake",
       "skill": "fs-intake",
       "payload": {
-        "factsLoaded": 10142,
-        "rows": 209,
-        "unmappedConcepts": 0,
-        "rowsTraced": 209
-      }
+        "figures": {
+          "filings": 5,
+          "factsLoaded": 45996,
+          "rows": 976,
+          "unmappedConcepts": 0,
+          "rowsTraced": {
+            "value": 976,
+            "of": 976
+          }
+        }
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e09",
+      "id": "e007",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:45:58.058496Z",
+      "stageId": "gate1",
+      "skill": "review-manager",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e008",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "gate_passed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "gate-1",
+      "at": "2026-09-30T15:45:59.248392Z",
+      "stageId": "gate1",
       "skill": "review-manager",
       "payload": {
-        "tieOutChecks": 21,
-        "passed": 18,
-        "failed": 0,
-        "skipped": 3
-      }
+        "figures": {
+          "tieOutChecks": 386,
+          "passed": 371,
+          "failed": 0,
+          "skipped": 15,
+          "escalatedNotes": {
+            "value": 0
+          }
+        }
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e10",
+      "id": "e009",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "normalise",
-      "skill": "fs-normalize"
+      "at": "2026-09-30T15:45:59.530066Z",
+      "stageId": "normalized",
+      "skill": "fs-normalize",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e11",
+      "id": "e010",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_completed",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "normalise",
-      "skill": "fs-normalize"
+      "at": "2026-09-30T15:46:02.614855Z",
+      "stageId": "normalized",
+      "skill": "fs-normalize",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e12",
+      "id": "e011",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "stage_started",
-      "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "decomposition",
-      "skill": "fs-driver-decomposition"
+      "at": "2026-09-30T15:46:02.916014Z",
+      "stageId": "decomposed",
+      "skill": "fs-driver-decomposition",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
     },
     {
-      "id": "e13",
+      "id": "e012",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": "2026-09-30T15:46:06.089698Z",
+      "stageId": "decomposed",
+      "skill": "fs-driver-decomposition",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e013",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:46:06.364303Z",
+      "stageId": "benchmarked",
+      "skill": "peer-benchmark",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e014",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": "2026-09-30T15:46:06.716374Z",
+      "stageId": "benchmarked",
+      "skill": "peer-benchmark",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e015",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:46:07.019081Z",
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e016",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "issue_raised",
       "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "decomposition",
+      "stageId": "gate2",
       "skill": "review-manager",
       "payload": {
-        "title": "Archetype misfit",
-        "detail": "ARC-PROC fitted 0 of 36 identity periods."
-      }
+        "title": "G2-M-04: headcount: key driver with one independent route and no written reason",
+        "detail": "headcount: key driver with one independent route and no written reason",
+        "ref": "RN-UNVR-GATE2-G2-M-04-8a3e120555",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
     },
     {
-      "id": "e14",
+      "id": "e017",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "issue_raised",
       "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "decomposition",
+      "stageId": "gate2",
       "skill": "review-manager",
       "payload": {
-        "title": "[Second review issue: title not in the summary]"
-      }
+        "title": "G2-M-11: 2020-12-31: no binding constraint named with evidence",
+        "detail": "2020-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-0941c2517f",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
     },
     {
-      "id": "e15",
+      "id": "e018",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2021-12-31: no binding constraint named with evidence",
+        "detail": "2021-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-bfc86b29d5",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e019",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2022-12-31: no binding constraint named with evidence",
+        "detail": "2022-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-5117ba71e2",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e020",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2023-12-31: no binding constraint named with evidence",
+        "detail": "2023-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-c1ac36cdff",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e021",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2024-12-31: no binding constraint named with evidence",
+        "detail": "2024-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-0b2b463e75",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e022",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2025-12-31: no binding constraint named with evidence",
+        "detail": "2025-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-5711b31f91",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e023",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-01: ARC-PROC still does not fit UNVR",
+        "detail": "Wave-2026-02: ARC-PROC still does not fit UNVR. None of the six identities runs in any period (decomposition.json, identical to wave-01's), because UNVR discloses no volume, price, capacity or production. It reports underlying growth rates only, and for parts of the business or the year. Two large cost blocks have no node: advertising and promotion (4.157.468 in 2025, 13,0% of net sales) and group royalties and fees (2.171.130, 6,8%). The preparer's evidence points to demand as the binding constraint for 2020-2025, and demand is not an ARC-PROC candidate. The wave-01 note RN-UNVR-GATE2-G2-J-01-d489005b42 is still undecided.",
+        "ref": "RN-UNVR-GATE2-G2-J-01-fc7db3716b",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e024",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-04: fixed_cost (explained_share 1,0) is still the default structural split, fixed cost = G&A: 2.963.445 IDR million in 2025, as a point",
+        "detail": "Wave-2026-02: fixed_cost (explained_share 1,0) is still the default structural split, fixed cost = G&A: 2.963.445 IDR million in 2025, as a point. UNVR's notes contradict it: 73,26% of G&A is group fees charged as a percentage of sales or turnover, while cost of goods sold and selling expenses hold fixed-like costs (depreciation, overheads, remuneration) and discretionary advertising and promotion. The preparer's note-level range, carried in each row's open_question, is 2025 low 2.882.994, mid 9.204.916 and high 10.070.031; I re-footed it. The register value sits at the bottom of that range, about a third of the mid. The same applies to 2020-2024. Gate 3 cannot catch it, because I-TOTAL-COST is circular.",
+        "ref": "RN-UNVR-GATE2-G2-J-04-f6886f6416",
+        "severity": "blocker"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e025",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-07: the 2024 working-capital days still divide 31 Dec 2024 balances that include ice cream by 2024 flows restated without it",
+        "detail": "Wave-2026-02: the 2024 working-capital days still divide 31 Dec 2024 balances that include ice cream by 2024 flows restated without it. The register points are inventory 57,10, receivables 22,48 and payables 90,76 days, with perimeter_note empty. On the perimeter-consistent pair (as-reported 2024 flows) they are 49,79, 19,59 and 79,15, about 13% lower. The ranges are stated only in open_question. The mixed values make a 2024 inventory-days spike (45,5, 57,1, 52,8 for 2023-2025) that the consistent basis does not show (45,5, 49,8, 52,8). Rows: inventory_days driver_register-6c8aed850a6a0e9396a19a1c, receivable_days driver_register-2a77f164ea4b5708114cda9a, payable_days driver_register-a00ec83d7fd67dfba7b4d9e2.",
+        "ref": "RN-UNVR-GATE2-G2-J-07-3b888a8cb3",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e026",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-05: no ARC-PROC implication check ran in any period, as in wave-01",
+        "detail": "Wave-2026-02: no ARC-PROC implication check ran in any period, as in wave-01. The pay-per-head against minimum-wage check is blocked only because NOTE.EMP.TOTAL is not in fs_dataset (0 rows), although FS note 27 states it. My hand check, in IDR million per head: 2022 1.934.284 / 4.849 = 398,9; 2023 2.227.988 / 4.589 = 485,5; 2024 2.490.297 / 4.266 = 583,8 as reported; 2025 1.784.129 / 3.299 = 540,8. All are far above any regional minimum wage; no implausibility.",
+        "ref": "RN-UNVR-GATE2-G2-J-05-061115049f",
+        "severity": "minor"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e027",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
       "kind": "escalated",
       "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "stageId": "decomposition",
-      "skill": "fs-driver-decomposition",
+      "stageId": "gate2",
+      "skill": "review-manager",
       "payload": {
-        "reason": "ARC-PROC fitted 0 of 36 identity periods. The process archetype needs volume and capacity disclosures that a brand owner does not make."
-      }
+        "title": "G2-M-04: headcount: key driver with one independent route and no written reason",
+        "detail": "headcount: key driver with one independent route and no written reason",
+        "ref": "RN-UNVR-GATE2-G2-M-04-8a3e120555",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
     },
     {
-      "id": "e16",
+      "id": "e028",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
-      "kind": "proposal_logged",
+      "kind": "escalated",
       "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
-      "skill": "guruh",
+      "stageId": "gate2",
+      "skill": "review-manager",
       "payload": {
-        "title": "[Proposal 1: title not in the summary]",
-        "mode": "flag-only"
-      }
+        "title": "G2-M-11: 2020-12-31: no binding constraint named with evidence",
+        "detail": "2020-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-0941c2517f",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
     },
     {
-      "id": "e17",
+      "id": "e029",
       "run": "unvr-dry-run",
       "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2021-12-31: no binding constraint named with evidence",
+        "detail": "2021-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-bfc86b29d5",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e030",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2022-12-31: no binding constraint named with evidence",
+        "detail": "2022-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-5117ba71e2",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e031",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2023-12-31: no binding constraint named with evidence",
+        "detail": "2023-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-c1ac36cdff",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e032",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2024-12-31: no binding constraint named with evidence",
+        "detail": "2024-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-0b2b463e75",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e033",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-M-11: 2025-12-31: no binding constraint named with evidence",
+        "detail": "2025-12-31: no binding constraint named with evidence",
+        "ref": "RN-UNVR-GATE2-G2-M-11-5711b31f91",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e034",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-01: ARC-PROC still does not fit UNVR",
+        "detail": "Wave-2026-02: ARC-PROC still does not fit UNVR. None of the six identities runs in any period (decomposition.json, identical to wave-01's), because UNVR discloses no volume, price, capacity or production. It reports underlying growth rates only, and for parts of the business or the year. Two large cost blocks have no node: advertising and promotion (4.157.468 in 2025, 13,0% of net sales) and group royalties and fees (2.171.130, 6,8%). The preparer's evidence points to demand as the binding constraint for 2020-2025, and demand is not an ARC-PROC candidate. The wave-01 note RN-UNVR-GATE2-G2-J-01-d489005b42 is still undecided.",
+        "ref": "RN-UNVR-GATE2-G2-J-01-fc7db3716b",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e035",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-04: fixed_cost (explained_share 1,0) is still the default structural split, fixed cost = G&A: 2.963.445 IDR million in 2025, as a point",
+        "detail": "Wave-2026-02: fixed_cost (explained_share 1,0) is still the default structural split, fixed cost = G&A: 2.963.445 IDR million in 2025, as a point. UNVR's notes contradict it: 73,26% of G&A is group fees charged as a percentage of sales or turnover, while cost of goods sold and selling expenses hold fixed-like costs (depreciation, overheads, remuneration) and discretionary advertising and promotion. The preparer's note-level range, carried in each row's open_question, is 2025 low 2.882.994, mid 9.204.916 and high 10.070.031; I re-footed it. The register value sits at the bottom of that range, about a third of the mid. The same applies to 2020-2024. Gate 3 cannot catch it, because I-TOTAL-COST is circular.",
+        "ref": "RN-UNVR-GATE2-G2-J-04-f6886f6416",
+        "severity": "blocker"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e036",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-07: the 2024 working-capital days still divide 31 Dec 2024 balances that include ice cream by 2024 flows restated without it",
+        "detail": "Wave-2026-02: the 2024 working-capital days still divide 31 Dec 2024 balances that include ice cream by 2024 flows restated without it. The register points are inventory 57,10, receivables 22,48 and payables 90,76 days, with perimeter_note empty. On the perimeter-consistent pair (as-reported 2024 flows) they are 49,79, 19,59 and 79,15, about 13% lower. The ranges are stated only in open_question. The mixed values make a 2024 inventory-days spike (45,5, 57,1, 52,8 for 2023-2025) that the consistent basis does not show (45,5, 49,8, 52,8). Rows: inventory_days driver_register-6c8aed850a6a0e9396a19a1c, receivable_days driver_register-2a77f164ea4b5708114cda9a, payable_days driver_register-a00ec83d7fd67dfba7b4d9e2.",
+        "ref": "RN-UNVR-GATE2-G2-J-07-3b888a8cb3",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e037",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G2-J-05: no ARC-PROC implication check ran in any period, as in wave-01",
+        "detail": "Wave-2026-02: no ARC-PROC implication check ran in any period, as in wave-01. The pay-per-head against minimum-wage check is blocked only because NOTE.EMP.TOTAL is not in fs_dataset (0 rows), although FS note 27 states it. My hand check, in IDR million per head: 2022 1.934.284 / 4.849 = 398,9; 2023 2.227.988 / 4.589 = 485,5; 2024 2.490.297 / 4.266 = 583,8 as reported; 2025 1.784.129 / 3.299 = 540,8. All are far above any regional minimum wage; no implausibility.",
+        "ref": "RN-UNVR-GATE2-G2-J-05-061115049f",
+        "severity": "minor"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e038",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "gate_passed_with_escalation",
+      "at": "2026-09-30T15:46:09.211596Z",
+      "stageId": "gate2",
+      "skill": "review-manager",
+      "payload": {
+        "figures": {
+          "escalatedNotes": {
+            "value": 11
+          }
+        }
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e039",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:46:09.479652Z",
+      "stageId": "calibrated",
+      "skill": "financial-modeling",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e040",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": "2026-09-30T15:46:10.776129Z",
+      "stageId": "calibrated",
+      "skill": "financial-modeling",
+      "payload": {
+        "figures": {
+          "identityPeriodsRun": {
+            "value": 0,
+            "of": 36
+          }
+        }
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e041",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:46:11.113389Z",
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e042",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G3-04: workbook controls are not all TRUE",
+        "detail": "workbook controls are not all TRUE",
+        "ref": "RN-UNVR-GATE3-G3-04-b027d63851",
+        "severity": "blocker"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e043",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "issue_raised",
+      "at": null,
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G3-J-01: The wave-02 calibration tested nothing",
+        "detail": "The wave-02 calibration tested nothing. 0 of 36 identity-periods ran: I-REV, I-TOTAL-COST, I-MAT, I-ENERGY, I-STAFF and I-AR are not_run for all six periods, 2020-2025, for lack of drivers. G3-01 and G3-02 raised nothing because there are no residuals, not because the model reproduces history. Nothing says so: calibrate.py wrote no warning (calibration.json warnings []; Model_Details!B15 'none'); calibration_report.json is empty; and Model_Details!B16 reads '0 of 0 identity-periods tested', a count that leaves out the 36 not run. Revenue and total cost, the lines G3-02 exists to flag, are not modelled at all. What the model does hold matches the register, and nothing is tuned. Its content is only the register's drivers: working-capital days 2020-2025, headcount 2022-2025, and fixed cost at the default structural point (the G2-J-04 finding). Z_ lists that fixed cost as 'Documented? yes' with no range, although the register's open_question holds the preparer's note-level range.",
+        "ref": "RN-UNVR-GATE3-G3-J-01-a4bf83b19b",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e044",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G3-04: workbook controls are not all TRUE",
+        "detail": "workbook controls are not all TRUE",
+        "ref": "RN-UNVR-GATE3-G3-04-b027d63851",
+        "severity": "blocker"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e045",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "escalated",
+      "at": null,
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "payload": {
+        "title": "G3-J-01: The wave-02 calibration tested nothing",
+        "detail": "The wave-02 calibration tested nothing. 0 of 36 identity-periods ran: I-REV, I-TOTAL-COST, I-MAT, I-ENERGY, I-STAFF and I-AR are not_run for all six periods, 2020-2025, for lack of drivers. G3-01 and G3-02 raised nothing because there are no residuals, not because the model reproduces history. Nothing says so: calibrate.py wrote no warning (calibration.json warnings []; Model_Details!B15 'none'); calibration_report.json is empty; and Model_Details!B16 reads '0 of 0 identity-periods tested', a count that leaves out the 36 not run. Revenue and total cost, the lines G3-02 exists to flag, are not modelled at all. What the model does hold matches the register, and nothing is tuned. Its content is only the register's drivers: working-capital days 2020-2025, headcount 2022-2025, and fixed cost at the default structural point (the G2-J-04 finding). Z_ lists that fixed cost as 'Documented? yes' with no range, although the register's open_question holds the preparer's note-level range.",
+        "ref": "RN-UNVR-GATE3-G3-J-01-a4bf83b19b",
+        "severity": "major"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/review_notes.json"
+    },
+    {
+      "id": "e046",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "gate_passed_with_escalation",
+      "at": "2026-09-30T15:46:11.953404Z",
+      "stageId": "gate3",
+      "skill": "review-manager",
+      "payload": {
+        "figures": {
+          "escalatedNotes": {
+            "value": 2
+          }
+        }
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e047",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_started",
+      "at": "2026-09-30T15:46:12.301648Z",
+      "stageId": "packed",
+      "skill": "review-manager",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e048",
+      "run": "unvr-dry-run",
+      "ticker": "UNVR",
+      "kind": "stage_completed",
+      "at": "2026-09-30T15:46:12.507468Z",
+      "stageId": "packed",
+      "skill": "review-manager",
+      "source": "docs/dry-run-unvr/wave-2026-02/run_log.json"
+    },
+    {
+      "id": "e049",
+      "run": "unvr-dry-run",
+      "ticker": null,
       "kind": "proposal_logged",
       "at": null,
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files.",
       "skill": "guruh",
       "payload": {
-        "title": "[Proposal 2: title not in the summary]",
-        "mode": "flag-only"
-      }
-    }
-  ],
-  "partnerQueue": [
-    {
-      "kind": "escalation",
-      "title": "UNVR, driver decomposition: archetype misfit",
-      "detail": "ARC-PROC fitted 0 of 36 identity periods. Raised by review-manager.",
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+        "title": "CP-wave-2026-02-001: financial-modeling 0.3.0",
+        "mode": "flag-only",
+        "detail": "Script fix (rank 1): a calibration in which no identity-period ran has a mechanical signature, so the script says so, not a sentence in SKILL.md. calibrate.compute() adds the warning 'no identity-period ran (N of N not run): the calibration tested nothing'; it reaches calibration.json, Model_Details!B15 and the Gate 3 report, which copies calibration warnings. generate_workbook._evidence() counts every identity-period in its total and appends 'K not run (data gaps): nothing was tested there' when K > 0, where UNVR read '0 of 0 identity-periods tested'. Proposed on one occurrence because it only flags: no value, pass flag, control or exit code changes, and when every identity-period runs both texts are unchanged (the existing unit test's '10 of 40 identity-periods tested; 30 circular' still holds). Evidence: new golden-0014 (synthetic SYN-A 2025, only drivers no ARC-DIST identity can use, 8 of 8 not run) fails on 0.2.0 and passes on 0.3.0; golden set 12/13 on the unchanged skills, 13/13 with the fix. Unit tests: 295 passed and 16 skipped unchanged, 296 and 16 on the branch; the added test_calibration_that_runs_nothing_says_so fails on 0.2.0 and passes on 0.3.0. UNVR's wave-2026-02 register and dataset rerun in scratch with 0.3.0: warning 'no identity-period ran (36 of 36 not run)', evidence '0 of 36 identity-periods tested ... 36 not run'; recalc 60 formulas, 0 mismatches, 0 cells differing; driver hash unchanged. Applied together with CP-wave-2026-02-002, in either order: golden 14/14 and 297 passed, 16 skipped. Version: minor bump 0.2.0 to 0.3.0, as change-protocol.md prescribes for a script change that can change outputs (two Model_Details texts). Not in scope: the missing drivers themselves (the escalated archetype question, LR-wave-2026-01-012) and the data-gap control inside ALL_CHECKS (LR-wave-2026-02-004, Dika's rule). Blast radius: model_snapshot 1 is added by hand because blast_radius.py scans contract rows only, and UNVR's calibration_report is empty; the re-run is UNVR, wave-2026-02, from calibrated.",
+        "ref": "CP-wave-2026-02-001"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/change_proposals.json"
     },
     {
-      "kind": "proposal",
-      "title": "[Proposal 1: title not in the summary]",
-      "detail": "Flag-only. Applies between waves, after the owner's approval.",
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
-    },
-    {
-      "kind": "proposal",
-      "title": "[Proposal 2: title not in the summary]",
-      "detail": "Flag-only. Applies between waves, after the owner's approval.",
-      "source": "Chat summary of the fsre-skills dry-run report and build log (read 30 Sep 2026). Not verified against the files."
+      "id": "e050",
+      "run": "unvr-dry-run",
+      "ticker": null,
+      "kind": "proposal_logged",
+      "at": null,
+      "skill": "guruh",
+      "payload": {
+        "title": "CP-wave-2026-02-002: review-manager 0.2.0",
+        "mode": "flag-only",
+        "detail": "Script fix (rank 1): revenue or total cost whose identity did not run is untested by construction, a mechanical signature, so G3-02 reports it; a checklist item for the reviewer would depend on being read. gate3_checks.py now also collects PL.REV and TOTAL_COST identities with status not_run, and writes one G3-02 note per line, severity major, status escalated, like a circular line (G3-02 is already in notes.py ALWAYS_ESCALATE), with the periods and the missing drivers as evidence. The review-program, escalation.md and notes.py texts name the not-run case. Proposed on one occurrence because it only flags: an escalated note does not fail a gate (D-CP3-1), nothing is cleared or removed, and when both lines run the output is unchanged. Evidence: new golden-0015 (synthetic SYN-A 2025 calibration in which no identity runs, with its JSON twin as the workbook) fails on review-manager 0.1.0 (no G3-02 note) and passes on 0.2.0 (two escalated G3-02 notes); golden set 12/13 on the unchanged skills, 13/13 with the fix. Unit tests: 295 passed and 16 skipped unchanged, 296 and 16 on the branch; the added test_gate3_reports_revenue_that_did_not_run fails on 0.1.0 and passes on 0.2.0. UNVR wave-2026-02 rechecked in scratch: two escalated G3-02 notes (PL.REV I-REV, TOTAL_COST I-TOTAL-COST) beside the G3-04 note. Applied together with CP-wave-2026-02-001, in either order: golden 14/14 and 297 passed, 16 skipped. Version: minor bump 0.1.0 to 0.2.0 (change-protocol.md: a script or check change that can change outputs). Blast radius: blast_radius.py counts all 13 review_notes rows of 0.1.0 and restarts at gate1, the first stage the skill produces; the change touches only Gate 3, so it is scoped by hand to UNVR's 2 Gate 3 notes and a restart at gate3 in wave-2026-02.",
+        "ref": "CP-wave-2026-02-002"
+      },
+      "source": "docs/dry-run-unvr/wave-2026-02/change_proposals.json"
     }
   ],
-  "note": "Stopgap file written in chat. Replace with the export from fsre-skills when it runs."
+  "source": "docs/dry-run-unvr/wave-2026-02/ (run_log, review_notes, change_proposals, commands, calibration, manifest)"
 }

@@ -14,10 +14,23 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { MockRepository } from './data/mockRepository';
+import { REAL_DATA } from './logic/lab/fsre/__fixtures__/fsreFixtures';
 import { useAppStore } from './store/appStore';
 import { useFsreViewStore } from './views/lab/fsre/useFsreViewStore';
 
 const CONTRIBUTOR = { kind: 'contributor' as const, userId: 'u1', entityCodes: ['ENT1'] };
+
+/* Text only the bundled replay could put on screen (src/data/fsre/, the real export). */
+const firstTitle = (kind: string) => (REAL_DATA.replay.events as ReadonlyArray<{ kind: string; payload?: { title?: string } }>).find((e) => e.kind === kind)?.payload?.title ?? '';
+const REPLAY_TEXT = [
+  REAL_DATA.replay.company.ticker,
+  REAL_DATA.replay.company.name,
+  REAL_DATA.replay.run,
+  '45.996',
+  firstTitle('escalated'),
+  firstTitle('proposal_logged'),
+  'events applied',
+];
 
 beforeEach(() => {
   vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
@@ -40,7 +53,7 @@ describe('the owner', () => {
     const entry = screen.getAllByRole('button', { name: 'FSRE building' })[0];
     fireEvent.click(entry);
     expect(await screen.findByRole('heading', { level: 1, name: 'FSRE building' })).toBeTruthy();
-    expect(await screen.findByText('17 events of 17 events applied')).toBeTruthy();
+    expect(await screen.findByText(`${REAL_DATA.replay.events.length} events of ${REAL_DATA.replay.events.length} events applied`)).toBeTruthy();
     expect(screen.getAllByRole('button', { name: 'FSRE building' })[0].getAttribute('aria-current')).toBe('page');
     expect(useAppStore.getState().labView).toBe('fsre');
     expect(window.location.pathname).toBe('/');
@@ -61,7 +74,8 @@ describe('a contributor', () => {
     expect(document.querySelector('.fsre-floor')).toBeNull();
     expect(screen.queryByRole('heading', { level: 1, name: 'FSRE building' })).toBeNull();
     const text = document.body.textContent ?? '';
-    for (const replayText of ['UNVR', 'Unilever', 'unvr-dry-run', '10.142', '[Proposal 1', 'ARC-PROC', 'events applied']) {
+    for (const replayText of REPLAY_TEXT) {
+      expect(replayText.length, 'a replay string to look for').toBeGreaterThan(0);
       expect(text, replayText).not.toContain(replayText);
     }
     expect(fetchSpy).not.toHaveBeenCalled();
