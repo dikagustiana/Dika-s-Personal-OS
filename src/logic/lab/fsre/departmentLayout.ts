@@ -13,8 +13,13 @@
  * through the roster in the data layer (planDepartmentFloors, in
  * departmentPlan.ts). Like layout.ts, this file names no skill and no stage.
  *
- * Seat positions are GLM's (src/layout/floorLayout.ts at 5b5d186), carried
- * over as they were; brief v2.1 FX-11 moves the leads, in its own commit. The
+ * Leads read as leads by position (brief v2 WO-2; v2.1 FX-11): each
+ * department's lead sits at the head of its room, front and centre, and the
+ * staff row behind it parts in a centre aisle, so no staff desk stands behind
+ * the lead and the lead's chip never covers a staff desk or its chip. GLM put
+ * the lead in front of the middle staff desk, whose monitor its chip hid, and
+ * the review lead beside its checkers. On 3F the checkers sit in a row behind
+ * the lead to its left, the gate rooms behind it to its right. The
  * wall screens keep this repository's v1 sizes (layout.ts FLOORS) wherever
  * the v2 rooms leave the wall free: the replay writes its stage screen, data
  * counter and issue board on them, and GLM's smaller screens (drawn blank in
@@ -34,13 +39,22 @@ export interface SeatBox {
   monitor: boolean;
 }
 
+export interface StaffStrip {
+  x0: number;
+  x1: number;
+  /** Front edge of the staff desks. */
+  y: number;
+  /** The centre aisle no staff desk takes, behind the lead; null where the row stands clear of the lead. */
+  aisle: { x0: number; x1: number } | null;
+}
+
 export interface DepartmentFloor {
   floorId: FloorId;
   departmentId: DepartmentId | null;
   /** The lead's desk; null on the lobby and the partner floor. */
   lead: SeatBox | null;
-  /** Staff desks spread evenly across this strip, their front edge at `y`. */
-  staffStrip: { x0: number; x1: number; y: number } | null;
+  /** Staff desks spread evenly across this strip (both sides of its aisle). */
+  staffStrip: StaffStrip | null;
   /** Seats that are not a department's: reception, the training room, the partner desk. */
   special: Array<{ kind: Exclude<SeatKind, 'lead' | 'staff'>; seat: SeatBox }>;
   decorations: Decoration[];
@@ -54,6 +68,22 @@ export const SPARE_STAFF_DESKS = 1;
 
 /** A department shows at least this many staff desks (brief v2 WO-2). */
 export const MIN_STAFF_DESKS = 2;
+
+/**
+ * Half a desk chip's width, in floor units, at the building's design width:
+ * a two-line chip ("Idle" over "Modelling staff · SYNA") measures about four
+ * floor units; a long task on the second line is cut, not wrapped. A chip is
+ * centred on its desk. Seats are placed so the lead's chip footprint never
+ * meets a staff desk's (FX-11; departmentLayout.test.ts).
+ */
+export const CHIP_HALF_WIDTH = 2;
+
+/** The lead's seat: centred on the floor, at the front. */
+const LEAD_X = 13.8;
+const LEAD_Y = 2.4;
+
+/** The back row of a per-company department, parted around the lead: up to four desks either side. */
+const STAFF_ROW = { x0: 1.5, x1: 28.5, y: 6, aisle: { x0: 11.8, x1: 18.2 } } as const;
 
 function desk(id: string, x: number, y: number, monitor = true): SeatBox {
   return { id, surface: { x, y, w: STANDARD_DESK.w, d: STANDARD_DESK.d, h: STANDARD_DESK.h }, monitor };
@@ -76,8 +106,9 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
   f3: {
     floorId: 'f3',
     departmentId: 'review',
-    lead: desk('f3-lead', 13.8, 2.6),
-    staffStrip: { x0: 3, x1: 9.5, y: 2.6 },
+    lead: desk('f3-lead', LEAD_X, LEAD_Y),
+    // The two checkers' row: behind the lead, left of the gate rooms (planFloors spans them from x 10).
+    staffStrip: { x0: 1.5, x1: 8.5, y: 5, aisle: null },
     special: [],
     decorations: [
       { kind: 'plant', id: 'f3-plant-a', x: 9.8, y: 1 },
@@ -87,8 +118,8 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
   f2: {
     floorId: 'f2',
     departmentId: 'modelling',
-    lead: desk('f2-lead', 13.8, 2.6),
-    staffStrip: { x0: 2.5, x1: 27.5, y: 6 },
+    lead: desk('f2-lead', LEAD_X, LEAD_Y),
+    staffStrip: STAFF_ROW,
     special: [],
     decorations: [
       { kind: 'wall', id: 'issue-board', content: 'issues', x0: 7, x1: 23, z0: 0.75, z1: 2.85 },
@@ -123,8 +154,8 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
   b1: {
     floorId: 'b1',
     departmentId: 'data',
-    lead: desk('b1-lead', 13.8, 2.6),
-    staffStrip: { x0: 2.5, x1: 27.5, y: 6 },
+    lead: desk('b1-lead', LEAD_X, LEAD_Y),
+    staffStrip: STAFF_ROW,
     special: [],
     decorations: [
       { kind: 'wall', id: 'data-counter', content: 'figures', x0: 2, x1: 15, z0: 1.1, z1: 2.5 },
@@ -141,12 +172,27 @@ export const DEPARTMENT_FLOORS: Record<FloorId, DepartmentFloor> = {
 /** The floor each department works on. */
 export const DEPARTMENT_FLOOR: Record<DepartmentId, FloorId> = { data: 'b1', modelling: 'f2', review: 'f3' };
 
-/** Staff desks: `count` of them spread evenly across the floor's staff strip. */
+/** Centres of `count` slots spread evenly along [x0, x1]. */
+function spread(x0: number, x1: number, count: number): number[] {
+  const step = (x1 - x0) / count;
+  return Array.from({ length: count }, (_, index) => x0 + step * (index + 0.5));
+}
+
+/**
+ * Staff desks: `count` of them along the floor's staff strip. Where the strip
+ * has an aisle, the desks alternate sides — slot 0 left, slot 1 right, slot 2
+ * left — so two companies sit either side of the lead and the row stays
+ * balanced as it grows.
+ */
 export function staffSlotBoxes(floorId: FloorId, count: number): SeatBox[] {
   const strip = DEPARTMENT_FLOORS[floorId].staffStrip;
   if (!strip || count <= 0) return [];
-  const step = (strip.x1 - strip.x0) / count;
-  return Array.from({ length: count }, (_, index) => desk(`${floorId}-staff-${index}`, strip.x0 + step * (index + 0.5) - STANDARD_DESK.w / 2, strip.y));
+  const make = (index: number, centre: number) => desk(`${floorId}-staff-${index}`, centre - STANDARD_DESK.w / 2, strip.y);
+  if (!strip.aisle) return spread(strip.x0, strip.x1, count).map((centre, index) => make(index, centre));
+  const leftCount = Math.ceil(count / 2);
+  const left = spread(strip.x0, strip.aisle.x0, leftCount);
+  const right = spread(strip.aisle.x1, strip.x1, count - leftCount);
+  return Array.from({ length: count }, (_, index) => make(index, index % 2 === 0 ? left[index / 2] : right[(index - 1) / 2]));
 }
 
 /**

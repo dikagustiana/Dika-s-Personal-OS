@@ -150,7 +150,10 @@ export function planDepartmentFloors(stages: readonly FsreStage[], skills: reado
     const staff = skillsWith((p) => p.kind === 'staff' && p.departmentId === departmentId);
     const titles = standingTitles(departmentId, roster);
     const slots = staffSlotBoxes(floorId, Math.max(staffSlotCount(departmentId, staff.length), titles.length));
-    slots.forEach((slot, index) => {
+    // Seat by slot (companies either side of the lead), draw and tab left to right:
+    // the scene alternates neighbouring chips' heights in this order.
+    const bySlot = slots.map((slot, index) => ({ slot, index })).sort((a, b) => a.slot.surface.x - b.slot.surface.x);
+    bySlot.forEach(({ slot, index }) => {
       const skill = staff[index];
       if (skill) {
         addDesk(skillDesk(skill, floorId, slot.surface, slot.monitor));

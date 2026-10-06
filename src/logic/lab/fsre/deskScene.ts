@@ -113,7 +113,9 @@ export function buildDeskFloorScene(floorId: FloorId, floor: FloorDesks, view: D
   const selKey = selectionKey(view.selection);
   let ring: string | null = null;
 
-  floor.desks.forEach((desk, index) => {
+  // Left to right: neighbouring chips alternate heights and the buttons tab in reading order.
+  const byPosition = [...floor.desks].sort((a, b) => a.seat.surface.x - b.seat.surface.x);
+  byPosition.forEach((desk, index) => {
     const surface = desk.seat.surface;
     const dim = desk.dimLabel !== null;
     const spot = { x: surface.x + surface.w / 2, y: surface.y + AGENT_FIGURE.behindDesk };

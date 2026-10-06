@@ -191,6 +191,19 @@ describe('synthetic mode', () => {
     expect(screen.getAllByText(/published v1$/).length).toBe(2);
   }, 30_000);
 
+  it('scrolls the building inside its own section on a narrow screen, never the page (FX-11)', async () => {
+    await openSynthetic();
+    const building = screen.getByRole('region', { name: 'The building' });
+    expect(building.firstElementChild?.className).toContain('overflow-x-auto');
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('group', { name: 'Mode' })).getByRole('button', { name: 'Replay' }));
+      await vi.advanceTimersByTimeAsync(50);
+    });
+    vi.useRealTimers();
+    const replayBuilding = await screen.findByRole('region', { name: 'The building' });
+    expect(replayBuilding.firstElementChild?.className).toContain('overflow-x-auto');
+  });
+
   it('filters the building from the industries list, which scrolls', async () => {
     await openSynthetic();
     await press('Industries');
