@@ -23,6 +23,9 @@ export const FSRE_EVENT_KINDS = [
   'issue_raised',
   'escalated',
   'proposal_logged',
+  // The router staged the company's model package for the owner's approval;
+  // payload.ref is the package version the approval names (live feed, M5).
+  'package_staged',
   'approved',
   'published',
 ] as const;
@@ -37,7 +40,7 @@ export interface FsrePayload {
   detail?: string;
   /** proposal_logged, e.g. "flag-only" */
   mode?: string;
-  /** A note id or change id. On `approved` it names the item being decided. */
+  /** A note id or change id. On `approved` it names the item being decided; on `package_staged`, the package version. */
   ref?: string;
   severity?: string;
   reason?: string;

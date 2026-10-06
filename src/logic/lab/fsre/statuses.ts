@@ -126,6 +126,7 @@ export const EVENT_KIND_WORDS: Record<FsreEventKind, string> = {
   issue_raised: 'Issue raised',
   escalated: 'Escalated to the owner',
   proposal_logged: 'Proposal logged',
+  package_staged: 'Package staged for approval',
   approved: 'Approved',
   published: 'Published',
 };
@@ -144,6 +145,7 @@ export const FIGURE_LABELS: Record<string, string> = {
   passed: 'Passed',
   failed: 'Failed',
   skipped: 'Skipped',
+  unitEconomicsPeriods: 'Unit-economics periods',
   identityPeriodsRun: 'Identity periods run',
 };
 

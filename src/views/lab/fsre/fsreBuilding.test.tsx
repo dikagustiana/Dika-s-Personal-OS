@@ -13,9 +13,9 @@
  * Each case names the rule it holds (mount report §3.2 and the brief's
  * seven rules).
  */
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplaySource, liveSource, replaySource, type FsreEventSource } from '../../../logic/lab/fsre/eventSource';
+import { createReplaySource, liveSource, replaySource, type FsreApproval, type FsreApprovalAnswer, type FsreEventSource } from '../../../logic/lab/fsre/eventSource';
 import {
   PROVISIONAL_FILES,
   REAL_DATA,
@@ -288,12 +288,133 @@ describe('keyboard and targets', () => {
   });
 });
 
-describe('the live source before M5', () => {
+describe('the live source without a backend', () => {
   it('says it is not connected and draws no building', async () => {
     await open();
     click(/^Live pipeline/);
-    expect(await screen.findByText(/The live feed is not connected yet/)).toBeTruthy();
+    expect(await screen.findByText(/The live feed is not connected in this build/)).toBeTruthy();
     expect(document.querySelectorAll('.fsre-floor')).toHaveLength(0);
+  });
+});
+
+describe('a live feed that stops', () => {
+  it('says why above the building, keeps the building it had, and clears the line when the feed answers again', async () => {
+    let report: ((detail: string | null) => void) | undefined;
+    const feed: FsreEventSource = {
+      ...tenCompanies,
+      id: 'live-test',
+      kind: 'live',
+      subscribe: (_run, _onEvents, onProblem) => {
+        report = onProblem;
+        return () => undefined;
+      },
+    };
+    await open([feed]);
+    const floors = document.querySelectorAll('.fsre-floor').length;
+    expect(floors).toBeGreaterThan(0);
+    act(() => report?.('The live feed could not be reached: offline'));
+    expect(screen.getByText('The live feed could not be reached: offline').getAttribute('role')).toBe('status');
+    expect(document.querySelectorAll('.fsre-floor')).toHaveLength(floors);
+    act(() => report?.(null));
+    expect(screen.queryByText(/could not be reached/)).toBeNull();
+  });
+});
+
+describe('the owner approves a staged package (live run with a backend, M5)', () => {
+  const ev = (n: number, kind: string, extra: Record<string, unknown> = {}) => ({ id: `p${n}`, run: 'syn-wave', ticker: 'SYN01', kind, at: null, ...extra });
+  const STAGED = [
+    ev(1, 'stage_started', { stageId: 'packed', skill: 'router' }),
+    ev(2, 'stage_completed', { stageId: 'packed', skill: 'router' }),
+    ev(3, 'package_staged', { stageId: 'packed', skill: 'router', payload: { ref: 'SYN01-2026.1', title: 'SYN01-2026.1 staged for partner review' } }),
+  ];
+  const WITH_ESCALATION = [...STAGED, ev(4, 'escalated', { stageId: 'gate3', skill: 'reviewer', payload: { title: 'G3-02: circular revenue', detail: 'Revenue passes only circularly.' } })];
+  const APPROVE = 'Approve SYN01-2026.1 for publication';
+  const CONFIRM = 'Yes, approve SYN01-2026.1 for publication';
+
+  function fakeApproval(check: FsreApprovalAnswer | Error, approve: FsreApprovalAnswer = { ok: true, reasons: [] }) {
+    const calls: Array<[string, string, string]> = [];
+    const approval: FsreApproval = {
+      check: async (company, version) => {
+        calls.push(['check', company, version]);
+        if (check instanceof Error) throw check;
+        return check;
+      },
+      approve: async (company, version) => {
+        calls.push(['approve', company, version]);
+        return approve;
+      },
+    };
+    return { approval, calls };
+  }
+  const live = (events: Record<string, unknown>[], approval?: FsreApproval): FsreEventSource => ({
+    ...createReplaySource({ id: 'live-test', label: 'Live (test)', fileNames: ROUTER_FILE_NAMES, files: async () => routerFiles(events) }),
+    kind: 'live',
+    ...(approval ? { approval } : {}),
+  });
+  const openPartnerRoom = async (source: FsreEventSource) => {
+    await open([source]);
+    click(/^Partner room:/);
+  };
+
+  it('is enabled only when the approval function says yes, and approves only on the second click', async () => {
+    const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
+    await openPartnerRoom(live(STAGED, approval));
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
+    expect(calls).toEqual([['check', 'SYN01', 'SYN01-2026.1']]);
+    click(APPROVE);
+    expect(calls.some(([action]) => action === 'approve')).toBe(false);
+    click(CONFIRM);
+    expect(await screen.findByText(/Approved by you/)).toBeTruthy();
+    expect(calls.filter(([action]) => action === 'approve')).toEqual([['approve', 'SYN01', 'SYN01-2026.1']]);
+  });
+
+  it('can be cancelled at the second click without asking anything', async () => {
+    const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
+    await openPartnerRoom(live(STAGED, approval));
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
+    click(APPROVE);
+    click('Cancel');
+    expect(screen.getByRole('button', { name: APPROVE })).toBeTruthy();
+    expect(calls.some(([action]) => action === 'approve')).toBe(false);
+  });
+
+  it('stays disabled and lists every reason when the approval function says not yet', async () => {
+    const { approval } = fakeApproval({ ok: false, reasons: ['the company has no manifest approval', '1 escalated review note(s) wait for your decision'] });
+    await openPartnerRoom(live(STAGED, approval));
+    expect(await screen.findByText('the company has no manifest approval')).toBeTruthy();
+    expect(screen.getByText('1 escalated review note(s) wait for your decision')).toBeTruthy();
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+  });
+
+  it('stays disabled while the building shows an open escalation, even when the check says yes', async () => {
+    const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
+    await openPartnerRoom(live(WITH_ESCALATION, approval));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    await act(async () => undefined);
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+  });
+
+  it('shows the reasons when the approval function refuses at the last moment', async () => {
+    const { approval } = fakeApproval({ ok: true, reasons: [] }, { ok: false, reasons: ['SYN01-2026.1 is published, not waiting'] });
+    await openPartnerRoom(live(STAGED, approval));
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
+    click(APPROVE);
+    click(CONFIRM);
+    expect(await screen.findByText('SYN01-2026.1 is published, not waiting')).toBeTruthy();
+    expect(screen.queryByText(/Approved by you/)).toBeNull();
+  });
+
+  it('says when the check could not run, and stays disabled', async () => {
+    const { approval } = fakeApproval(new Error('the approval function answered 404'));
+    await openPartnerRoom(live(STAGED, approval));
+    expect(await screen.findByText('The approval check could not run: the approval function answered 404')).toBeTruthy();
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+  });
+
+  it('offers no approve button without the approval (a replay, or a live source with no backend)', async () => {
+    await openPartnerRoom(live(STAGED));
+    expect(document.querySelector('[data-publish]')).toBeNull();
+    expect(screen.queryByRole('button', { name: APPROVE })).toBeNull();
   });
 });
 

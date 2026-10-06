@@ -124,6 +124,8 @@ export interface CompanyState {
   proposals: ProposalRecord[];
   /** Latest value per figure key, from payloads. */
   figures: Record<string, FsreFigure>;
+  /** The package version staged for the owner's approval (the latest `package_staged`), if any. */
+  staged: string | null;
   approved: boolean;
   published: boolean;
 }
@@ -199,6 +201,7 @@ function newCompany(ctx: FsreContext, ticker: string): CompanyState {
     escalations: [],
     proposals: [],
     figures: {},
+    staged: null,
     approved: false,
     published: false,
   };
@@ -464,6 +467,11 @@ export function reduceEvent(ctx: FsreContext, state: FsreState, event: FsreEvent
       );
       break;
     }
+
+    case 'package_staged':
+      // A newer staging (the package rebuilt after a decision) replaces the older version.
+      company = mergeFigures(event.payload?.ref ? { ...company, staged: event.payload.ref } : company, event);
+      break;
 
     case 'approved':
       company = { ...company, approved: true };

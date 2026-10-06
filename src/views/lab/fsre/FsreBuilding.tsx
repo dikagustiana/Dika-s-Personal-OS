@@ -19,7 +19,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FsreRun } from '../../../logic/lab/fsre/data';
 import type { FsreEvent } from '../../../logic/lab/fsre/events';
-import { FSRE_SOURCES, appendEvents, followCursor, type FsreEventSource, type FsreLoadFailure } from '../../../logic/lab/fsre/eventSource';
+import { fsreApproval } from '../../../data/fsreApproval';
+import { fsreLiveFeed } from '../../../data/fsreLiveFeed';
+import { appendEvents, connectedLiveSource, followCursor, replaySource, type FsreEventSource, type FsreLoadFailure } from '../../../logic/lab/fsre/eventSource';
 import { FLOOR_DISPLAY_ORDER } from '../../../logic/lab/fsre/layout';
 import { buildContext, createStateCache, runTotals } from '../../../logic/lab/fsre/reducer';
 import { agentStatuses, buildFloorScene, focusTickerOf, touchedBy, type FsreSelection, type Touched } from '../../../logic/lab/fsre/scene';
@@ -42,7 +44,10 @@ type LoadState =
 
 const NOTHING_MOVED: Touched = { chips: new Set(), arrivals: new Set() };
 
-export function FsreBuilding({ sources = FSRE_SOURCES }: { sources?: readonly FsreEventSource[] }) {
+/** The run switcher's entries: the bundled replay first, then the live pipeline over the data layer's feed. */
+const DEFAULT_SOURCES: readonly FsreEventSource[] = [replaySource, connectedLiveSource(fsreLiveFeed, fsreApproval)];
+
+export function FsreBuilding({ sources = DEFAULT_SOURCES }: { sources?: readonly FsreEventSource[] }) {
   const [firstSource] = sources;
   const sourceId = useFsreViewStore((s) => s.sourceId);
   const source = sources.find((s) => s.id === sourceId) ?? firstSource;
@@ -56,6 +61,7 @@ export function FsreBuilding({ sources = FSRE_SOURCES }: { sources?: readonly Fs
 
   const [load, setLoad] = useState<LoadState>({ kind: 'loading', sourceId: source.id });
   const [events, setEvents] = useState<readonly FsreEvent[]>([]);
+  const [feedProblem, setFeedProblem] = useState<string | null>(null);
 
   // Load the run whenever the source changes. The reader starts at the END
   // of a replay (the run as recorded); stepping back replays it.
@@ -81,15 +87,20 @@ export function FsreBuilding({ sources = FSRE_SOURCES }: { sources?: readonly Fs
 
   // A live source appends; a reader at the end follows, one who stepped back stays.
   useEffect(() => {
+    setFeedProblem(null);
     if (load.kind !== 'ready' || !source.subscribe) return;
-    return source.subscribe(load.run, (batch) => {
-      setEvents((previous) => {
-        const next = appendEvents(previous, batch);
-        const store = useFsreViewStore.getState();
-        store.setCursor(followCursor(store.cursor, previous.length, next.length));
-        return next;
-      });
-    });
+    return source.subscribe(
+      load.run,
+      (batch) => {
+        setEvents((previous) => {
+          const next = appendEvents(previous, batch);
+          const store = useFsreViewStore.getState();
+          store.setCursor(followCursor(store.cursor, previous.length, next.length));
+          return next;
+        });
+      },
+      setFeedProblem,
+    );
   }, [load, source]);
 
   const run = load.kind === 'ready' ? load.run : null;
@@ -142,6 +153,12 @@ export function FsreBuilding({ sources = FSRE_SOURCES }: { sources?: readonly Fs
         </div>
       ) : null}
 
+      {run && feedProblem ? (
+        <p role="status" className="mt-6 text-sm text-foreground-secondary" data-feed-problem="">
+          {feedProblem}
+        </p>
+      ) : null}
+
       {run && ctx && state && totals ? (
         <>
           <FsreMetrics ctx={ctx} state={state} totals={totals} applied={hasApplied(cursor)} />
@@ -174,6 +191,7 @@ export function FsreBuilding({ sources = FSRE_SOURCES }: { sources?: readonly Fs
                 query={query}
                 agentStatuses={statuses}
                 onSelect={onSelect}
+                approval={source.approval}
               />
             </aside>
           </div>

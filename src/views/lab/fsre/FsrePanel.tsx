@@ -5,10 +5,16 @@
  * exactly as written; every number goes through the one formatter.
  *
  * The approval lock is written out IN FULL, per ticker: every open
- * escalation's reason, never only the latest (the source kept one). The
- * buttons are disabled — this is a replay; decisions arrive as events.
+ * escalation's reason, never only the latest (the source kept one). In a
+ * replay the buttons are disabled; decisions arrive as events. In a live run
+ * with a backend, a staged package gets the owner's approve button
+ * (PublishControl), and the approval still reaches the building only as the
+ * pipeline's own `approved` event.
  */
+import { useEffect, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
+import { useMutation } from '../../../hooks/useMutation';
+import type { FsreApproval, FsreApprovalAnswer } from '../../../logic/lab/fsre/eventSource';
 import { Card } from '../../../components/ui/Card';
 import type { FsreEvent } from '../../../logic/lab/fsre/events';
 import { formatFigure } from '../../../logic/lab/fsre/format';
@@ -68,6 +74,8 @@ interface FsrePanelProps {
   query: string;
   agentStatuses: Record<string, AgentStatus>;
   onSelect: (selection: FsreSelection | null) => void;
+  /** The owner's approval: only a live source with a backend passes it. */
+  approval?: FsreApproval;
 }
 
 function Heading({ kicker, title, badge }: { kicker: string; title: string; badge?: React.ReactNode }) {
@@ -240,7 +248,7 @@ function PartnerList({ ctx, items, empty }: { ctx: FsreContext; items: PartnerIt
   );
 }
 
-function PartnerPanel({ ctx, state, onSelect }: { ctx: FsreContext; state: FsreState; onSelect: FsrePanelProps['onSelect'] }) {
+function PartnerPanel({ ctx, state, onSelect, approval }: { ctx: FsreContext; state: FsreState; onSelect: FsrePanelProps['onSelect']; approval?: FsreApproval }) {
   const items = partnerItems(state);
   const open = items.filter((item) => item.state === 'open');
   const companies = state.companyOrder.map((ticker) => state.companies[ticker]);
@@ -266,6 +274,9 @@ function PartnerPanel({ ctx, state, onSelect }: { ctx: FsreContext; state: FsreS
             {companies.map((company) => (
               <li key={company.ticker}>
                 <ApprovalLock state={state} company={company} />
+                {approval && company.staged && !company.approved ? (
+                  <PublishControl approval={approval} state={state} company={company} version={company.staged} />
+                ) : null}
               </li>
             ))}
           </ul>
@@ -274,6 +285,91 @@ function PartnerPanel({ ctx, state, onSelect }: { ctx: FsreContext; state: FsreS
         )}
         <p className="mt-2 text-xs text-foreground-muted">Only the owner can approve or publish.</p>
       </PanelSection>
+    </div>
+  );
+}
+
+/**
+ * The owner's approve button for one staged package. The database decides:
+ * `check` runs when the package appears and whenever the building's lock
+ * changes, and the button is enabled only when the database says yes AND the
+ * building shows no open escalation. Approving takes two clicks, the second
+ * naming the version, because an approved model goes to the site. A refusal
+ * is shown as the database's reasons; a failed call raises the retryable
+ * toast (useMutation) and changes nothing on screen.
+ */
+function PublishControl({ approval, state, company, version }: { approval: FsreApproval; state: FsreState; company: CompanyState; version: string }) {
+  const locked = approvalLock(state, company.ticker).locked;
+  /** null while the check runs. */
+  const [answer, setAnswer] = useState<FsreApprovalAnswer | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [sent, setSent] = useState(false);
+  const { run, isPending } = useMutation();
+
+  useEffect(() => {
+    let current = true;
+    setAnswer(null);
+    setConfirming(false);
+    approval.check(company.ticker, version).then(
+      (result) => {
+        if (current) setAnswer(result);
+      },
+      (error: unknown) => {
+        if (current) setAnswer({ ok: false, reasons: [`The approval check could not run: ${error instanceof Error ? error.message : String(error)}`] });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [approval, company.ticker, version, locked]);
+
+  const ready = answer !== null && answer.ok && !locked;
+  const approve = async () => {
+    const result = await run(`Approve ${version}`, () => approval.approve(company.ticker, version));
+    setConfirming(false);
+    if (!result) return; // the toast says what failed; nothing changed
+    if (result.ok) setSent(true);
+    else setAnswer(result);
+  };
+
+  return (
+    <div className="mt-2 rounded-sm border border-border p-2.5" data-publish={company.ticker}>
+      <p className="text-sm text-foreground">
+        Package <span className="font-medium">{version}</span> is staged for your approval.
+      </p>
+      {sent ? (
+        <p role="status" className="mt-1.5 text-sm text-foreground">
+          Approved by you. The building shows it when the pipeline&apos;s own event arrives.
+        </p>
+      ) : confirming ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button className="h-11" disabled={!ready || isPending} onClick={() => void approve()}>
+            Yes, approve {version} for publication
+          </Button>
+          <Button variant="ghost" className="h-11" disabled={isPending} onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <Button variant="secondary" className="mt-2 h-11 w-full" disabled={!ready} onClick={() => setConfirming(true)}>
+          Approve {version} for publication
+        </Button>
+      )}
+      {answer === null && !sent ? (
+        <p role="status" className="mt-1.5 text-xs text-foreground-muted">
+          Asking the approval function whether {version} can be approved…
+        </p>
+      ) : null}
+      {answer && !answer.ok && !sent && answer.reasons.length ? (
+        <div className="mt-1.5">
+          <p className="text-xs text-foreground-secondary">The approval function says not yet:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-foreground">
+            {answer.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -443,7 +539,7 @@ function CompanyList({ ctx, state, query, onSelect }: { ctx: FsreContext; state:
 
 /* ---------- the switch ---------- */
 
-export function FsrePanel({ ctx, state, events, cursor, selection, query, agentStatuses, onSelect }: FsrePanelProps) {
+export function FsrePanel({ ctx, state, events, cursor, selection, query, agentStatuses, onSelect, approval }: FsrePanelProps) {
   let body: React.ReactNode;
   switch (selection?.kind) {
     case 'folder': {
@@ -465,7 +561,7 @@ export function FsrePanel({ ctx, state, events, cursor, selection, query, agentS
       body = <GatePanel ctx={ctx} state={state} stageId={selection.stageId} onSelect={onSelect} />;
       break;
     case 'partner':
-      body = <PartnerPanel ctx={ctx} state={state} onSelect={onSelect} />;
+      body = <PartnerPanel ctx={ctx} state={state} onSelect={onSelect} approval={approval} />;
       break;
     case 'desk':
       body = <DeskPanel ctx={ctx} state={state} deskKey={selection.deskKey} onSelect={onSelect} />;
