@@ -518,3 +518,54 @@ notes before its result, so live events arrive in the replay's order.
 - The live feed stays "not connected" until milestone M5: the suite's status view (CP-wave-2026-02-007,
   waiting for your decision), a tested backup of this project's database (draft PR #107), and your
   OK on the edge functions' one dependency (`npm:postgres`).
+
+## Milestone M5: the live feed and the approve button (draft, not deployed)
+
+Branch `m5/fsre-live`, on top of the merged building. Nothing here runs until the owner has
+decided: the suite's status view and approval functions (CP-wave-2026-02-007), a tested backup of
+this project's database (#107), and the edge functions' one new dependency, `npm:postgres`. Until
+then the live source keeps saying "not connected" and the building plays the replay.
+
+### What it adds
+
+- `src/logic/lab/fsre/liveMap.ts`: the suite's event rows (`fsre_status.events`) in the building's
+  words, the way `scripts/fsre/export-replay.py` translates the run log, so a live run and its
+  replay read alike. It is stateful on purpose: a gate passes "with escalation" while an escalated
+  note of that gate is open (the suite records a gate's notes before its result, CP-007 amendment
+  2), and a decision on a note becomes `approved` naming the building's own event id for that
+  escalation. Every row is validated; a gap in the numbering, another wave or an unknown stage
+  stops the translation instead of drawing something invented.
+- `createLiveSource` in `eventSource.ts`, with the call injected from `src/data/fsreLiveFeed.ts`:
+  the newest wave, page by page; then a poll every 5 seconds after news, 10 while quiet or failing.
+  A feed that stops answering is said above the building (`role="status"`), and a feed whose rows
+  no longer fit is not followed further: the building keeps what it had and says up to which seq.
+- `package_staged` joins the building's event contract: the reducer keeps the staged version, which
+  the approve button names.
+- The partner room's approve button (`PublishControl`, live runs with a backend only): the database
+  decides through `fsre.can_approve`; the button is enabled only when it says yes AND the building
+  shows no open escalation; approving takes a second click naming the version; a refusal shows the
+  database's reasons; a failed call raises the retryable toast and changes nothing. The approval
+  reaches the building only as the pipeline's own `approved` event.
+- `supabase/functions/fsre-events` and `fsre-approve`, with their input rules in
+  `_shared/fsreInput.ts`: the owner check (`checkAppKey`) runs before the body is read or the
+  database is touched; each function's only database is its own secret (`FSRE_STATUS_DB_URL`,
+  `FSRE_APPROVER_DB_URL`, login roles that can do one thing each); every value is a bound
+  parameter; the approver is a constant, never an input; `verify_jwt` stays on, as for every
+  function here.
+
+### Tests
+
+141 files, 2373 tests on `main` (`a00ee7c`) → 144 files, 2429 tests here, exit 0; `typecheck` clean,
+`build` green. New: `liveMap.test.ts` (the translation, polls continuing, refusals),
+`liveSource.test.ts` (load, paging, every failure said, following and stopping, unsubscribe),
+`src/data/fsreFunctions.test.ts` (both functions' input rules executed; their sources read: the
+owner check first, one secret each, bound parameters, the approver a constant, only the status view
+read), and view tests for a stopped feed and for the approve button (enabled only on the database's
+yes with no open escalation, second click, cancel, refusal reasons, a check that could not run, no
+button without the approval). Negative controls: the lock condition removed, and the owner check
+moved after the database call, each turn a test red.
+
+### Known gap
+
+Live stage cards show no figures yet: the suite's transition events carry only a reason, and the
+export reads figures from other files. A later suite proposal can put figures on stage events.
