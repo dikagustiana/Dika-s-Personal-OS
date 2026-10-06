@@ -1,6 +1,19 @@
 # FSRE building: mount report (brief 02)
 
-Status: **step 0 (report and plan, no code).** Steps 1–6 are appended below as they land.
+**Ringkasan (buat Dika)**
+
+1. Gedung FSRE udah kepasang di Personal OS: satu view di Lab, cuma buat owner, tanpa alamat baru.
+2. Isinya replay asli dry run UNVR dari fsre-skills (50 event, 13 stage router), bukan data contoh lagi.
+3. Kamu duduk di partner room (4F), router di lobby; 13 eskalasi + 2 proposal nunggu keputusanmu.
+4. Approval kekunci selama masih ada eskalasi terbuka, dan tiap alasannya ditulis lengkap.
+5. Tes: 141 file, 2373 tes lulus; typecheck dan build hijau.
+6. Cek step 6 (keyboard, target 44px, kontras 4,5:1, lebar 390/768/1024/1440) lulus semua, setelah beberapa perbaikan.
+7. Yang dibenerin: chip yang saling numpuk, teks eskalasi yang dobel, angka "Escalated notes" yang ketimpa, catatan waktu dari export yang nggak muncul.
+8. Feed live belum nyambung: nunggu keputusanmu soal CP-wave-2026-02-007, backup database (PR #107), dan izin dependency `npm:postgres`.
+9. Masuk ke main lewat PR, dengan rollback yang udah dites (revert ke `5594d9a`, yang sekarang live).
+10. Data SAMB nggak disentuh sama sekali.
+
+Status: **steps 0–6 done.** Step 0 (report and plan) first, then each step appended as it landed.
 
 Source: `C:\work\glm\fsre-building` (GLM, HEAD `71b64b4`, 8 commits), read and built in a copy;
 the source folder was not changed (`git -C C:/work/glm/fsre-building status --short` is empty).
@@ -430,3 +443,78 @@ drawn)" and "✎ 2 proposals", the badge says 15, and the panel lists all 15 ite
 - the long Gate 2 and Gate 3 chips overlap each other on 3F;
 - an escalation whose reason fell back to its title prints that title twice, in the panel item
   and in the lock list.
+
+## Step 6: the checks
+
+Done by the coordinator after the port agent's two brief-04 commits, on the built app (`pnpm build`,
+`vite preview`, the mock repository, whose default viewer is the owner). Every check was measured in
+the page with a script (chip boxes, focus styles, target sizes, computed colours over the composited
+background) rather than judged by eye, at 1440×900, 1024×768, 768×1024 and 390×844, on the real UNVR
+replay and on the ten synthetic companies. The ten-company run is a test fixture with no source in
+the app, so it was shown through a harness build (the fixture added as a second replay source, built
+into a scratch folder, the view file restored and checked unchanged); the harness is not committed.
+
+| Check | Real UNVR replay | Ten synthetic companies |
+|---|---|---|
+| Chips covering each other | 0 at every width (17 chips) | 0 at every width (21 chips) |
+| Page scrolls sideways | 0 px at every width | 0 px at every width |
+| Targets under 44 px | 0 of 39 at every width | 0 at every width |
+| Text under 4.5:1 | 0 words; two glyphs (✓ 4.13, ⚠ 4.41) on the stage screen, symbols beside their word, so 3:1 applies: pass | not measured separately (same styles) |
+| Keyboard | 21 Tab stops from the run switcher in reading order (switcher, search, partner-room button, then the building from 4F down); every stop shows a 2 px solid outline under `:focus-visible` | — |
+
+### Found and fixed here
+
+1. **"Escalated notes" showed only the last gate's count** (the agent's decision 3). The folder
+   merges figures with the last value winning, so Gate 3's 2 replaced Gate 2's 11. The count was a
+   second copy of what the escalated events already say, so the exporter no longer sends it
+   (`scripts/fsre/export-replay.py`, data regenerated: only those figure lines changed) and its
+   label is gone; escalations are counted from events. Test: no event carries the figure.
+2. **The export's note on its times was not shown** (decision 4). `timesNote` is kept by `data.ts`
+   and shown as written under the metrics. Test.
+3. **An escalation printed its words twice.** With no `reason`, `data.ts` used the title, and the
+   panel printed title and reason. The fallback is now the detail, then the title; the panel item
+   and the lock list show a reason only when it adds words the title does not hold (a one-sentence
+   finding is the title after its check id). Test, with a negative control (the old condition turns
+   it red).
+4. **Chips covered each other.** Gate 2 and Gate 3 on 3F; the proposals pile over the owner's chip
+   in the partner room; at tablet and phone widths a gate room's folders over its gate chip. Now:
+   side-by-side gate rooms alternate chip levels; a gate room's folder chip takes the level its gate
+   chip leaves free; the owner's chip stands above the two piles; the upper level lifts a whole chip
+   height (it lifted 1.5em, less than a chip's 1.45em line plus border, so stacked chips touched);
+   and a gate chip says "Escalated", the stage screen's word for that state, because "Passed with
+   escalation" at the chips' 9 px floor ran into the next room. The chip's button label, the
+   metrics and the panel keep "Passed with escalation"; glyph ⚠ and the escalated tone are
+   unchanged (rule 3). Test, with a negative control.
+5. **Stage-screen words under 4.5:1 on their own tint** (success 4.13, escalate 4.41). The word is
+   written in the foreground colour; the glyph keeps the tone.
+
+The agent's decisions 1 (a gate passed with escalation opens its own item only when none is open
+at that gate) and 2 (the rule-2 name scan allows `partner` and `closed`, backed by the renaming
+test) are kept. Decision 1 matches the suite: CP-wave-2026-02-007 amendment 2 records a gate's
+notes before its result, so live events arrive in the replay's order.
+
+### Screenshots (`docs/lab/fsre-building/`, 1440×900)
+
+| File | What it shows |
+|---|---|
+| `01-final-folder-selected-1440.jpg` | End of the UNVR replay, the folder selected: where it is, its figures, gates on record |
+| `02-partner-room-selected-1440.jpg` | The partner room selected: 15 items waiting, escalations first |
+| `03-mid-replay-30-of-50-1440.jpg` | 30 of 50 events: Gate 2 under review, four escalations raised so far, Gate 3 pending |
+| `04-ten-synthetic-companies-1440.jpg` | Ten synthetic companies (harness): seven stacks, a failed Gate 1 beside its folders, one published |
+
+### Tests and build
+
+| | Files | Tests | Exit |
+|---|---|---|---|
+| `57bf543` (seats) | 141 | 2340 passed | 0 |
+| `4bafb23` (the real replay) | 141 | 2368 passed | 0 |
+| Step 6 | 141 | 2373 passed | 0 |
+
+`typecheck` and `build` pass. Build: `FsreBuilding-*.js` 75,58 kB (gzip 23,84 kB), `replay-unvr-*.js`
+26,69 kB (gzip 5,17 kB), both lazy chunks, fetched only when the building opens.
+
+### Open for the owner (step 6)
+
+- The live feed stays "not connected" until milestone M5: the suite's status view (CP-wave-2026-02-007,
+  waiting for your decision), a tested backup of this project's database (draft PR #107), and your
+  OK on the edge functions' one dependency (`npm:postgres`).
