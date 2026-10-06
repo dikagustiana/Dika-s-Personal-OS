@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatCount, formatFigure, formatNumber, formatOf, NOT_A_NUMBER } from './format';
+import { formatCount, formatDateLong, formatFigure, formatHHMM, formatNumber, formatOf, NOT_A_NUMBER, NOT_A_TIME } from './format';
 
 describe('formatNumber (ported from the source)', () => {
   it('separates thousands with a point', () => {
@@ -72,5 +72,26 @@ describe('formatCount, formatOf, formatFigure', () => {
     expect(formatFigure({ value: 1200, of: 3600 })).toBe('1.200 of 3.600');
     expect(formatFigure(10142)).toBe('10.142');
     expect(formatFigure({ value: 7 })).toBe('7');
+  });
+});
+
+describe('formatHHMM (v2: the house time format)', () => {
+  it('writes local hours and minutes as HH.MM', () => {
+    expect(formatHHMM('2026-10-06T09:04:00')).toBe('09.04');
+    expect(formatHHMM('2026-10-06T16:30:00')).toBe('16.30');
+  });
+
+  it('says so when the time does not parse', () => {
+    expect(formatHHMM('not-a-time')).toBe(NOT_A_TIME);
+  });
+});
+
+describe('formatDateLong (v2: the workpaper note date)', () => {
+  it('writes the local date as "6 Oct 2026"', () => {
+    expect(formatDateLong('2026-10-06T09:04:00')).toBe('6 Oct 2026');
+  });
+
+  it('writes nothing for a time that does not parse', () => {
+    expect(formatDateLong('not-a-time')).toBe('');
   });
 });

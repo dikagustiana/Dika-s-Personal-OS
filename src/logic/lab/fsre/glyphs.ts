@@ -9,7 +9,19 @@
  * Escalated is amber with ⚠ wherever it appears. Stalled shares the amber
  * but not the glyph (◐), so the two stay apart without colour.
  */
-import type { AgentStatus, FolderStatus, GateResult, IssueState, ItemState, PartnerItemKind, StageStatus } from './statuses';
+import type {
+  AgentStatus,
+  CommandStatusV,
+  DeskState,
+  EngagementStatusV,
+  FolderStatus,
+  GateResult,
+  IssueState,
+  ItemState,
+  LiveGateStatus,
+  PartnerItemKind,
+  StageStatus,
+} from './statuses';
 
 /** The colour roles a state can take; index.css maps each to a token. */
 export const TONES = ['working', 'idle', 'stalled', 'escalated', 'done', 'failed', 'primary', 'neutral'] as const;
@@ -126,3 +138,88 @@ export const LOCK_GLYPH = '⚠';
 
 /** Glyph for a provisional-data note. */
 export const PROVISIONAL_GLYPH = '⚑';
+
+/* ---------- v2: the live office ---------- */
+
+/**
+ * A desk's state. No signal shares the amber of stalled but has its own
+ * glyph (◌), and waiting is neutral with ⧗: the five stay apart without colour.
+ */
+export const DESK_GLYPHS: Record<DeskState, string> = {
+  escalated: AGENT_GLYPHS.escalated,
+  no_signal: '◌',
+  waiting: '⧗',
+  working: AGENT_GLYPHS.working,
+  idle: AGENT_GLYPHS.idle,
+};
+
+export const DESK_TONES: Record<DeskState, Tone> = {
+  escalated: 'escalated',
+  no_signal: 'stalled',
+  waiting: 'neutral',
+  working: 'working',
+  idle: 'idle',
+};
+
+/** A live gate status takes the replay gate's glyph and tone for the same meaning. */
+export const LIVE_GATE_GLYPHS: Record<LiveGateStatus, string> = {
+  pending: GATE_GLYPHS.pending,
+  passed: GATE_GLYPHS.passed,
+  passed_with_open_escalations: GATE_GLYPHS.escalated,
+  failed: GATE_GLYPHS.failed,
+};
+
+export const LIVE_GATE_TONES: Record<LiveGateStatus, Tone> = {
+  pending: GATE_TONES.pending,
+  passed: GATE_TONES.passed,
+  passed_with_open_escalations: GATE_TONES.escalated,
+  failed: GATE_TONES.failed,
+};
+
+export const ENGAGEMENT_GLYPHS: Record<EngagementStatusV, string> = {
+  proposed: '○',
+  blocked: STAGE_GLYPHS.blocked,
+  running: '▸',
+  waiting_owner: '⧗',
+  returned: STAGE_GLYPHS.returned,
+  published: FOLDER_GLYPHS.published,
+  cancelled: '✕',
+};
+
+export const ENGAGEMENT_TONES: Record<EngagementStatusV, Tone> = {
+  proposed: 'neutral',
+  blocked: 'stalled',
+  running: 'working',
+  waiting_owner: 'neutral',
+  returned: 'stalled',
+  published: 'done',
+  cancelled: 'idle',
+};
+
+/** A declined command is amber with ⚠: the owner asked for something a rule refuses. */
+export const COMMAND_STATUS_GLYPHS: Record<CommandStatusV, string> = {
+  sent: '→',
+  received: '✓',
+  done: '✓',
+  declined: '⚠',
+};
+
+export const COMMAND_STATUS_TONES: Record<CommandStatusV, Tone> = {
+  sent: 'neutral',
+  received: 'done',
+  done: 'done',
+  declined: 'escalated',
+};
+
+/**
+ * The person at a v2 desk is drawn in the replay agent's colours: no signal
+ * takes stalled's amber, waiting rests like idle. The chip beside the person
+ * carries the glyph and the word, so the figure's colour never stands alone.
+ */
+export const DESK_FIGURE_STATUS: Record<DeskState, AgentStatus> = {
+  escalated: 'escalated',
+  no_signal: 'stalled',
+  waiting: 'idle',
+  working: 'working',
+  idle: 'idle',
+};

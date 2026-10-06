@@ -193,3 +193,193 @@ export const GATE_SEVERITY: Record<GateResult, number> = {
   failed: 2,
   escalated: 3,
 };
+
+/* ======================================================================
+ * v2 — THE LIVE OFFICE (brief v2 §2: one vocabulary, used everywhere).
+ *
+ * Desk states, gate labels, engagement and command words, the placeholder
+ * decline rules, the thresholds, the chain groups and the modes. Where a v2
+ * word means what a v1 word already says, it is that word, not a copy.
+ * Names that come from data (stage ids and names, skill names) are not here:
+ * they live in src/data/fsreTransport/provisional.ts.
+ * ====================================================================== */
+
+/** A desk's state, derived by deriveDeskState (deskState.ts) in this order of precedence. */
+export const DESK_STATES = ['escalated', 'no_signal', 'waiting', 'working', 'idle'] as const;
+export type DeskState = (typeof DESK_STATES)[number];
+
+export const DESK_STATE_WORDS: Record<DeskState, string> = {
+  escalated: AGENT_STATUS_WORDS.escalated,
+  no_signal: 'No signal',
+  waiting: 'Waiting',
+  working: AGENT_STATUS_WORDS.working,
+  idle: AGENT_STATUS_WORDS.idle,
+};
+
+/** The chip of a staff desk with no agent: it never reads as working. */
+export const UNASSIGNED_DESK_WORD = 'Idle, no assignment';
+
+/** "No signal since 16.02": the time is the last signal's, written by the caller in HH.MM. */
+export function noSignalSinceText(time: string): string {
+  return `${DESK_STATE_WORDS.no_signal} since ${time}`;
+}
+
+/** A gate's status for one company in the live contract. */
+export const LIVE_GATE_STATUSES = ['pending', 'passed', 'passed_with_open_escalations', 'failed'] as const;
+export type LiveGateStatus = (typeof LIVE_GATE_STATUSES)[number];
+
+/**
+ * The one gate label (brief v2 §2: "Pending", "Passed", "Passed, N escalations
+ * open", "Failed"). The summary card and the partner room use this; the gate
+ * room's short word (gateShortWord) derives from the same status.
+ */
+export function gateStatusLabel(status: LiveGateStatus, openEscalations: number): string {
+  switch (status) {
+    case 'pending':
+      return GATE_RESULT_WORDS.pending;
+    case 'passed':
+      return GATE_RESULT_WORDS.passed;
+    case 'failed':
+      return GATE_RESULT_WORDS.failed;
+    case 'passed_with_open_escalations':
+      // Never a softened count (audit F2), and never an invented one: without
+      // a count the label says an escalation is open, not how many (FX-3).
+      if (openEscalations < 1) return 'Passed, escalation open';
+      return openEscalations === 1 ? 'Passed, 1 escalation open' : `Passed, ${openEscalations} escalations open`;
+  }
+}
+
+/** The short word a gate takes where space is tight; same underlying status. */
+export function gateShortWord(status: LiveGateStatus): string {
+  return status === 'passed_with_open_escalations' ? STAGE_STATUS_WORDS.escalated : gateStatusLabel(status, 0);
+}
+
+export const ENGAGEMENT_STATUSES = ['proposed', 'blocked', 'running', 'waiting_owner', 'returned', 'published', 'cancelled'] as const;
+export type EngagementStatusV = (typeof ENGAGEMENT_STATUSES)[number];
+
+export const ENGAGEMENT_STATUS_WORDS: Record<EngagementStatusV, string> = {
+  proposed: 'Proposed',
+  blocked: STAGE_STATUS_WORDS.blocked,
+  running: 'Running',
+  waiting_owner: 'Waiting for owner',
+  returned: STAGE_STATUS_WORDS.returned,
+  published: FOLDER_STATUS_WORDS.published,
+  cancelled: 'Cancelled',
+};
+
+export const COMMAND_KINDS = ['instruction', 'question', 'override'] as const;
+export type CommandKindV = (typeof COMMAND_KINDS)[number];
+
+export const COMMAND_KIND_WORDS: Record<CommandKindV, string> = {
+  instruction: 'Instruction',
+  question: 'Question',
+  override: 'Override',
+};
+
+export const COMMAND_STATUSES = ['sent', 'received', 'done', 'declined'] as const;
+export type CommandStatusV = (typeof COMMAND_STATUSES)[number];
+
+export const COMMAND_STATUS_WORDS: Record<CommandStatusV, string> = {
+  sent: 'Sent',
+  received: 'Received',
+  done: AGENT_STATUS_WORDS.done,
+  declined: 'Declined',
+};
+
+/** Shown on the composer when the kind is Override, and recorded on the command. */
+export function workpaperNoteText(dateText: string): string {
+  return `Owner instruction, ${dateText}`;
+}
+
+export type DeclinedRule = 'R1_HOLDOUT' | 'R2_GATE_BYPASS' | 'R3_APPROVAL';
+
+/**
+ * The PLACEHOLDER decline rules: keyword rules enforced in the mock only;
+ * real enforcement lives in the backend later (brief v2 §4). Every surface
+ * that shows a declined command uses these labels and one-line explanations.
+ */
+export const DECLINE_RULES: Record<DeclinedRule, { label: string; explanation: string }> = {
+  R1_HOLDOUT: {
+    label: 'R1 — holdout (placeholder)',
+    explanation: 'The holdout stays sealed, so the model is never checked against the answer it must not see.',
+  },
+  R2_GATE_BYPASS: {
+    label: 'R2 — gate bypass (placeholder)',
+    explanation: 'A gate or a tie-out cannot be skipped; fix the finding instead.',
+  },
+  R3_APPROVAL: {
+    label: 'R3 — approval (placeholder)',
+    explanation: 'Only the owner approves or publishes; agents cannot be asked to do it.',
+  },
+};
+
+/** The tooltip on every declined command: the rules above are the mock's, not the backend's. */
+export const PLACEHOLDER_RULE_NOTE = 'Placeholder rule (mock only); real enforcement lives in the backend later';
+
+/** Minutes without an event before an open task reads as "No signal". */
+export const NO_SIGNAL_AFTER_MIN = 5;
+
+/** The industries board's chain groups, in chain order (brief v2 §4). */
+export const CHAIN_GROUPS = [
+  'Raw-material extraction',
+  'Basic industry',
+  'Processing industry',
+  'Distribution',
+  'Sales channels',
+  'End users',
+  'Spanning layers — Energy',
+  'Spanning layers — Logistics',
+  'Not placed on the chain yet',
+] as const;
+export type ChainGroup = (typeof CHAIN_GROUPS)[number];
+
+/** The header's mode switch. Live stays disabled until milestone M3 wires the backend. */
+export const MODES = [
+  { id: 'replay', label: 'Replay', note: '' },
+  { id: 'synthetic', label: 'Synthetic', note: 'The mock live office on synthetic data' },
+  { id: 'live', label: 'Live', note: 'Not wired yet' },
+] as const;
+export type ModeId = (typeof MODES)[number]['id'];
+
+export const SYNTHETIC_BANNER = 'Synthetic run: fictitious companies and a mock transport. No real companies, filings or figures.';
+
+/** The two views of the synthetic mode. */
+export const LIVE_VIEWS = [
+  { id: 'building', label: 'Building' },
+  { id: 'industries', label: 'Industries' },
+] as const;
+export type LiveViewId = (typeof LIVE_VIEWS)[number]['id'];
+
+/** Words of the floor tag beyond the desk states (deskViews.ts floorTagParts). */
+export const FLOOR_TAG_WORDS = {
+  unstaffed: 'unstaffed',
+  notDrawn: 'more not drawn',
+} as const;
+
+/** The name plate of a staff desk with nobody at it, outside the review department. */
+export const VACANT_DESK_TITLE = 'Staff desk';
+
+/** An industries row whose sub-industry has at least two published companies. */
+export const COVERED_WORD = 'Covered';
+
+/** An industries row with no engagement yet. */
+export const NOT_STARTED_WORD = 'Not started';
+
+/** The summary card's gates when no engagement is running or waiting for the owner. */
+export const NO_LIVE_ENGAGEMENT_WORD = 'No engagement running';
+
+/** Before a dimmed desk's label: what it works on instead of the filtered engagement. */
+export const OTHER_WORK_WORD = 'other work:';
+
+/** The dim label of a desk whose work belongs to no ticker of the filtered engagement. */
+export const OTHER_ENGAGEMENT_WORD = 'other engagement';
+
+/** A desk's in-tray, on its chip: queued items plus open commands. */
+export const IN_TRAY_WORD = 'In-tray';
+
+/** The three departments of the v2 office, by their contract ids. */
+export const DEPARTMENT_WORDS: Record<'data' | 'modelling' | 'review', string> = {
+  data: 'Data department',
+  modelling: 'Modelling department',
+  review: 'Review department',
+};

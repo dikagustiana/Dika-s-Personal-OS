@@ -1,6 +1,7 @@
 /**
- * The building's header: its title, the run switcher (one button per event
- * source), the search, and the partner room's notification count. The
+ * The replay's toolbar (the building's title and mode switch sit above it,
+ * in FsreBuilding): the run switcher (one button per event source), the
+ * search, and the partner room's notification count. The
  * count is the open partner items — escalations and proposals — through
  * the one formatter; while any of them is an escalation the badge turns
  * amber and the button says so in words beside a ⚠.
@@ -33,12 +34,7 @@ interface FsreHeaderProps {
 export function FsreHeader(props: FsreHeaderProps) {
   const { sources, activeSourceId, onSource, waiting, escalations } = props;
   return (
-    <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-      <div>
-        <p className="page-kicker">Lab</p>
-        <h1 className="page-title">FSRE building</h1>
-      </div>
-
+    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
       <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
         <div role="group" aria-label="Runs" className="flex flex-wrap gap-2">
           {sources.map((source) => {
@@ -98,6 +94,6 @@ export function FsreHeader(props: FsreHeaderProps) {
           ) : null}
         </button>
       </div>
-    </header>
+    </div>
   );
 }

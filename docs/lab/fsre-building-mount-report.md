@@ -572,3 +572,12 @@ CP-wave-2026-02-007 amendment 4 (waiting for the owner's decision with the rest 
 router carry a stage's headline figures on its result's event (`manifest.py move --figures`) and
 pins their shape to what the building reads (a number or `{value, of}`, by name); the live mapper
 already passes them through. Until it is decided, live stage cards show no figures.
+
+## v2 (M2 update)
+
+The building was replaced by GLM's v2 (departments of desks, a synthetic office on a mock
+transport, the industries board), ported in the branch `feat/fsre-building-v2`: see
+`docs/lab/fsre-building-v2-port.md` (what moved where, FX-11 to FX-14, the browser run, the
+independent review, the open contract decisions). The replay above keeps working on the v2
+department floors; the M5 live feed and approve button stay in the code, not offered while Live is
+"Not wired yet".

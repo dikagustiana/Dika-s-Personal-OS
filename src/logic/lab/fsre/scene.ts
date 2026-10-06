@@ -14,7 +14,9 @@
  */
 import { formatCount, formatNumber } from './format';
 import {
+  AGENT_FIGURE,
   CHIP_HEADROOM,
+  CHIP_NEIGHBOUR,
   CHIP_STAGGER_LEVELS,
   DOC_SHEET,
   FOLDER_BOX,
@@ -41,7 +43,6 @@ import {
   type Tone,
 } from './glyphs';
 import {
-  FLOORS,
   FLOOR_LABELS,
   FLOOR_ZONES,
   PARTNER_DESK,
@@ -97,6 +98,7 @@ import {
 import {
   AGENT_STATUSES,
   AGENT_STATUS_WORDS,
+  FLOOR_TAG_WORDS,
   FOLDER_STATUS_WORDS,
   FOLDER_STATUSES,
   GATE_CHIP_WORDS,
@@ -104,6 +106,7 @@ import {
   ISSUE_STATE_WORDS,
   PARTNER_KIND_COUNT_NOUNS,
   STAGE_STATUS_WORDS,
+  UNASSIGNED_DESK_WORD,
   figureLabel,
   type AgentStatus,
   type FolderStatus,
@@ -119,7 +122,9 @@ export type FsreSelection =
   | { kind: 'agent'; skill: string }
   | { kind: 'gate'; stageId: string }
   | { kind: 'partner' }
-  | { kind: 'desk'; deskKey: DeskKey };
+  | { kind: 'desk'; deskKey: DeskKey }
+  /** v2: a seat of the synthetic office, by the agent at it (deskScene.ts). */
+  | { kind: 'seat'; agentId: string };
 
 export function selectionKey(selection: FsreSelection | null): string {
   if (!selection) return '';
@@ -134,20 +139,40 @@ export function selectionKey(selection: FsreSelection | null): string {
       return 'partner';
     case 'desk':
       return `desk:${selection.deskKey}`;
+    case 'seat':
+      return `seat:${selection.agentId}`;
   }
 }
 
 /** Sinks things resting on a surface just in front of it in the painter's order. */
-const ON_TOP = 0.001;
+export const ON_TOP = 0.001;
+
+/** A person's chip already placed on a floor: where its person stands, and its level. */
+export interface PlacedChip {
+  x: number;
+  y: number;
+  level: number;
+}
+
+/**
+ * The lowest chip level no neighbour (CHIP_NEIGHBOUR) already takes. Desks
+ * are visited left to right, so neighbours alternate and a chip with no
+ * neighbour stays on the lower level.
+ */
+export function chipLevel(placed: readonly PlacedChip[], x: number, y: number): number {
+  const near = placed.filter((p) => Math.abs(p.y - y) < CHIP_NEIGHBOUR.rowDepth && Math.abs(p.x - x) < CHIP_NEIGHBOUR.width);
+  for (let level = 0; level < CHIP_STAGGER_LEVELS; level += 1) if (!near.some((p) => p.level === level)) return level;
+  return near.length % CHIP_STAGGER_LEVELS;
+}
 
 /* ---------- scene types ---------- */
 
 export type BoxMaterial = 'furniture' | 'monitor' | 'bench' | 'folder' | 'doc-escalation' | 'doc-proposal';
 
 export type DrawItem =
-  | { kind: 'box'; key: string; sortY: number; faces: BoxFaces; material: BoxMaterial }
+  | { kind: 'box'; key: string; sortY: number; faces: BoxFaces; material: BoxMaterial; dim?: boolean }
   | { kind: 'rack'; key: string; sortY: number; faces: BoxFaces; slats: Array<{ x1: number; y1: number; x2: number; y2: number }> }
-  | { kind: 'agent'; key: string; sortY: number; skill: string; status: AgentStatus; shape: AgentShape }
+  | { kind: 'agent'; key: string; sortY: number; skill: string; status: AgentStatus; shape: AgentShape; dim?: boolean }
   | { kind: 'plant'; key: string; sortY: number; shape: PlantShape }
   | { kind: 'glass'; key: string; sortY: number; polygons: string[] }
   | { kind: 'folders'; key: string; sortY: number; deskKey: DeskKey; boxes: BoxFaces[] }
@@ -162,6 +187,12 @@ export interface ChipSpec {
   /** 0 or 1: neighbouring chips sit at different heights. */
   stagger: number;
   strong: boolean;
+  /** v2 desks: lines under the state (name plate, monitor text, in-tray). */
+  detail?: string[];
+  /** v2: the desk belongs to another engagement than the one the building is filtered to. */
+  dim?: boolean;
+  /** v2: a department lead's chip: never raised, and capped in width (FX-11). */
+  lead?: boolean;
 }
 
 export interface HitSpec {
@@ -281,7 +312,7 @@ function pileBox(kind: PartnerItemKind, index: number): Box {
 }
 
 /** A hit button's box, centred: the CSS grows it to at least 44px around the centre. */
-function hitRect(rect: Rect): PercentRect {
+export function hitRect(rect: Rect): PercentRect {
   return toPercentCentred(rect);
 }
 
@@ -289,7 +320,9 @@ function hitRect(rect: Rect): PercentRect {
 
 export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: FloorId, view: SceneView): FloorScene {
   const { plan } = ctx;
-  const furniture = FLOORS[floorId];
+  // The plan carries each floor's furniture: planFloors gives layout.ts FLOORS,
+  // the department plan (v2) its own (departmentLayout.ts).
+  const decorations = plan.decorations[floorId];
   const zone = FLOOR_ZONES[floorId];
   const items: DrawItem[] = [];
   const chips: ChipSpec[] = [];
@@ -299,7 +332,7 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
 
   /* decorations */
   const walls: WallSpec[] = [];
-  for (const decoration of furniture.decorations) {
+  for (const decoration of decorations) {
     switch (decoration.kind) {
       case 'plant':
         items.push({ kind: 'plant', key: decoration.id, sortY: decoration.y, shape: plantShape(decoration.x, decoration.y) });
@@ -331,7 +364,12 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
 
   /* desks, agents, gate rooms */
   const deskKeys = plan.desksOnFloor[floorId];
-  let agentIndex = 0;
+  const placed: PlacedChip[] = [];
+  const levelAt = (x: number, y: number) => {
+    const level = chipLevel(placed, x, y);
+    placed.push({ x, y, level });
+    return level;
+  };
   // Gate rooms stand side by side on a floor (3F holds two); their long
   // result chips alternate heights like the agents' so neither covers the other.
   let gateIndex = 0;
@@ -367,10 +405,9 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         text: `${skill} · ${AGENT_STATUS_WORDS[status]}`,
         // In the partner room the two document piles' chips take both levels
         // right below whoever signs off; that agent's chip goes on the upper one.
-        stagger: desk.kind === 'partner' ? 1 : agentIndex % CHIP_STAGGER_LEVELS,
+        stagger: desk.kind === 'partner' ? 1 : levelAt(spot.x, spot.y),
         strong: false,
       });
-      agentIndex += 1;
       hits.push({
         id: `agent:${skill}`,
         label: `${skill}, agent, ${AGENT_STATUS_WORDS[status]}`,
@@ -384,6 +421,20 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
             project(spot.x + HIT.agentHalfWidth, spot.y - HIT.agentHalfDepth, HIT.agentHeight),
           ]),
         ),
+      });
+    }
+    if (desk.kind === 'vacant') {
+      // A staff desk nobody holds (v2): its name plate and "Idle, no
+      // assignment", never a state an event did not give it.
+      const spot = { x: desk.surface.x + desk.surface.w / 2, y: desk.surface.y + AGENT_FIGURE.behindDesk };
+      chips.push({
+        id: key,
+        anchor: toPercentPoint(project(spot.x, spot.y, CHIP_HEADROOM.agent)),
+        tone: AGENT_TONES.idle,
+        glyph: AGENT_GLYPHS.idle,
+        text: `${desk.title ?? ''} · ${UNASSIGNED_DESK_WORD}`,
+        stagger: levelAt(spot.x, spot.y),
+        strong: false,
       });
     }
     if (desk.kind === 'gate' && desk.stageId && desk.room) {
@@ -438,7 +489,7 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
         strong: false,
       });
     }
-    const chair = furniture.decorations.find((d) => d.kind === 'solid' && d.id === 'partner-chair');
+    const chair = decorations.find((d) => d.kind === 'solid' && d.id === 'partner-chair');
     const deskRect = boundsOfBox(PARTNER_DESK);
     const chairRect = chair && chair.kind === 'solid' ? boundsOfBox(chair.box) : deskRect;
     const left = Math.min(deskRect.left, chairRect.left);
@@ -520,6 +571,24 @@ export function buildFloorScene(ctx: FsreContext, state: FsreState, floorId: Flo
     ring: selectionRing(ctx, state, floorId, view.selection),
     tag: floorTag(ctx, state, floorId, view),
   };
+}
+
+/** A wall feature's frame and screen, before anything is written on it. */
+export function wallGeometry(wall: { id: string; x0: number; x1: number; z0: number; z1: number }): Omit<WallSpec, 'body'> {
+  const inner = { x0: wall.x0 + WALL_FRAME.insetX, x1: wall.x1 - WALL_FRAME.insetX, z0: wall.z0 + WALL_FRAME.insetZ, z1: wall.z1 - WALL_FRAME.insetZ };
+  return {
+    id: wall.id,
+    frame: wallPoints(wall.x0, wall.x1, wall.z0, wall.z1),
+    screen: wallPoints(inner.x0, inner.x1, inner.z0, inner.z1),
+    rect: toPercentRect(wallRect(inner.x0, inner.x1, inner.z0, inner.z1)),
+  };
+}
+
+/** The lift's two doors inside its frame. */
+export function liftDoors(wall: { x0: number; x1: number; z0: number; z1: number }): string[] {
+  const inner = { x0: wall.x0 + WALL_FRAME.insetX, x1: wall.x1 - WALL_FRAME.insetX, z0: wall.z0 + WALL_FRAME.insetZ, z1: wall.z1 - WALL_FRAME.insetZ };
+  const middle = (wall.x0 + wall.x1) / 2;
+  return [wallPoints(inner.x0, middle - WALL_FRAME.insetX / 2, inner.z0, inner.z1), wallPoints(middle + WALL_FRAME.insetX / 2, inner.x1, inner.z0, inner.z1)];
 }
 
 function buildWall(
@@ -631,6 +700,9 @@ function selectionRing(ctx: FsreContext, state: FsreState, floorId: FloorId, sel
       if (!desk || desk.floorId !== floorId || !desk.room) return null;
       return footprintPoints({ x: desk.room.x, y: desk.room.y, w: desk.room.w, d: desk.room.d }, RING.lift);
     }
+    case 'seat':
+      // The synthetic office draws its own rings (deskScene.ts).
+      return null;
     case 'partner':
       return FLOOR_ZONES[floorId] === 'partner'
         ? footprintPoints(
@@ -662,6 +734,8 @@ function floorTag(ctx: FsreContext, state: FsreState, floorId: FloorId, view: Sc
     const word = AGENT_STATUS_WORDS[status].toLowerCase();
     if (count > 0) parts.push(formatCount(count, word, word));
   }
+  const vacant = ctx.plan.desksOnFloor[floorId].filter((key) => ctx.plan.desks[key]?.kind === 'vacant').length;
+  if (vacant > 0) parts.push(`${formatNumber(vacant)} ${FLOOR_TAG_WORDS.unstaffed}`);
   return parts;
 }
 

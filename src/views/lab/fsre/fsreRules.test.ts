@@ -19,6 +19,10 @@ import { PROVISIONAL_DATA, REAL_DATA, REAL_FILES, UNVR_FILE_NAMES } from '../../
 import {
   AGENT_STATUSES,
   AGENT_STATUS_WORDS,
+  COMMAND_KIND_WORDS,
+  COMMAND_STATUS_WORDS,
+  DESK_STATE_WORDS,
+  ENGAGEMENT_STATUS_WORDS,
   EVENT_KIND_WORDS,
   FIGURE_LABELS,
   FILE_WORDS,
@@ -34,6 +38,7 @@ import {
   PARTNER_ITEM_KINDS,
   STAGE_STATUSES,
   STAGE_STATUS_WORDS,
+  UNASSIGNED_DESK_WORD,
 } from '../../../logic/lab/fsre/statuses';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -234,6 +239,12 @@ describe('rule 5: one source per list, and colours only as tokens', () => {
     EVENT_KIND_WORDS,
     FIGURE_LABELS,
     FILE_WORDS,
+    // v2: the live office's words, kept in the same one vocabulary (brief v2 §2).
+    DESK_STATE_WORDS,
+    ENGAGEMENT_STATUS_WORDS,
+    COMMAND_KIND_WORDS,
+    COMMAND_STATUS_WORDS,
+    { unassigned: UNASSIGNED_DESK_WORD },
   ];
   const words = new Set(wordMaps.flatMap((map) => Object.values(map)));
 

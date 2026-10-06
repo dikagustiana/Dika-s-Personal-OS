@@ -69,7 +69,7 @@ export const FLOOR_LABELS: Record<FloorId, string> = {
   f3: '3F Review',
   f2: '2F Modelling',
   f1: '1F Lobby',
-  b1: 'B1 Data room',
+  b1: 'B1 Data',
 };
 
 /** The one gate predicate. Matches `gate-1` (provisional) and `gate1` (router). */
@@ -198,7 +198,8 @@ export const FALLBACK_DESK_KEY: DeskKey = 'lobby:fallback';
 export interface DeskAnchor {
   key: DeskKey;
   floorId: FloorId;
-  kind: 'desk' | 'gate' | 'partner' | 'fallback';
+  /** `vacant`: a v2 staff desk nobody holds (departmentPlan.ts); drawn, never seated. */
+  kind: 'desk' | 'gate' | 'partner' | 'fallback' | 'vacant';
   /** The skill at the desk (desks), or null (gate rooms, fallback). */
   skill: string | null;
   /** The gate stage (gate rooms), or null. */
@@ -212,6 +213,8 @@ export interface DeskAnchor {
   /** The glass room around a gate table. */
   room: Box | null;
   monitor: boolean;
+  /** A vacant desk's name plate ("Tie-out checker", "Staff desk"); null for every other kind. */
+  title: string | null;
 }
 
 export interface FloorPlan {
@@ -231,6 +234,8 @@ export interface FloorPlan {
   desks: Record<DeskKey, DeskAnchor>;
   /** Desk keys per floor, in drawing order. */
   desksOnFloor: Record<FloorId, DeskKey[]>;
+  /** Each floor's plants, racks, glass rooms and wall features, drawn by the scene. */
+  decorations: Record<FloorId, readonly Decoration[]>;
 }
 
 function emptyByFloor<T>(make: () => T): Record<FloorId, T> {
@@ -244,7 +249,7 @@ export function slotCentres(x0: number, x1: number, count: number): number[] {
   return Array.from({ length: count }, (_, index) => x0 + width * (index + 0.5));
 }
 
-function folderSpotOn(surface: Box, dx?: number): { x: number; y: number; z: number } {
+export function folderSpotOn(surface: Box, dx?: number): { x: number; y: number; z: number } {
   return {
     x: dx === undefined ? surface.x + (surface.w - FOLDER_BOX.w) / 2 : surface.x + dx,
     y: surface.y + (surface.d - FOLDER_BOX.d) / 2,
@@ -330,6 +335,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
           agentSpot: agentSet.has(skill) ? { x: PARTNER_DESK.x + PARTNER_DESK.w / 2, y: PARTNER_DESK.y + AGENT_FIGURE.behindDesk } : null,
           room: null,
           monitor: false,
+          title: null,
         });
       }
       continue;
@@ -352,6 +358,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
         agentSpot: agentSet.has(skill) ? { x: centre, y: row.y + AGENT_FIGURE.behindDesk } : null,
         room: null,
         monitor: row.monitors,
+        title: null,
       });
     });
   }
@@ -377,6 +384,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
       agentSpot: null,
       room,
       monitor: false,
+      title: null,
     });
   });
 
@@ -391,6 +399,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
     agentSpot: null,
     room: null,
     monitor: false,
+    title: null,
   });
 
   return {
@@ -404,6 +413,7 @@ export function planFloors(stages: readonly FsreStage[], skills: readonly FsreSk
     skillsOnFloor,
     desks,
     desksOnFloor,
+    decorations: { b1: FLOORS.b1.decorations, f1: FLOORS.f1.decorations, f2: FLOORS.f2.decorations, f3: FLOORS.f3.decorations, f4: FLOORS.f4.decorations },
   };
 }
 
