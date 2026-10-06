@@ -375,3 +375,49 @@ describe('MockTransport', () => {
     await expect(stub.getIndustryProgress()).rejects.toThrow('Not wired yet');
   });
 });
+
+describe('the mock matches brief v2 §4 (v2.1 FX-13)', () => {
+  function collect(transport: MockTransport): AgentEvent[] {
+    const events: AgentEvent[] = [];
+    transport.subscribeEvents((e) => events.push(e));
+    return events;
+  }
+  function runFor(transport: MockTransport, seconds: number): void {
+    for (let s = 0; s < seconds; s += 1) {
+      transport.clock.advanceMs(1000);
+      transport.flush();
+    }
+  }
+
+  it('raises SYNA’s Gate 2 escalation before the gate reports', () => {
+    const transport = new MockTransport();
+    const events = collect(transport);
+    runFor(transport, 15 * 60);
+    const opened = events.find((e) => e.type === 'escalation_opened' && e.ticker === 'SYNA');
+    const result = events.find((e) => e.type === 'gate_result' && e.ticker === 'SYNA' && e.stageId === 'gate-2');
+    expect(opened).toBeTruthy();
+    expect(result).toBeTruthy();
+    expect(opened!.seq).toBeLessThan(result!.seq);
+    transport.dispose();
+  });
+
+  it('keeps at least two industry rows not placed on the chain', async () => {
+    const transport = new MockTransport();
+    const rows = (await transport.getIndustryProgress()).filter((row) => row.chainGroup === 'Not placed on the chain yet');
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    for (const row of rows) expect(row.chainOrder).toBeNull();
+    transport.dispose();
+  });
+
+  it('answers a question with received, then a related action, then done, all from the recipient', async () => {
+    const transport = new MockTransport();
+    const events = collect(transport);
+    const command = await transport.sendCommand({ toAgentId: 'router', engagementId: null, kind: 'question', text: 'What is on your desk?', reason: null });
+    runFor(transport, 20);
+    const trail = events.filter((e) => e.commandId === command.id);
+    expect(trail.map((e) => e.type)).toEqual(['command_received', 'action', 'command_done']);
+    expect(new Set(trail.map((e) => e.agentId))).toEqual(new Set(['router']));
+    transport.dispose();
+  });
+});
+

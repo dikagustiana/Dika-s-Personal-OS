@@ -227,8 +227,9 @@ const SEEDS: SeedRow[] = [
 const EXTRA_SUBS: Record<string, { name: string; chainGroup: (typeof CHAIN_GROUPS)[number] }> = {
   'SYN-PLT': { name: 'Synthetic plantations', chainGroup: 'Raw-material extraction' },
   'SYN-PRP': { name: 'Synthetic property', chainGroup: 'End users' },
-  'SYN-AUT': { name: 'Synthetic auto parts', chainGroup: 'Processing industry' },
-  'SYN-TEL': { name: 'Synthetic telecom carriers', chainGroup: 'Spanning layers — Logistics' },
+  // Not placed on the chain yet (brief v2 §4 asks for at least two such rows; v2.1 FX-13).
+  'SYN-AUT': { name: 'Synthetic auto parts', chainGroup: 'Not placed on the chain yet' },
+  'SYN-TEL': { name: 'Synthetic telecom carriers', chainGroup: 'Not placed on the chain yet' },
   'SYN-INS': { name: 'Synthetic life insurers', chainGroup: 'End users' },
 };
 

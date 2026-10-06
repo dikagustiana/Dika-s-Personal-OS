@@ -132,8 +132,10 @@ export function buildRunScript(
 
   /* --- 3F review: Gate 2 — SYNB clean, SYNA passes with an escalation --- */
   say({ agentId: ids.reviewLead, ticker: A, stageId: 'gate-2', type: 'task_started', summary: `Opening Gate 2 on ${A}` });
-  say({ agentId: ids.reviewLead, ticker: A, stageId: 'gate-2', type: 'gate_result', summary: `Gate 2 on ${A}: passed with an escalation`, counts: { gatesFailed: 0, checksPassed: 14, checksFailed: 0 } });
-  push(2, { engagementId, agentId: ids.reviewLead, ticker: A, stageId: 'gate-2', type: 'escalation_opened', summary: `Escalation: the ${A} decomposition fit missed 2 of 36 periods; needs your decision before Gate 3`, counts: { periodsMissed: 2 }, escalationId: `${engagementId}-esc-1` });
+  // The escalation is raised before the gate reports (v2.1 FX-13): a gate that passes with an
+  // open escalation must never read as a clean pass, not even for the seconds between the two events.
+  say({ agentId: ids.reviewLead, ticker: A, stageId: 'gate-2', type: 'escalation_opened', summary: `Escalation: the ${A} decomposition fit missed 2 of 36 periods; needs your decision before Gate 3`, counts: { periodsMissed: 2 }, escalationId: `${engagementId}-esc-1` });
+  push(2, { engagementId, agentId: ids.reviewLead, ticker: A, stageId: 'gate-2', type: 'gate_result', summary: `Gate 2 on ${A}: passed with an escalation`, counts: { gatesFailed: 0, checksPassed: 14, checksFailed: 0 } });
   say({ agentId: ids.reviewLead, ticker: B, stageId: 'gate-2', type: 'task_started', summary: `Opening Gate 2 on ${B}` });
   say({ agentId: ids.reviewLead, ticker: B, stageId: 'gate-2', type: 'gate_result', summary: `Gate 2 on ${B}: passed`, counts: { gatesFailed: 0, checksPassed: 17, checksFailed: 0 } });
 

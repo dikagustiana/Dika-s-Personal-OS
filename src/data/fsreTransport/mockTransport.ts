@@ -516,6 +516,20 @@ export class MockTransport implements FsreTransport {
       );
     }
 
+    // Between received and done, one related event from the recipient (brief v2 §4:
+    // "received after 1–2 seconds, then related events, then done"; v2.1 FX-13).
+    if (command.kind === 'instruction' || command.kind === 'question') {
+      this.scheduleAt(nowMs + (recvDelay + doneDelay) / 2, {
+        agentId: recipientId,
+        engagementId: command.engagementId,
+        ticker: null,
+        stageId: null,
+        type: 'action',
+        summary: command.kind === 'question' ? 'Looked into the owner’s question' : 'Started on the owner’s instruction',
+        commandId: command.id,
+      });
+    }
+
     this.scheduleAt(nowMs + doneDelay, {
       agentId: recipientId,
       engagementId: command.engagementId,
