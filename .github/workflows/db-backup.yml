@@ -1,0 +1,203 @@
+# Full database backup, proven by a restore.
+#
+# Takes the whole project the way Supabase documents it (`supabase db dump`:
+# roles, schema, data), restores it into a throwaway local Supabase stack on
+# the runner, and compares the row count of every table it dumped. A dump that
+# does not restore, or restores with different counts, fails the run.
+#
+# The database holds private material, so the dump leaves the runner only
+# encrypted: without BACKUP_PASSPHRASE nothing but the row counts is uploaded.
+# Files in Storage buckets are not in a database dump (their `storage.objects`
+# rows are); this backs up the database only.
+#
+# REQUIRED SECRETS (GitHub -> Settings -> Secrets and variables -> Actions):
+#   SUPABASE_DB_URL     session-pooler connection string for the project,
+#                       as the `postgres` user (Project Settings -> Database ->
+#                       Connection string -> Session pooler).
+#   BACKUP_PASSPHRASE   the dump is encrypted with `gpg --symmetric` (AES256)
+#                       before upload. Keep it in a password manager: without
+#                       it the dump cannot be read.
+#
+# Decrypt: gpg --decrypt db-<stamp>.tar.gz.gpg > db-<stamp>.tar.gz
+#
+# Restore a dump elsewhere (Supabase's documented order):
+#   psql --single-transaction -v ON_ERROR_STOP=1 -f roles.sql -f schema.sql \
+#        -c 'SET session_replication_role = replica' -f data.sql "$TARGET_URL"
+name: Full database backup
+
+on:
+  schedule:
+    - cron: '13 21 * * *' # 04:13 WIB
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+env:
+  SUPABASE_CLI_VERSION: '2.119.0'
+  PG_MAJOR: '17'
+
+jobs:
+  backup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Refuse to run without the secrets
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          missing=0
+          [ -n "$SUPABASE_DB_URL" ] || { echo "::error::SUPABASE_DB_URL is not set. No backup was taken."; missing=1; }
+          [ -n "$BACKUP_PASSPHRASE" ] || { echo "::error::BACKUP_PASSPHRASE is not set. No backup was taken."; missing=1; }
+          exit $missing
+
+      - name: Install PostgreSQL client and Supabase CLI (pinned)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -q
+          sudo apt-get install -yq postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -yq "postgresql-client-${PG_MAJOR}"
+          echo "/usr/lib/postgresql/${PG_MAJOR}/bin" >> "$GITHUB_PATH"
+          base="https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}"
+          deb="supabase_${SUPABASE_CLI_VERSION}_linux_amd64.deb"
+          curl -fsSLO "$base/$deb"
+          curl -fsSLO "$base/supabase_${SUPABASE_CLI_VERSION}_checksums.txt"
+          grep " $deb\$" "supabase_${SUPABASE_CLI_VERSION}_checksums.txt" | sha256sum -c -
+          sudo dpkg -i "$deb"
+          supabase --version
+          psql --version
+
+      - name: Count rows at the source (before the dump)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          mkdir -p dump report
+          cat > report/count.sql <<'SQL'
+          select table_schema || '.' || table_name as t,
+                 (xpath('/row/c/text()', query_to_xml(
+                   format('select count(*) as c from %I.%I', table_schema, table_name),
+                   false, true, '')))[1]::text::bigint as n
+          from information_schema.tables
+          where table_type = 'BASE TABLE'
+            and table_schema not in ('pg_catalog', 'information_schema')
+            and table_schema not like 'pg\_%'
+          order by 1;
+          SQL
+          psql "$SUPABASE_DB_URL" -X -A -t -F $'\t' -v ON_ERROR_STOP=1 -f report/count.sql > report/source-before.tsv
+          wc -l report/source-before.tsv
+
+      - name: Dump roles, schema and data
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/roles.sql --role-only
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/schema.sql
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f dump/data.sql --use-copy --data-only
+          ls -l dump
+
+      - name: Count rows at the source (after the dump)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: psql "$SUPABASE_DB_URL" -X -A -t -F $'\t' -v ON_ERROR_STOP=1 -f report/count.sql > report/source-after.tsv
+
+      - name: Start a throwaway local Supabase stack (the scratch target)
+        run: |
+          set -euo pipefail
+          mkdir scratch && cd scratch
+          supabase init --force >/dev/null
+          sed -i "s/^major_version = .*/major_version = ${PG_MAJOR}/" supabase/config.toml
+          supabase start -x studio,imgproxy,mailpit,logflare,vector,edge-runtime,realtime,postgres-meta,supavisor,kong,postgrest
+
+      - name: Restore into the scratch target
+        run: |
+          set -euo pipefail
+          SCRATCH_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+          psql "$SCRATCH_URL" -X --single-transaction -v ON_ERROR_STOP=1 \
+            -f dump/roles.sql -f dump/schema.sql \
+            -c 'SET session_replication_role = replica' -f dump/data.sql > report/restore.log 2>&1 \
+            || { tail -n 40 report/restore.log; exit 1; }
+          psql "$SCRATCH_URL" -X -A -t -F $'\t' -v ON_ERROR_STOP=1 -f report/count.sql > report/scratch.tsv
+          tail -n 5 report/restore.log
+
+      - name: Compare row counts (every table the dump carries data for)
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv, json, os, re
+          def load(p):
+              with open(p) as f:
+                  return {r[0]: int(r[1]) for r in csv.reader(f, delimiter='\t') if len(r) == 2}
+          before, after, scratch = (load(f'report/{n}.tsv') for n in ('source-before', 'source-after', 'scratch'))
+          dumped = set()
+          with open('dump/data.sql') as f:
+              for line in f:
+                  m = re.match(r'COPY "([^"]+)"\."([^"]+)"', line)
+                  if m:
+                      dumped.add(f'{m.group(1)}.{m.group(2)}')
+          rows, failed = [], 0
+          for t in sorted(dumped):
+              b, a, s = before.get(t), after.get(t), scratch.get(t)
+              if s is None or b is None:
+                  verdict = 'missing'
+              elif b == a == s:
+                  verdict = 'match'
+              elif b != a and min(b, a) <= s <= max(b, a):
+                  verdict = 'changed during dump'
+              else:
+                  verdict = 'MISMATCH'
+              failed += verdict in ('MISMATCH', 'missing')
+              rows.append({'table': t, 'source_before': b, 'source_after': a, 'scratch': s, 'verdict': verdict})
+          not_dumped = sorted(t for t in before if t not in dumped and before[t] > 0)
+          report = {'tables_dumped': len(dumped), 'failed': failed,
+                    'rows_dumped': sum(r['source_before'] or 0 for r in rows),
+                    'tables': rows, 'nonempty_tables_not_in_data_dump': not_dumped}
+          json.dump(report, open('report/compare.json', 'w'), indent=2)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write(f"### Restore check: {len(dumped)} tables, {report['rows_dumped']} rows, {failed} failed\n\n")
+              out.write('| table | source | scratch | verdict |\n|---|---:|---:|---|\n')
+              for r in rows:
+                  out.write(f"| {r['table']} | {r['source_before']} | {r['scratch']} | {r['verdict']} |\n")
+              if not_dumped:
+                  out.write('\nNon-empty tables the CLI leaves out of the data dump: ' + ', '.join(not_dumped) + '\n')
+          print(json.dumps({k: report[k] for k in ('tables_dumped', 'rows_dumped', 'failed')}))
+          raise SystemExit(1 if failed else 0)
+          PY
+
+      - name: Package the dump
+        if: always()
+        env:
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          [ -f dump/data.sql ] || { echo "no dump to package"; exit 0; }
+          stamp=$(date -u +%Y%m%dT%H%M%SZ)
+          tar -czf "db-${stamp}.tar.gz" dump report/compare.json 2>/dev/null || tar -czf "db-${stamp}.tar.gz" dump
+          sha256sum "db-${stamp}.tar.gz" > "db-${stamp}.sha256"
+          mkdir -p upload
+          if [ -n "$BACKUP_PASSPHRASE" ]; then
+            printf '%s' "$BACKUP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+              --symmetric --cipher-algo AES256 -o "upload/db-${stamp}.tar.gz.gpg" "db-${stamp}.tar.gz"
+            mv "db-${stamp}.sha256" upload/
+          else
+            echo "::error::BACKUP_PASSPHRASE not set: the dump is not uploaded."
+          fi
+          rm -f "db-${stamp}.tar.gz"
+          cp report/*.tsv report/compare.json upload/ 2>/dev/null || true
+          ls -l upload
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: upload/
+          retention-days: 90
+          if-no-files-found: warn
