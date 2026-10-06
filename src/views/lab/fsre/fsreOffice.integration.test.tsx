@@ -1,21 +1,28 @@
 // @vitest-environment jsdom
 /**
- * End-to-end tests over the real building against the mock transport, with
- * fake timers driving the mock clock. They cover brief v2 WO-6's list: the
- * synthetic run renders; the desk panel opens; a command goes Sent → Done; a
- * declined command shows its rule; a blocked engagement cannot start; the
- * industries list scrolls and filters the building; replay mode still works.
+ * INTEGRATION tests, in jsdom with fake timers — not end-to-end. They render
+ * the real building over the real mock transport, reducer and components,
+ * and drive the mock clock with fake timers; no browser lays anything out
+ * and nothing is measured. They cover brief v2 WO-6's list: the synthetic run
+ * renders; the desk panel opens; a command goes Sent → Done; a declined
+ * command shows its rule; a blocked engagement cannot start; the industries
+ * list scrolls and filters the building; replay mode still works.
  *
- * Ported from the GLM workspace (src/e2e/app.test.tsx at 5b5d186), as GLM
- * named and placed it.
+ * The same flows were run end to end in a real browser (Chromium, through
+ * Playwright, at 1400×1000 and 390×844) for the v2 port; how, and what they
+ * showed, is in docs/lab/fsre-building-v2-port.md. Playwright is not a
+ * dependency of this repository.
+ *
+ * Ported from the GLM workspace's src/e2e/app.test.tsx (5b5d186) and renamed
+ * by brief v2.1 FX-12: GLM called these "e2e".
  */
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { REAL_DATA } from '../../../../logic/lab/fsre/__fixtures__/fsreFixtures';
-import { FsreBuilding } from '../FsreBuilding';
-import { useFsreLiveStore } from '../useFsreLiveStore';
-import { useFsreOfficeStore } from '../useFsreOfficeStore';
-import { useFsreViewStore } from '../useFsreViewStore';
+import { REAL_DATA } from '../../../logic/lab/fsre/__fixtures__/fsreFixtures';
+import { FsreBuilding } from './FsreBuilding';
+import { useFsreLiveStore } from './useFsreLiveStore';
+import { useFsreOfficeStore } from './useFsreOfficeStore';
+import { useFsreViewStore } from './useFsreViewStore';
 
 async function advance(ms: number): Promise<void> {
   await act(async () => {
