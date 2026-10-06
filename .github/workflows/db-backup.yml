@@ -29,10 +29,6 @@ on:
   schedule:
     - cron: '13 21 * * *' # 04:13 WIB
   workflow_dispatch:
-  # Lets the branch prove the workflow before it reaches main (scheduled and
-  # dispatched runs only exist on the default branch). Remove after the merge.
-  push:
-    branches: ['m5/db-backup']
 
 permissions:
   contents: read
