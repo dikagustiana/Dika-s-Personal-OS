@@ -177,7 +177,8 @@ export function FsreEngagementDialog() {
   const start = () =>
     run(async () => {
       if (!transport || !plan) return;
-      await transport.startEngagement(plan.id);
+      // The card shows the engagement as it now is (Running), not the proposal it was (FX-14).
+      setPlan(await transport.startEngagement(plan.id));
       setStarted(true);
       await refreshLists();
     });
@@ -189,8 +190,17 @@ export function FsreEngagementDialog() {
       closeEngagementDialog();
     });
 
+  // Closing with ✕ or Escape withdraws a plan that was proposed and never started, as
+  // Cancel does, so stale proposals do not pile up in the partner room (FX-14).
+  const close = () => {
+    if (transport && plan && !started && (plan.status === 'proposed' || plan.status === 'blocked')) {
+      void transport.cancelEngagement(plan.id).then(() => refreshLists());
+    }
+    closeEngagementDialog();
+  };
+
   return (
-    <Modal label="New engagement" onClose={closeEngagementDialog}>
+    <Modal label="New engagement" onClose={close}>
       <label className="mt-3 block text-sm">
         <span className="text-foreground-secondary">Ticker or company name (free text)</span>
         <div className="mt-1 flex gap-2">

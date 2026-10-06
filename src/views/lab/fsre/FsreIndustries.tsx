@@ -83,7 +83,7 @@ function Row({ row, onOpen, onNewEngagement, engagementId }: { row: IndustryProg
           ) : null}
         </div>
         <div className="text-xs text-foreground-secondary">
-          {row.subIndustryCode} · {formatCount(row.companies.length, 'company')} of {formatNumber(row.targetCompanies)}
+          {row.subIndustryCode} · {formatCount(row.companies.length, 'company', 'companies')} of {formatNumber(row.targetCompanies)}
         </div>
       </td>
       <td className="px-4 py-3">

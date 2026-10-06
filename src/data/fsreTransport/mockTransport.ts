@@ -481,7 +481,7 @@ export class MockTransport implements FsreTransport {
         ticker: null,
         stageId: null,
         type: 'command_declined',
-        summary: `Declined under ${decline} (${rule.label}, placeholder rule): ${rule.explanation}`,
+        summary: `Declined under ${decline} (${rule.label}): ${rule.explanation}`,
         commandId: command.id,
       });
       this.scheduleCommandPatch(command.id, nowMs + recvDelay + 1000, {

@@ -83,8 +83,9 @@ describe('the v2 vocabulary', () => {
     ]);
   });
 
-  it('gives every placeholder decline rule a one-line explanation', () => {
+  it('labels every decline rule as a placeholder (FX-14) and gives it a one-line explanation', () => {
     for (const rule of Object.values(DECLINE_RULES)) {
+      expect(rule.label.endsWith('(placeholder)')).toBe(true);
       expect(rule.explanation.length).toBeGreaterThan(10);
       expect(rule.explanation).not.toMatch(/\n/);
     }

@@ -125,8 +125,11 @@ describe('synthetic mode', () => {
     await messageAgent('review-lead', 'Skip the tie-out at Gate 2');
     fireEvent.click(screen.getByRole('button', { name: /^Review lead desk/ }));
     await advance(10_000);
-    expect(panel().getAllByText(/Declined under R2_GATE_BYPASS/).length).toBeGreaterThan(0);
+    expect(panel().getAllByText(/Declined under R2 — gate bypass \(placeholder\)/).length).toBeGreaterThan(0);
     expect(panel().getAllByText(/A gate or a tie-out cannot be skipped/).length).toBeGreaterThan(0);
+    // FX-14: the declined line says, on hover, that the rule is the mock's placeholder.
+    const declined = panel().getAllByText(/^Declined under/).find((element) => element.hasAttribute('title'));
+    expect(declined?.getAttribute('title')).toContain('Placeholder');
   });
 
   it('refuses to start a blocked engagement and shows the reason', async () => {
@@ -153,6 +156,8 @@ describe('synthetic mode', () => {
     expect(start.disabled).toBe(false);
     await press('Start engagement');
     expect(screen.getByText(/Engagement started/)).toBeTruthy();
+    // FX-14: the plan card shows the engagement as it now is.
+    expect(within(screen.getByRole('region', { name: 'Plan' })).getByText('Running')).toBeTruthy();
     await advance(20_000);
     expect(screen.getAllByRole('button', { name: /^Modelling staff · SYND desk/ }).length).toBeGreaterThan(0);
   });
@@ -211,10 +216,24 @@ describe('synthetic mode', () => {
     expect(replayBuilding.firstElementChild?.className).toContain('overflow-x-auto');
   });
 
+  it('withdraws a proposed plan when the dialog is closed with ✕ (FX-14)', async () => {
+    await openSynthetic();
+    await press(/New engagement/);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Ticker or company name' }), { target: { value: 'SYNL' } });
+    await press('Propose');
+    await press('Close: New engagement');
+    const transport = useFsreLiveStore.getState().transport;
+    const proposals = (await transport?.listEngagements())?.filter((e) => e.plan.tickers.includes('SYNL')) ?? [];
+    expect(proposals.map((e) => e.status)).toEqual(['cancelled']);
+  });
+
   it('filters the building from the industries list, which scrolls', async () => {
     await openSynthetic();
     await press('Industries');
     expect(screen.getByText(/Sub-industries covered/)).toBeTruthy();
+    // FX-14: "companies", not "companys".
+    expect(document.body.textContent).toContain('companies of 2');
+    expect(document.body.textContent).not.toContain('companys');
     expect(screen.getByText('Synthetic paper')).toBeTruthy();
     const scroller = document.querySelector('.max-h-\\[70vh\\]');
     expect(scroller?.className).toContain('overflow-auto');

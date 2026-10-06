@@ -299,18 +299,21 @@ export type DeclinedRule = 'R1_HOLDOUT' | 'R2_GATE_BYPASS' | 'R3_APPROVAL';
  */
 export const DECLINE_RULES: Record<DeclinedRule, { label: string; explanation: string }> = {
   R1_HOLDOUT: {
-    label: 'R1 — holdout',
+    label: 'R1 — holdout (placeholder)',
     explanation: 'The holdout stays sealed, so the model is never checked against the answer it must not see.',
   },
   R2_GATE_BYPASS: {
-    label: 'R2 — gate bypass',
+    label: 'R2 — gate bypass (placeholder)',
     explanation: 'A gate or a tie-out cannot be skipped; fix the finding instead.',
   },
   R3_APPROVAL: {
-    label: 'R3 — approval',
+    label: 'R3 — approval (placeholder)',
     explanation: 'Only the owner approves or publishes; agents cannot be asked to do it.',
   },
 };
+
+/** The tooltip on every declined command: the rules above are the mock's, not the backend's. */
+export const PLACEHOLDER_RULE_NOTE = 'Placeholder rule (mock only); real enforcement lives in the backend later';
 
 /** Minutes without an event before an open task reads as "No signal". */
 export const NO_SIGNAL_AFTER_MIN = 5;

@@ -16,7 +16,7 @@ import type { Agent, Command } from '../../../data/fsreTransport/contract';
 import { formatDateLong, formatHHMM } from '../../../logic/lab/fsre/format';
 import { COMMAND_STATUS_GLYPHS, COMMAND_STATUS_TONES } from '../../../logic/lab/fsre/glyphs';
 import { leadOfAgent } from '../../../logic/lab/fsre/liveView';
-import { COMMAND_KINDS, COMMAND_KIND_WORDS, COMMAND_STATUS_WORDS, workpaperNoteText, type CommandKindV, type CommandStatusV } from '../../../logic/lab/fsre/statuses';
+import { COMMAND_KINDS, COMMAND_KIND_WORDS, COMMAND_STATUS_WORDS, DECLINE_RULES, PLACEHOLDER_RULE_NOTE, workpaperNoteText, type CommandKindV, type CommandStatusV } from '../../../logic/lab/fsre/statuses';
 import { Button } from '../../../components/ui/Button';
 import { cn } from '../../../lib/utils';
 import { Glyph, Quiet } from './fsreUi';
@@ -152,8 +152,8 @@ export function FsreCommandThread({ commands }: { commands: readonly Command[] }
               )}
             </ol>
             {command.status === 'declined' && command.declinedRule ? (
-              <p className="fsre-tone mt-1.5 text-xs" data-tone="escalated">
-                Declined under {command.declinedRule} (placeholder rule): {command.response}
+              <p className="fsre-tone mt-1.5 text-xs" data-tone="escalated" title={PLACEHOLDER_RULE_NOTE}>
+                Declined under {DECLINE_RULES[command.declinedRule].label}: {command.response}
               </p>
             ) : null}
             {command.status === 'done' && command.response ? <p className="mt-1.5 text-xs text-foreground">{command.response}</p> : null}
