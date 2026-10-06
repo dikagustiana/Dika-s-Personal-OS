@@ -59,10 +59,15 @@ describe('the bundled replay (src/data/fsre/, the real export of brief 04)', () 
   });
 });
 
-describe('the live source, before milestone M5', () => {
+describe('the live source without a backend', () => {
   it('is typed, selectable and answers "not connected" — never an empty run', async () => {
     expect(liveSource).toMatchObject({ id: 'live', kind: 'live', availability: 'not-connected' });
-    expect(liveSource.subscribe).toBeUndefined();
+    // nothing loaded, nothing to follow: subscribing polls nothing and delivers nothing
+    const stop = liveSource.subscribe?.(tenCompanyRun(), () => {
+      throw new Error('a source without a feed delivered events');
+    });
+    expect(typeof stop).toBe('function');
+    stop?.();
     const result = await liveSource.load();
     expect(result).toMatchObject({ ok: false, reason: 'not-connected' });
     expect(!result.ok && result.detail).toContain('5 to 10 seconds');
