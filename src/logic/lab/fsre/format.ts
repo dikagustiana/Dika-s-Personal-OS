@@ -67,3 +67,29 @@ export function formatFigure(figure: FsreFigure): string {
   const of = figureOf(figure);
   return of === null ? formatNumber(figureValue(figure)) : formatOf(figureValue(figure), of);
 }
+
+/* ---------- times and dates (v2): the house forms ---------- */
+
+/** Two digits, zero-padded: the hour and minute halves of HH.MM. */
+function twoDigits(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/** Shown in place of a time that does not parse. */
+export const NOT_A_TIME = '--.--';
+
+/** Local "HH.MM" of an ISO time: the house time format (brief v2 §2). */
+export function formatHHMM(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return NOT_A_TIME;
+  return `${twoDigits(d.getHours())}.${twoDigits(d.getMinutes())}`;
+}
+
+const MONTH_ABBREVIATIONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+/** Local house date form, e.g. "6 Oct 2026" (the workpaper note's date). */
+export function formatDateLong(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getDate()} ${MONTH_ABBREVIATIONS[d.getMonth()]} ${d.getFullYear()}`;
+}
