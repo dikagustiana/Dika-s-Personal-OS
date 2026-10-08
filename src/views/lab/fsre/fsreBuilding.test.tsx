@@ -126,12 +126,12 @@ describe('v2: the replay on the department floors (brief v2 WO-2)', () => {
     expect(document.querySelector('[data-floor="f3"]')?.textContent).toMatch(/2 unstaffed/);
   });
 
-  it('offers Replay and Synthetic, and shows Live disabled as not wired yet', async () => {
+  it('offers Replay and Synthetic, and shows Live office disabled, waiting for the v2 transport', async () => {
     await open();
     const modes = within(screen.getByRole('group', { name: 'Mode' }));
     expect(modes.getByRole('button', { name: 'Replay' }).getAttribute('aria-pressed')).toBe('true');
     expect(modes.getByRole('button', { name: /Live/ }).hasAttribute('disabled')).toBe(true);
-    expect(modes.getByRole('button', { name: /Live/ }).textContent).toContain('Not wired yet');
+    expect(modes.getByRole('button', { name: /Live office/ }).textContent).toContain('Waits for the v2 transport');
   });
 });
 
