@@ -8,13 +8,15 @@
  * escalation's reason, never only the latest (the source kept one). In a
  * replay the buttons are disabled; decisions arrive as events. In a live run
  * with a backend, a staged package gets the owner's approve button
- * (PublishControl), and the approval still reaches the building only as the
- * pipeline's own `approved` event.
+ * (PublishControl): check, then the package itself on screen, then approve;
+ * and the approval still reaches the building only as the pipeline's own
+ * `approved` event.
  */
 import { useEffect, useState } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { useMutation } from '../../../hooks/useMutation';
-import type { FsreApproval, FsreApprovalAnswer } from '../../../logic/lab/fsre/eventSource';
+import type { FsreApproval, FsreApprovalAnswer, FsrePreviewResult } from '../../../logic/lab/fsre/eventSource';
+import { PRODUCTION_PROVENANCE, provenanceOf, shortHash } from '../../../logic/lab/fsre/packagePreview';
 import { Card } from '../../../components/ui/Card';
 import type { FsreEvent } from '../../../logic/lab/fsre/events';
 import { formatFigure } from '../../../logic/lab/fsre/format';
@@ -63,6 +65,7 @@ import {
   type AgentStatus,
 } from '../../../logic/lab/fsre/statuses';
 import { countText, deskLabel, eventSources, gateHistoryText, hasMany, recentLines, stageName } from '../../../logic/lab/fsre/viewModel';
+import { FsrePackagePreview } from './FsrePackagePreview';
 import { FigureRow, LinkRow, PanelSection, Quiet, StatusBadge } from './fsreUi';
 
 interface FsrePanelProps {
@@ -290,18 +293,30 @@ function PartnerPanel({ ctx, state, onSelect, approval }: { ctx: FsreContext; st
 }
 
 /**
- * The owner's approve button for one staged package. The database decides:
- * `check` runs when the package appears and whenever the building's lock
- * changes, and the button is enabled only when the database says yes AND the
- * building shows no open escalation. Approving takes two clicks, the second
- * naming the version, because an approved model goes to the site. A refusal
- * is shown as the database's reasons; a failed call raises the retryable
- * toast (useMutation) and changes nothing on screen.
+ * The owner's approve button for one staged package, in three steps the
+ * database holds the rules of (PRD "FSRE publish path" §6.2 D):
+ *
+ *   check    runs when the package appears and whenever the building's lock
+ *            changes; the reasons are written out when it says not yet.
+ *   preview  the owner reads the package the button publishes (sheets,
+ *            sources, tie-outs, gates), loaded on request, never before the
+ *            check. A failed read is a sentence, not a toast.
+ *   approve  enabled only when the check said yes, the building shows no
+ *            open escalation, AND the preview of this same version is on
+ *            screen; two clicks, the second naming the version, because an
+ *            approved model goes to the site. The content hash of what is
+ *            approved stands beside the button.
+ *
+ * A package whose provenance is not `filings` is approved all the same if
+ * the database allows it (the client never decides), but the panel says it
+ * will not appear on the production site, which refuses it (PRD §6.3 A).
  */
 function PublishControl({ approval, state, company, version }: { approval: FsreApproval; state: FsreState; company: CompanyState; version: string }) {
   const locked = approvalLock(state, company.ticker).locked;
   /** null while the check runs. */
   const [answer, setAnswer] = useState<FsreApprovalAnswer | null>(null);
+  /** The package read: nothing yet, loading, or the function's result for a version. */
+  const [preview, setPreview] = useState<{ version: string; result: FsrePreviewResult } | 'loading' | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [sent, setSent] = useState(false);
   const { run, isPending } = useMutation();
@@ -323,7 +338,16 @@ function PublishControl({ approval, state, company, version }: { approval: FsreA
     };
   }, [approval, company.ticker, version, locked]);
 
-  const ready = answer !== null && answer.ok && !locked;
+  const loaded = preview !== null && preview !== 'loading' && preview.version === version && preview.result.ok ? preview.result.preview : null;
+  const previewFailure = preview !== null && preview !== 'loading' && preview.version === version && !preview.result.ok ? preview.result : null;
+  const provenance = loaded ? provenanceOf(loaded.package) : null;
+  const ready = answer !== null && answer.ok && !locked && loaded !== null;
+
+  const read = async () => {
+    setPreview('loading');
+    const result = await approval.preview(company.ticker, version);
+    setPreview({ version, result });
+  };
   const approve = async () => {
     const result = await run(`Approve ${version}`, () => approval.approve(company.ticker, version));
     setConfirming(false);
@@ -337,24 +361,6 @@ function PublishControl({ approval, state, company, version }: { approval: FsreA
       <p className="text-sm text-foreground">
         Package <span className="font-medium">{version}</span> is staged for your approval.
       </p>
-      {sent ? (
-        <p role="status" className="mt-1.5 text-sm text-foreground">
-          Approved by you. The building shows it when the pipeline&apos;s own event arrives.
-        </p>
-      ) : confirming ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Button className="h-11" disabled={!ready || isPending} onClick={() => void approve()}>
-            Yes, approve {version} for publication
-          </Button>
-          <Button variant="ghost" className="h-11" disabled={isPending} onClick={() => setConfirming(false)}>
-            Cancel
-          </Button>
-        </div>
-      ) : (
-        <Button variant="secondary" className="mt-2 h-11 w-full" disabled={!ready} onClick={() => setConfirming(true)}>
-          Approve {version} for publication
-        </Button>
-      )}
       {answer === null && !sent ? (
         <p role="status" className="mt-1.5 text-xs text-foreground-muted">
           Asking the approval function whether {version} can be approved…
@@ -370,6 +376,67 @@ function PublishControl({ approval, state, company, version }: { approval: FsreA
           </ul>
         </div>
       ) : null}
+
+      {sent ? null : (
+        <div className="mt-2">
+          <Button variant="secondary" className="h-11 w-full" disabled={preview === 'loading'} onClick={() => void read()} data-read-package="">
+            {loaded ? `Read ${version} again` : `Read package ${version}`}
+          </Button>
+          {preview === 'loading' ? (
+            <p role="status" className="mt-1.5 text-xs text-foreground-muted">
+              Reading {version} from the database…
+            </p>
+          ) : null}
+          {previewFailure ? (
+            <div role="status" className="mt-1.5 text-sm text-foreground" data-preview-failure={previewFailure.reason}>
+              <p>{previewFailure.detail}</p>
+              {previewFailure.reasons.length ? (
+                <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                  {previewFailure.reasons.map((reason) => (
+                    <li key={reason}>{reason}</li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
+          {loaded && provenance !== PRODUCTION_PROVENANCE ? (
+            <p role="note" className="fsre-tone mt-2 rounded-sm border border-escalate/40 bg-escalate/5 p-2 text-sm" data-tone="escalated" data-provenance-warning={provenance ?? 'unknown'}>
+              {LOCK_GLYPH} This package is not from filings (its provenance is {provenance ?? 'unknown'}), so it will not appear on the production site even once approved.
+            </p>
+          ) : null}
+          {loaded ? <FsrePackagePreview preview={loaded} /> : null}
+        </div>
+      )}
+
+      {sent ? (
+        <p role="status" className="mt-1.5 text-sm text-foreground">
+          Approved by you. The building shows it when the pipeline&apos;s own event arrives.
+        </p>
+      ) : confirming ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button className="h-11" disabled={!ready || isPending} onClick={() => void approve()}>
+            Yes, approve {version} for publication
+          </Button>
+          <Button variant="ghost" className="h-11" disabled={isPending} onClick={() => setConfirming(false)}>
+            Cancel
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-2">
+          <Button variant="secondary" className="h-11 w-full" disabled={!ready} onClick={() => setConfirming(true)}>
+            Approve {version} for publication
+          </Button>
+          <p className="mt-1 text-xs text-foreground-muted" data-approve-hash={loaded?.contentHash ?? ''}>
+            {loaded ? (
+              <>
+                Approves content hash <span className="font-mono" title={loaded.contentHash}>{shortHash(loaded.contentHash)}…</span>
+              </>
+            ) : (
+              'Read the package first: approval names the content hash on screen.'
+            )}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
