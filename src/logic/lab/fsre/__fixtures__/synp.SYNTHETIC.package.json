@@ -1,0 +1,1263 @@
+{
+ "meta": {
+  "ticker": "SYNP",
+  "name": "Synthetic Process Co (SYNTHETIC)",
+  "subIndustry": "SYN-CEM",
+  "chainStage": "stage-processing",
+  "pair": [],
+  "version": "SYNP-FY25-r1-SYNTHETIC",
+  "contentHash": "91deb2b0705eea170a15700330f293c919753cc25a7985c47d7a3b4838622b55",
+  "asOf": {
+   "latestQuarter": "FY25",
+   "fullStatementsTo": "FY25"
+  },
+  "provenance": "synthetic",
+  "status": "published",
+  "depth": "foundation",
+  "conditionIds": [
+   1
+  ],
+  "skillVersions": {
+   "financial-modeling": "0.3.1"
+  }
+ },
+ "periods": [
+  {
+   "id": "FY24",
+   "label": "FY 24",
+   "kind": "fy",
+   "forecast": false
+  },
+  {
+   "id": "FY25",
+   "label": "FY 25",
+   "kind": "fy",
+   "forecast": false
+  }
+ ],
+ "sheets": [
+  {
+   "id": "reported",
+   "rows": [
+    {
+     "id": "rep_revenue",
+     "label": "Revenue",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 8100000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:SalesAndRevenue",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      },
+      {
+       "value": 9000000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:SalesAndRevenue",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      }
+     ]
+    },
+    {
+     "id": "rep_raw_materials",
+     "label": "Raw materials used",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 1215000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:RawInventoryUsed",
+        "page": 93,
+        "note": "24",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 1350000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:RawInventoryUsed",
+        "page": 93,
+        "note": "24",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_direct_labour",
+     "label": "Direct labour",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 405000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:WagesAndDirectLabor",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 450000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:WagesAndDirectLabor",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_fuel_and_power",
+     "label": "Fuel and power",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 2268000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:FuelExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 2520000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:FuelExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_manufacturing_overhead",
+     "label": "Manufacturing overhead",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 972000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:OtherManufacturingOverhead",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 1080000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:OtherManufacturingOverhead",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_cost_of_revenue_other_total",
+     "label": "Cost of revenue",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 5670000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:CostOfSalesAndRevenue",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 6300000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:CostOfSalesAndRevenue",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_other_overhead",
+     "label": "Other overhead in cost of revenue",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 486000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:Overhead",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 540000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:Overhead",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_gross_profit",
+     "label": "Gross profit",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 2430000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:GrossProfit",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      },
+      {
+       "value": 2700000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:GrossProfit",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      }
+     ]
+    },
+    {
+     "id": "rep_selling",
+     "label": "Selling and distribution",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 648000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:SellingExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 720000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:SellingExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_general_admin",
+     "label": "General and administrative",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 405000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:GeneralAndAdministrativeExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      },
+      {
+       "value": 450000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:GeneralAndAdministrativeExpenses",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       },
+       "note": "A cost, shown as the positive amount the note presents"
+      }
+     ]
+    },
+    {
+     "id": "rep_operating_profit",
+     "label": "Operating profit (before other income and expenses)",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 1377000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 24",
+        "xbrlConcept": "idx-cor:ProfitLossFromOperatingActivities",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      },
+      {
+       "value": 1530000.0,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC audited financial statements",
+        "period": "FY 25",
+        "xbrlConcept": "idx-cor:ProfitLossFromOperatingActivities",
+        "docSha256": "0000000000000000000000000000000000000000000000000000000000000001"
+       }
+      }
+     ]
+    },
+    {
+     "id": "dp_sales_volume",
+     "label": "Sales volume",
+     "unit": "kt",
+     "cells": [
+      {
+       "value": 9000,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2024",
+        "period": "FY 24",
+        "page": 56,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      },
+      {
+       "value": 10000,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2025",
+        "period": "FY 25",
+        "page": 56,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      }
+     ]
+    },
+    {
+     "id": "dp_production_volume",
+     "label": "Production volume",
+     "unit": "kt",
+     "cells": [
+      {
+       "value": 9600,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2024",
+        "period": "FY 24",
+        "page": 55,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      },
+      {
+       "value": 10200,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2025",
+        "period": "FY 25",
+        "page": 55,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      }
+     ]
+    },
+    {
+     "id": "dp_energy_use",
+     "label": "Energy consumption",
+     "unit": "GJ",
+     "cells": [
+      {
+       "value": 28800000,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2024",
+        "period": "FY 24",
+        "page": 90,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      },
+      {
+       "value": 30000000,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2025",
+        "period": "FY 25",
+        "page": 90,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      }
+     ]
+    },
+    {
+     "id": "dp_capacity",
+     "label": "Installed capacity",
+     "unit": "Mt",
+     "cells": [
+      {
+       "value": 15,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2024",
+        "period": "FY 24",
+        "page": 54,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      },
+      {
+       "value": 15,
+       "kind": "sourced",
+       "source": {
+        "issuer": "Synthetic Process Co (SYNTHETIC)",
+        "document": "SYNTHETIC annual report 2025",
+        "period": "FY 25",
+        "page": 54,
+        "docSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       },
+       "note": "SYNTHETIC"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "model",
+   "rows": [
+    {
+     "id": "sales_volume",
+     "label": "Sales volume",
+     "unit": "kt",
+     "cells": [
+      {
+       "value": 9000.0,
+       "kind": "formula",
+       "formula": "=reported!C13",
+       "note": "Route R-SVOL-DISC: disclosed sales volume"
+      },
+      {
+       "value": 10000.0,
+       "kind": "formula",
+       "formula": "=reported!D13",
+       "note": "Route R-SVOL-DISC: disclosed sales volume"
+      }
+     ]
+    },
+    {
+     "id": "revenue",
+     "label": "Revenue",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 8100000.0,
+       "kind": "formula",
+       "formula": "=reported!C2"
+      },
+      {
+       "value": 9000000.0,
+       "kind": "formula",
+       "formula": "=reported!D2"
+      }
+     ]
+    },
+    {
+     "id": "raw_materials",
+     "label": "Raw materials used",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 1215000.0,
+       "kind": "formula",
+       "formula": "=reported!C3"
+      },
+      {
+       "value": 1350000.0,
+       "kind": "formula",
+       "formula": "=reported!D3"
+      }
+     ]
+    },
+    {
+     "id": "direct_labour",
+     "label": "Direct labour",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 405000.0,
+       "kind": "formula",
+       "formula": "=reported!C4"
+      },
+      {
+       "value": 450000.0,
+       "kind": "formula",
+       "formula": "=reported!D4"
+      }
+     ]
+    },
+    {
+     "id": "fuel_and_power",
+     "label": "Fuel and power",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 2268000.0,
+       "kind": "formula",
+       "formula": "=reported!C5"
+      },
+      {
+       "value": 2520000.0,
+       "kind": "formula",
+       "formula": "=reported!D5"
+      }
+     ]
+    },
+    {
+     "id": "manufacturing_overhead",
+     "label": "Manufacturing overhead",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 972000.0,
+       "kind": "formula",
+       "formula": "=reported!C6"
+      },
+      {
+       "value": 1080000.0,
+       "kind": "formula",
+       "formula": "=reported!D6"
+      }
+     ]
+    },
+    {
+     "id": "cost_of_revenue_other",
+     "label": "Inventory changes, purchases and other",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 324000.0,
+       "kind": "formula",
+       "formula": "=reported!C7-reported!C3-reported!C4-reported!C5-reported!C6-reported!C8"
+      },
+      {
+       "value": 360000.0,
+       "kind": "formula",
+       "formula": "=reported!D7-reported!D3-reported!D4-reported!D5-reported!D6-reported!D8"
+      }
+     ]
+    },
+    {
+     "id": "other_overhead",
+     "label": "Other overhead in cost of revenue",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 486000.0,
+       "kind": "formula",
+       "formula": "=reported!C8"
+      },
+      {
+       "value": 540000.0,
+       "kind": "formula",
+       "formula": "=reported!D8"
+      }
+     ]
+    },
+    {
+     "id": "gross_profit",
+     "label": "Gross profit",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 2430000.0,
+       "kind": "formula",
+       "formula": "=model!C3-model!C4-model!C5-model!C6-model!C7-model!C8-model!C9",
+       "tieOut": {
+        "externalValue": 2430000.0,
+        "sourceText": "Gross profit, as reported",
+        "difference": 0.0,
+        "status": "agrees"
+       }
+      },
+      {
+       "value": 2700000.0,
+       "kind": "formula",
+       "formula": "=model!D3-model!D4-model!D5-model!D6-model!D7-model!D8-model!D9",
+       "tieOut": {
+        "externalValue": 2700000.0,
+        "sourceText": "Gross profit, as reported",
+        "difference": 0.0,
+        "status": "agrees"
+       }
+      }
+     ],
+     "style": "total"
+    },
+    {
+     "id": "selling",
+     "label": "Selling and distribution",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 648000.0,
+       "kind": "formula",
+       "formula": "=reported!C10"
+      },
+      {
+       "value": 720000.0,
+       "kind": "formula",
+       "formula": "=reported!D10"
+      }
+     ]
+    },
+    {
+     "id": "general_admin",
+     "label": "General and administrative",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 405000.0,
+       "kind": "formula",
+       "formula": "=reported!C11"
+      },
+      {
+       "value": 450000.0,
+       "kind": "formula",
+       "formula": "=reported!D11"
+      }
+     ]
+    },
+    {
+     "id": "operating_profit",
+     "label": "Operating profit (before other income and expenses)",
+     "unit": "Rp million",
+     "cells": [
+      {
+       "value": 1377000.0,
+       "kind": "formula",
+       "formula": "=model!C3-model!C4-model!C5-model!C6-model!C7-model!C8-model!C9-model!C11-model!C12",
+       "tieOut": {
+        "externalValue": 1377000.0,
+        "sourceText": "Operating profit, as reported",
+        "difference": 0.0,
+        "status": "agrees"
+       }
+      },
+      {
+       "value": 1530000.0,
+       "kind": "formula",
+       "formula": "=model!D3-model!D4-model!D5-model!D6-model!D7-model!D8-model!D9-model!D11-model!D12",
+       "tieOut": {
+        "externalValue": 1530000.0,
+        "sourceText": "Operating profit, as reported",
+        "difference": 0.0,
+        "status": "agrees"
+       }
+      }
+     ],
+     "style": "total"
+    },
+    {
+     "id": "realised_price",
+     "label": "Realised price",
+     "unit": "Rp thousand per tonne",
+     "cells": [
+      {
+       "value": 900.0,
+       "kind": "formula",
+       "formula": "=model!C3/model!C2",
+       "note": "Route R-PRICE-VOL: revenue / sales volume"
+      },
+      {
+       "value": 900.0,
+       "kind": "formula",
+       "formula": "=model!D3/model!D2",
+       "note": "Route R-PRICE-VOL: revenue / sales volume"
+      }
+     ]
+    },
+    {
+     "id": "production_volume",
+     "label": "Production volume",
+     "unit": "kt",
+     "cells": [
+      {
+       "value": 9600.0,
+       "kind": "formula",
+       "formula": "=reported!C14",
+       "note": "Route R-PROD-DISC: disclosed production volume"
+      },
+      {
+       "value": 10200.0,
+       "kind": "formula",
+       "formula": "=reported!D14",
+       "note": "Route R-PROD-DISC: disclosed production volume"
+      }
+     ]
+    },
+    {
+     "id": "material_cost_per_unit",
+     "label": "Material cost per unit produced",
+     "unit": "Rp thousand per tonne",
+     "cells": [
+      {
+       "value": 126.5625,
+       "kind": "formula",
+       "formula": "=model!C4/model!C15",
+       "note": "Route R-MAT: raw materials used / production"
+      },
+      {
+       "value": 132.35294117647058,
+       "kind": "formula",
+       "formula": "=model!D4/model!D15",
+       "note": "Route R-MAT: raw materials used / production"
+      }
+     ]
+    },
+    {
+     "id": "energy_cost_per_unit",
+     "label": "Energy cost per unit produced",
+     "unit": "Rp thousand per tonne",
+     "cells": [
+      {
+       "value": 236.25,
+       "kind": "formula",
+       "formula": "=model!C6/model!C15",
+       "note": "Route R-ENCOST: energy cost / production"
+      },
+      {
+       "value": 247.05882352941177,
+       "kind": "formula",
+       "formula": "=model!D6/model!D15",
+       "note": "Route R-ENCOST: energy cost / production"
+      }
+     ]
+    },
+    {
+     "id": "energy_intensity",
+     "label": "Energy per unit produced",
+     "unit": "GJ per tonne",
+     "cells": [
+      {
+       "value": 3.0,
+       "kind": "formula",
+       "formula": "=(reported!C15/model!C15)*0.001",
+       "note": "Route R-EI-DISC: energy use / production"
+      },
+      {
+       "value": 2.941176470588235,
+       "kind": "formula",
+       "formula": "=(reported!D15/model!D15)*0.001",
+       "note": "Route R-EI-DISC: energy use / production"
+      }
+     ]
+    },
+    {
+     "id": "capacity",
+     "label": "Installed capacity",
+     "unit": "Mt",
+     "cells": [
+      {
+       "value": 15.0,
+       "kind": "formula",
+       "formula": "=reported!C16",
+       "note": "Route R-CAP-DISC: disclosed installed capacity"
+      },
+      {
+       "value": 15.0,
+       "kind": "formula",
+       "formula": "=reported!D16",
+       "note": "Route R-CAP-DISC: disclosed installed capacity"
+      }
+     ]
+    },
+    {
+     "id": "days",
+     "label": "Days in the period",
+     "unit": "days",
+     "cells": [
+      {
+       "value": 366.0,
+       "kind": "formula",
+       "formula": "=366"
+      },
+      {
+       "value": 365.0,
+       "kind": "formula",
+       "formula": "=365"
+      }
+     ]
+    },
+    {
+     "id": "utilisation",
+     "label": "Utilisation",
+     "unit": "fraction",
+     "cells": [
+      {
+       "value": 0.6382513661202186,
+       "kind": "formula",
+       "formula": "=(model!C15/(model!C19*model!C20/365))*0.001",
+       "note": "Route R-UTIL: production / capacity (annualised)"
+      },
+      {
+       "value": 0.68,
+       "kind": "formula",
+       "formula": "=(model!D15/(model!D19*model!D20/365))*0.001",
+       "note": "Route R-UTIL: production / capacity (annualised)"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "assumptions",
+   "rows": []
+  }
+ ],
+ "driverTree": {
+  "nodes": [
+   {
+    "id": "sales_volume",
+    "label": "Sales volume",
+    "rowRef": "model!sales_volume"
+   },
+   {
+    "id": "revenue",
+    "label": "Revenue",
+    "rowRef": "model!revenue"
+   },
+   {
+    "id": "raw_materials",
+    "label": "Raw materials used",
+    "rowRef": "model!raw_materials"
+   },
+   {
+    "id": "direct_labour",
+    "label": "Direct labour",
+    "rowRef": "model!direct_labour"
+   },
+   {
+    "id": "fuel_and_power",
+    "label": "Fuel and power",
+    "rowRef": "model!fuel_and_power"
+   },
+   {
+    "id": "manufacturing_overhead",
+    "label": "Manufacturing overhead",
+    "rowRef": "model!manufacturing_overhead"
+   },
+   {
+    "id": "cost_of_revenue_other",
+    "label": "Inventory changes, purchases and other",
+    "rowRef": "model!cost_of_revenue_other"
+   },
+   {
+    "id": "other_overhead",
+    "label": "Other overhead in cost of revenue",
+    "rowRef": "model!other_overhead"
+   },
+   {
+    "id": "gross_profit",
+    "label": "Gross profit",
+    "rowRef": "model!gross_profit"
+   },
+   {
+    "id": "selling",
+    "label": "Selling and distribution",
+    "rowRef": "model!selling"
+   },
+   {
+    "id": "general_admin",
+    "label": "General and administrative",
+    "rowRef": "model!general_admin"
+   },
+   {
+    "id": "operating_profit",
+    "label": "Operating profit (before other income and expenses)",
+    "rowRef": "model!operating_profit"
+   },
+   {
+    "id": "realised_price",
+    "label": "Realised price",
+    "rowRef": "model!realised_price"
+   },
+   {
+    "id": "material_cost_per_unit",
+    "label": "Material cost per unit produced",
+    "rowRef": "model!material_cost_per_unit"
+   },
+   {
+    "id": "production_volume",
+    "label": "Production volume",
+    "rowRef": "model!production_volume"
+   },
+   {
+    "id": "energy_cost_per_unit",
+    "label": "Energy cost per unit produced",
+    "rowRef": "model!energy_cost_per_unit"
+   },
+   {
+    "id": "energy_intensity",
+    "label": "Energy per unit produced",
+    "rowRef": "model!energy_intensity"
+   },
+   {
+    "id": "utilisation",
+    "label": "Utilisation",
+    "rowRef": "model!utilisation"
+   },
+   {
+    "id": "capacity",
+    "label": "Installed capacity",
+    "rowRef": "model!capacity"
+   }
+  ],
+  "edges": [
+   {
+    "from": "capacity",
+    "to": "utilisation"
+   },
+   {
+    "from": "cost_of_revenue_other",
+    "to": "gross_profit"
+   },
+   {
+    "from": "cost_of_revenue_other",
+    "to": "operating_profit"
+   },
+   {
+    "from": "direct_labour",
+    "to": "gross_profit"
+   },
+   {
+    "from": "direct_labour",
+    "to": "operating_profit"
+   },
+   {
+    "from": "fuel_and_power",
+    "to": "energy_cost_per_unit"
+   },
+   {
+    "from": "fuel_and_power",
+    "to": "gross_profit"
+   },
+   {
+    "from": "fuel_and_power",
+    "to": "operating_profit"
+   },
+   {
+    "from": "general_admin",
+    "to": "operating_profit"
+   },
+   {
+    "from": "manufacturing_overhead",
+    "to": "gross_profit"
+   },
+   {
+    "from": "manufacturing_overhead",
+    "to": "operating_profit"
+   },
+   {
+    "from": "other_overhead",
+    "to": "gross_profit"
+   },
+   {
+    "from": "other_overhead",
+    "to": "operating_profit"
+   },
+   {
+    "from": "production_volume",
+    "to": "energy_cost_per_unit"
+   },
+   {
+    "from": "production_volume",
+    "to": "energy_intensity"
+   },
+   {
+    "from": "production_volume",
+    "to": "material_cost_per_unit"
+   },
+   {
+    "from": "production_volume",
+    "to": "utilisation"
+   },
+   {
+    "from": "raw_materials",
+    "to": "gross_profit"
+   },
+   {
+    "from": "raw_materials",
+    "to": "material_cost_per_unit"
+   },
+   {
+    "from": "raw_materials",
+    "to": "operating_profit"
+   },
+   {
+    "from": "revenue",
+    "to": "gross_profit"
+   },
+   {
+    "from": "revenue",
+    "to": "operating_profit"
+   },
+   {
+    "from": "revenue",
+    "to": "realised_price"
+   },
+   {
+    "from": "sales_volume",
+    "to": "realised_price"
+   },
+   {
+    "from": "selling",
+    "to": "operating_profit"
+   }
+  ]
+ },
+ "unitEconomics": {
+  "unit": "tonne",
+  "basisLabel": "per tonne sold",
+  "denominatorRowRef": "model!sales_volume",
+  "periods": [
+   "FY24",
+   "FY25"
+  ],
+  "lines": [
+   {
+    "id": "revenue",
+    "label": "Revenue",
+    "role": "revenue",
+    "rowRef": "model!revenue",
+    "driver": {
+     "description": "Realised price × volume sold",
+     "physicalUnit": "Rp thousand per tonne",
+     "inputRowRefs": [
+      "model!realised_price",
+      "model!sales_volume"
+     ]
+    }
+   },
+   {
+    "id": "raw_materials",
+    "label": "Raw materials used",
+    "role": "cost",
+    "rowRef": "model!raw_materials",
+    "driver": {
+     "description": "Raw material cost per unit produced × volume produced",
+     "physicalUnit": "Rp thousand per tonne produced",
+     "inputRowRefs": [
+      "model!material_cost_per_unit",
+      "model!production_volume"
+     ]
+    }
+   },
+   {
+    "id": "direct_labour",
+    "label": "Direct labour",
+    "role": "cost",
+    "rowRef": "model!direct_labour",
+    "driver": {
+     "description": "Plant workforce × pay; per unit it falls as output rises",
+     "physicalUnit": "Rp thousand per tonne produced",
+     "inputRowRefs": [
+      "model!production_volume"
+     ]
+    }
+   },
+   {
+    "id": "fuel_and_power",
+    "label": "Fuel and power",
+    "role": "cost",
+    "rowRef": "model!fuel_and_power",
+    "driver": {
+     "description": "Energy per unit produced × cost of energy",
+     "physicalUnit": "Rp thousand per tonne produced",
+     "inputRowRefs": [
+      "model!energy_cost_per_unit",
+      "model!energy_intensity",
+      "model!production_volume"
+     ]
+    }
+   },
+   {
+    "id": "manufacturing_overhead",
+    "label": "Manufacturing overhead",
+    "role": "cost",
+    "rowRef": "model!manufacturing_overhead",
+    "driver": {
+     "description": "Plant cost that does not follow volume: per unit it falls as utilisation rises",
+     "physicalUnit": "Rp thousand per tonne produced",
+     "inputRowRefs": [
+      "model!utilisation",
+      "model!capacity",
+      "model!production_volume"
+     ]
+    }
+   },
+   {
+    "id": "cost_of_revenue_other",
+    "label": "Inventory changes, purchases and other",
+    "role": "unsplit",
+    "rowRef": "model!cost_of_revenue_other",
+    "contains": [
+     "change in work-in-process inventory",
+     "change in finished-goods inventory",
+     "finished goods purchased for resale",
+     "other items in cost of revenue"
+    ]
+   },
+   {
+    "id": "other_overhead",
+    "label": "Other overhead in cost of revenue",
+    "role": "cost",
+    "rowRef": "model!other_overhead",
+    "driver": {
+     "description": "Named by the issuer in its cost-of-revenue note (for example packing): per unit of volume sold",
+     "physicalUnit": "Rp thousand per tonne sold",
+     "inputRowRefs": [
+      "model!sales_volume"
+     ]
+    }
+   },
+   {
+    "id": "gross_profit",
+    "label": "Gross profit",
+    "role": "subtotal",
+    "rowRef": "model!gross_profit"
+   },
+   {
+    "id": "selling",
+    "label": "Selling and distribution",
+    "role": "cost",
+    "rowRef": "model!selling",
+    "driver": {
+     "description": "Freight and selling cost per unit sold",
+     "physicalUnit": "Rp thousand per tonne sold",
+     "inputRowRefs": [
+      "model!sales_volume"
+     ]
+    }
+   },
+   {
+    "id": "general_admin",
+    "label": "General and administrative",
+    "role": "cost",
+    "rowRef": "model!general_admin"
+   },
+   {
+    "id": "operating_profit",
+    "label": "Operating profit (before other income and expenses)",
+    "role": "subtotal",
+    "rowRef": "model!operating_profit"
+   }
+  ]
+ },
+ "peerBand": [],
+ "workpaper": {
+  "gates": [
+   {
+    "name": "Gate 1: intake and tie-out",
+    "status": "not_run"
+   },
+   {
+    "name": "Gate 2: drivers and bands",
+    "status": "not_run"
+   },
+   {
+    "name": "Gate 3: model and workbook",
+    "status": "not_run"
+   },
+   {
+    "name": "Partner review",
+    "status": "not_run",
+    "note": "Waits for Dika's approval"
+   }
+  ],
+  "preparedBy": "FSRE suite, wave-golden",
+  "approvedBy": "SYNTHETIC approver",
+  "approvedAt": "2026-10-06T00:00:00Z"
+ }
+}
