@@ -365,6 +365,8 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
         if (check instanceof Error) throw check;
         return check;
       },
+      // The package itself is the preview's concern (FsrePackagePreview); these cases test the check and the decision.
+      preview: async () => ({ ok: false, reason: 'failed', detail: 'no package in this test', reasons: [] }),
       approve: async (company, version) => {
         calls.push(['approve', company, version]);
         return approve;

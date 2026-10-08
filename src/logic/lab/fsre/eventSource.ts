@@ -55,16 +55,43 @@ export interface FsreApprovalAnswer {
   reasons: string[];
 }
 
+/** One staged or published release, as fsre.preview_package returns it (fsre-skills 0005_preview). */
+export interface FsrePackagePreview {
+  company: string;
+  version: string;
+  waveId: string;
+  status: 'staged' | 'published';
+  /** sha-256 of the package as staged; shown beside the approve button so the owner approves these bytes. */
+  contentHash: string;
+  stagedAt: string;
+  /** The package as staged. Validated by the viewer (modelPackage/), never trusted here. */
+  package: Record<string, unknown>;
+}
+
+/**
+ * A preview is a READ, so it answers a result (the shape of FsreLoadResult
+ * and ReadResult) instead of throwing: not-connected is the function missing
+ * or without its secret, refused is the database's own no (a withdrawn or
+ * unknown release, with its reasons), failed is everything else. The panel
+ * SAYS each one beside the approve button.
+ */
+export type FsrePreviewResult =
+  | { ok: true; preview: FsrePackagePreview }
+  | { ok: false; reason: 'not-connected' | 'refused' | 'failed'; detail: string; reasons: string[] };
+
 /**
  * The owner's approval, as the partner room sees it (milestone M5): `check`
  * asks the database whether a staged package may be approved and why not;
- * `approve` asks it to approve, re-checking every condition in its own
- * transaction. A refusal is an answer (ok: false, reasons); a failed call
- * throws. Every rule lives in the database; the building only carries the
- * owner's click to it.
+ * `preview` reads the staged package so the owner sees what the button
+ * publishes (PRD "FSRE publish path", K2); `approve` asks it to approve,
+ * re-checking every condition in its own transaction. A refusal of check or
+ * approve is an answer (ok: false, reasons); a failed call throws. Every
+ * rule lives in the database; the building only carries the owner's click
+ * to it.
  */
 export interface FsreApproval {
   check(company: string, version: string): Promise<FsreApprovalAnswer>;
+  preview(company: string, version: string): Promise<FsrePreviewResult>;
   approve(company: string, version: string): Promise<FsreApprovalAnswer>;
 }
 
