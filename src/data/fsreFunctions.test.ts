@@ -17,7 +17,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { MAX_EVENTS, parseApprovalRequest, parseEventsRequest } from '../../supabase/functions/_shared/fsreInput';
+import { APPROVAL_ACTIONS, MAX_EVENTS, parseApprovalRequest, parseEventsRequest } from '../../supabase/functions/_shared/fsreInput';
 
 const source = (name: string) => readFileSync(join(__dirname, '../../supabase/functions', name, 'index.ts'), 'utf8');
 /** Executable lines only: comments may name what the code must never do. */
@@ -62,11 +62,22 @@ describe('fsre-approve input', () => {
       version: 'INTP-FY25-r1',
     });
     expect(parseApprovalRequest({ action: 'approve', company: 'SYN-M5', version: 'SYN-M5-2026.1' })).toMatchObject({ ok: true, action: 'approve' });
+    expect(parseApprovalRequest({ action: 'preview', company: 'SYNP', version: 'SYNP-FY25-r1' })).toEqual({
+      ok: true,
+      action: 'preview',
+      company: 'SYNP',
+      version: 'SYNP-FY25-r1',
+    });
+  });
+
+  it('knows exactly three actions, in the order the partner room uses them', () => {
+    expect(APPROVAL_ACTIONS).toEqual(['check', 'preview', 'approve']);
   });
 
   it.each([
     [{ company: 'INTP', version: 'INTP-FY25-r1' }],
     [{ action: 'publish', company: 'INTP', version: 'INTP-FY25-r1' }],
+    [{ action: 'PREVIEW', company: 'INTP', version: 'INTP-FY25-r1' }],
     [{ action: 'approve', company: 'intp', version: 'INTP-FY25-r1' }],
     [{ action: 'approve', company: 'INTP', version: '' }],
     [{ action: 'approve', company: 'INTP', version: "INTP'; --" }],
@@ -118,11 +129,20 @@ describe('fsre-events, read', () => {
 });
 
 describe('fsre-approve, read', () => {
-  it('records the owner by a constant, and calls only the two approval functions', () => {
+  it('records the owner by a constant, and calls only the three approval functions', () => {
     const text = code(source('fsre-approve'));
     expect(text).toMatch(/const APPROVER = '[^']+';/);
-    expect(text).not.toMatch(/\.approver/);
+    // `\b`, a word boundary: the file used to hold a raw backspace byte here, which no source contains, so the line held nothing.
+    expect(text).not.toMatch(/\.approver\b/);
     const calls = [...text.matchAll(/select (fsre\.[a-z_]+)\(/g)].map((m) => m[1]);
-    expect(calls).toEqual(['fsre.can_approve', 'fsre.approve_package']);
+    // can_approve and approve_package (0004_live), preview_package (0005_preview), and nothing else
+    expect(calls).toEqual(['fsre.can_approve', 'fsre.preview_package', 'fsre.approve_package']);
+  });
+
+  it('passes the approver only to approve_package: a preview or a check never names one', () => {
+    const text = code(source('fsre-approve'));
+    expect(text).toMatch(/fsre\.preview_package\(\$\{company\}, \$\{version\}\)/);
+    expect(text).toMatch(/fsre\.can_approve\(\$\{company\}, \$\{version\}\)/);
+    expect(text).toMatch(/fsre\.approve_package\(\$\{company\}, \$\{version\}, \$\{APPROVER\}\)/);
   });
 });

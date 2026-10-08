@@ -1,9 +1,12 @@
 // The partner room's approve button: Dika approves a model package for publication.
 //
-// WHAT IT CALLS. Two functions in the site project's database, through one
+// WHAT IT CALLS. Three functions in the site project's database, through one
 // login role, fsre_approver, that may execute them and nothing else
-// (fsre-skills db/postgres/0004_live.sql): fsre.can_approve(company, version)
-// says whether approval is possible and, if not, every reason; and
+// (fsre-skills db/postgres/0004_live.sql, 0005_preview.sql):
+// fsre.can_approve(company, version) says whether approval is possible and,
+// if not, every reason; fsre.preview_package(company, version) returns the
+// staged release with its package, so the owner reads what the button
+// publishes (the role still reads no table); and
 // fsre.approve_package(company, version, approver) re-checks the same
 // conditions inside its own transaction, then publishes the release, passes
 // partner review and records an `approved` event. Every rule lives in the
@@ -16,10 +19,12 @@
 // version are bound parameters checked against their shapes first
 // (_shared/fsreInput.ts).
 //
-// THE CONTRACT. POST {action: 'check' | 'approve', company, version}.
+// THE CONTRACT. POST {action: 'check' | 'preview' | 'approve', company, version}.
 // 'check' -> {ok, reasons[]} (the button stays disabled and shows the reasons
-// unless ok); 'approve' -> the function's answer, ok:false with reasons when
-// a condition no longer holds.
+// unless ok); 'preview' -> {ok, company, version, wave_id, status,
+// content_hash, staged_at, package} for a staged or published release, or
+// {ok: false, reasons[]} for a withdrawn or unknown one; 'approve' -> the
+// function's answer, ok:false with reasons when a condition no longer holds.
 
 import postgres from 'npm:postgres@3.4.9';
 import { checkAppKey } from '../_shared/appKeyAuth.ts';
@@ -66,7 +71,9 @@ Deno.serve(async (request) => {
   try {
     const [row] = action === 'check'
       ? await conn`select fsre.can_approve(${company}, ${version}) as result`
-      : await conn`select fsre.approve_package(${company}, ${version}, ${APPROVER}) as result`;
+      : action === 'preview'
+        ? await conn`select fsre.preview_package(${company}, ${version}) as result`
+        : await conn`select fsre.approve_package(${company}, ${version}, ${APPROVER}) as result`;
     return json(row.result);
   } catch (e) {
     return json({ ok: false, reason: 'call-failed', message: (e as Error).message.slice(0, 200) }, 502);
