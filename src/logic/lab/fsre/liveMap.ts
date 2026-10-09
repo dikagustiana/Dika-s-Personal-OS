@@ -29,6 +29,14 @@
  * someone other than the router), and a preparer stage that failed its own
  * checks (it is redone in place).
  *
+ * WHO. A row's `actor` is a skill name in the export; the dispatcher names
+ * its agents (`data-staff-a`), and an unknown name falls to the lobby bench
+ * (PRD "FSRE publish path" G6). actorRoster.ts maps an agent id to the skill
+ * whose desk it works at: an event the actor raises is drawn at that desk
+ * (the actor's own name otherwise, as before); a transition is still drawn
+ * at the stage's runner (its first skill), unless the actor is rostered to a
+ * skill of that same stage, when the specific agent wins.
+ *
  * STATEFUL ON PURPOSE. Two translations need what came before: whether a
  * gate passed with an escalation still open (the suite records a gate's
  * notes before its result, CP-wave-2026-02-007 amendment 2) and which
@@ -38,6 +46,7 @@
  * (parseFsreEvent) checks the result again.
  */
 import { z } from 'zod';
+import { ACTOR_ROSTER, rosterSkill } from './actorRoster';
 import type { FsreStage } from './data';
 import type { FsreEventKind } from './events';
 
@@ -89,7 +98,7 @@ function text(payload: Record<string, unknown> | null, field: string): string | 
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export function createLiveMapper(stages: readonly FsreStage[], run: string): LiveMapper {
+export function createLiveMapper(stages: readonly FsreStage[], run: string, roster: Readonly<Record<string, string>> = ACTOR_ROSTER): LiveMapper {
   const stageById = new Map(stages.map((stage) => [stage.id, stage]));
   let last = 0;
   /** company|gate → suite refs of escalated notes still open there. */
@@ -105,7 +114,12 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
     const id = `s${row.seq}`;
     const base = { run, ticker: row.company_id, at: row.at, source: `${LIVE_SOURCE_NAME} seq ${row.seq}` };
     const stageId = row.stage ?? undefined;
-    const runner = stageId ? stageById.get(stageId)?.skills[0] : undefined;
+    const rostered = rosterSkill(row.actor, roster);
+    /** The desk an event the actor raises is drawn at: its rostered skill, else its own name. */
+    const actor = rostered ?? row.actor;
+    const stage = stageId ? stageById.get(stageId) : undefined;
+    /** The desk a transition is drawn at: the stage's runner, unless the actor is rostered to a skill of that stage. */
+    const runner = stage ? (rostered && stage.skills.includes(rostered) ? rostered : stage.skills[0]) : undefined;
     const figures = row.payload && typeof row.payload.figures === 'object' && row.payload.figures !== null ? row.payload.figures : undefined;
     const reason = text(row.payload, 'reason');
 
@@ -124,7 +138,7 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
           openNotes.set(key(row.company_id, stageId), open);
           escalationIds.set(key(row.company_id, row.ref), id);
         }
-        return [{ ...base, id, kind: row.kind, stageId, skill: row.actor, payload }];
+        return [{ ...base, id, kind: row.kind, stageId, skill: actor, payload }];
       }
       case 'proposal_logged':
         return [{
@@ -132,7 +146,7 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
           id,
           kind: 'proposal_logged',
           ticker: null,
-          skill: row.actor,
+          skill: actor,
           payload: { title: text(row.payload, 'title'), mode: text(row.payload, 'mode'), detail: text(row.payload, 'detail'), ref: row.ref ?? undefined },
         }];
       case 'decision_recorded': {
@@ -146,12 +160,12 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
           id,
           kind: 'approved',
           stageId,
-          skill: row.actor,
+          skill: actor,
           payload: { ref: escalation ?? row.ref, title: text(row.payload, 'title'), detail: text(row.payload, 'detail') },
         }];
       }
       case 'approved':
-        return [{ ...base, id, kind: 'approved', stageId, skill: row.actor, payload: { title: text(row.payload, 'title'), detail: text(row.payload, 'detail') } }];
+        return [{ ...base, id, kind: 'approved', stageId, skill: actor, payload: { title: text(row.payload, 'title'), detail: text(row.payload, 'detail') } }];
       case 'package_staged':
         if (!row.ref) return [];
         return [{
@@ -159,7 +173,7 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
           id,
           kind: 'package_staged',
           stageId,
-          skill: row.actor,
+          skill: actor,
           payload: { ref: row.ref, title: text(row.payload, 'title'), detail: text(row.payload, 'detail'), ...(figures ? { figures } : {}) },
         }];
       case 'transition':
@@ -176,7 +190,7 @@ export function createLiveMapper(stages: readonly FsreStage[], run: string): Liv
         id: `${id}-decision`,
         kind: 'approved',
         stageId,
-        skill: row.actor,
+        skill: actor,
         payload: { ref: cycleEscalations.get(cycleKey), title: 'Decided by the owner', detail: reason },
       });
       cycleEscalations.delete(cycleKey);

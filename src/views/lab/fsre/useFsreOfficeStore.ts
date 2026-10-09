@@ -1,8 +1,8 @@
 /**
  * FSRE BUILDING v2 — THE OFFICE'S VIEW STATE. VIEW STATE ONLY.
  *
- * Which mode the building is in (Replay, Synthetic; Live is disabled until
- * milestone M3), which view of the synthetic office is open (Building,
+ * Which mode the building is in (Replay, Synthetic; Live office is disabled
+ * until the v2 transport exists), which view of the synthetic office is open (Building,
  * Industries), what is selected in it, which engagement the building is
  * filtered to, and the two dialogs. The replay keeps its own view store
  * (useFsreViewStore.ts) unchanged; none of the building's state lives here.
@@ -42,7 +42,7 @@ const INITIAL = {
 
 export const useFsreOfficeStore = create<FsreOfficeState>((set) => ({
   ...INITIAL,
-  // Live is shown disabled ("Not wired yet") and never becomes the mode.
+  // Live office is shown disabled (it waits for the v2 transport) and never becomes the mode.
   setMode: (mode) => set(mode === 'live' ? {} : { ...INITIAL, mode }),
   setLiveView: (liveView) => set({ liveView }),
   select: (selection) => set({ selection }),

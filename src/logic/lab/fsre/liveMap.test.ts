@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import stagesFile from '../../../data/fsre/stages.json';
 import skillsFile from '../../../data/fsre/skills.json';
 import { parseFsreRun, type FsreRun } from './data';
+import { planDepartmentFloors } from './departmentPlan';
+import { FALLBACK_DESK_KEY, deskKeyForSkill, resolveDesk } from './layout';
 import { createLiveMapper, type LiveRawEvent, type SuiteEventRow } from './liveMap';
 import { approvalLock, buildContext, openPartnerCount, partnerItems, reduceEvents } from './reducer';
 
@@ -196,5 +198,54 @@ describe('createLiveMapper', () => {
     ]));
     expect(events.map((e) => e.kind)).toEqual(['stage_started', 'stage_completed', 'stage_started', 'gate_failed', 'stage_returned', 'stage_blocked']);
     expect(runOf(events).events).toHaveLength(6);
+  });
+});
+
+describe('the actor roster (G6: the dispatcher’s agent ids)', () => {
+  const ROSTER = { 'data-staff-a': 'fs-intake', 'model-staff-b': 'data-sourcing' } as const;
+  const stages = emptyRun().stages;
+  const mapWith = (rows: SuiteEventRow[]) => {
+    const result = createLiveMapper(stages, WAVE, ROSTER).map(rows);
+    if (!result.ok) throw new Error(result.detail);
+    return result.events;
+  };
+  const stageSkills = (id: string) => stages.find((s) => s.id === id)?.skills ?? [];
+
+  it('draws an event a rostered agent raises at its skill’s desk, on the data department floor', () => {
+    const [event] = mapWith(rows(() => [row({ kind: 'issue_raised', stage: 'intake', actor: 'data-staff-a', ref: 'RN-9', payload: { title: 'RN-9: finding' } })]));
+    expect(event?.skill).toBe('fs-intake');
+    const plan = planDepartmentFloors(stages, emptyRun().skills);
+    expect(plan.floorOfSkill['fs-intake']).toBe('b1');
+    expect(resolveDesk(plan, deskKeyForSkill('fs-intake')).floorId).toBe('b1');
+  });
+
+  it('keeps an unknown actor as its own name, which falls to the lobby bench (the behaviour before the roster)', () => {
+    const [event] = mapWith(rows(() => [row({ kind: 'issue_raised', stage: 'intake', actor: 'hermes-7', ref: 'RN-9', payload: { title: 'RN-9: finding' } })]));
+    expect(event?.skill).toBe('hermes-7');
+    const plan = planDepartmentFloors(stages, emptyRun().skills);
+    expect(resolveDesk(plan, deskKeyForSkill('hermes-7')).key).toBe(FALLBACK_DESK_KEY);
+    // the same row through the default (empty) roster reads the same: nothing is seated by the shape of a name
+    const mapper = createLiveMapper(stages, WAVE);
+    nextSeq = 1;
+    const plain = mapper.map([row({ kind: 'issue_raised', stage: 'intake', actor: 'data-staff-a', ref: 'RN-9', payload: { title: 'RN-9: finding' } })]);
+    expect(plain.ok && plain.events[0]?.skill).toBe('data-staff-a');
+  });
+
+  it('draws a transition at the stage’s runner, unless the actor is rostered to a skill of that stage', () => {
+    // decomposed runs two skills; model-staff-b is rostered to the second, so the specific agent wins over skills[0]
+    expect(stageSkills('decomposed')).toEqual(['fs-driver-decomposition', 'data-sourcing']);
+    const events = mapWith(rows(() => [
+      move('decomposed', 'in_progress', ['decomposed', 'pending'], { actor: 'model-staff-b' }),
+      move('decomposed', 'passed', ['decomposed', 'in_progress'], { actor: 'router' }),
+      // rostered to fs-intake, which does not run gate1: the gate keeps its runner
+      move('gate1', 'in_progress', ['gate1', 'pending'], { actor: 'data-staff-a' }),
+      move('intake', 'in_progress', ['intake', 'pending'], { actor: 'data-staff-a' }),
+    ]));
+    expect(events.map((e) => [e.kind, e.skill])).toEqual([
+      ['stage_started', 'data-sourcing'],
+      ['stage_completed', 'fs-driver-decomposition'],
+      ['stage_started', stageSkills('gate1')[0]],
+      ['stage_started', 'fs-intake'],
+    ]);
   });
 });

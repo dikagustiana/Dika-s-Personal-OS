@@ -1,7 +1,8 @@
 /**
- * The building's mode switch (brief v2 WO-2): Replay (the recorded run),
- * Synthetic (the mock live office) and Live, which stays disabled and says
- * why ("Not wired yet") until milestone M3 wires the backend.
+ * The building's mode switch (brief v2 WO-2): Replay (the recorded run, and
+ * since M3 the live pipeline feed as a second run), Synthetic (the mock live
+ * office) and Live office, which stays disabled and says why until the v2
+ * transport has a backend (statuses.ts MODES says which "live" is which).
  */
 import { MODES, type ModeId } from '../../../logic/lab/fsre/statuses';
 import { cn } from '../../../lib/utils';

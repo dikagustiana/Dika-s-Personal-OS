@@ -77,7 +77,9 @@ describe('replay mode (unchanged behaviour)', () => {
     const total = REAL_DATA.replay.events.length;
     expect(await screen.findByText(`${total} events of ${total} events applied`)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Replay of replay-unvr\.json/ })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Live/ }).hasAttribute('disabled')).toBe(true);
+    // Two buttons say "live" now: the disabled Live office MODE, and the live pipeline feed RUN under Replay.
+    expect(within(screen.getByRole('group', { name: 'Mode' })).getByRole('button', { name: /Live office/ }).hasAttribute('disabled')).toBe(true);
+    expect(within(screen.getByRole('group', { name: 'Runs' })).getByRole('button', { name: /Live pipeline/ }).textContent).toContain('not connected');
   });
 });
 

@@ -7,8 +7,11 @@
 // WHAT A REQUEST MAY SAY, AND NOTHING ELSE:
 //   fsre-events    wave      a wave id (absent: the list of waves)
 //                  afterSeq  the last event number the building holds (absent: 0)
-//   fsre-approve   action    exactly 'check' or 'approve'. NO DEFAULT: a request
-//                            that does not say which is refused.
+//   fsre-approve   action    exactly 'check', 'preview' or 'approve'. NO DEFAULT: a
+//                            request that does not say which is refused. 'preview'
+//                            (0005_preview) reads the staged package so the owner
+//                            sees what the approve button publishes; same inputs,
+//                            same shapes, no extra field.
 //                  company   a company id of the pipeline
 //                  version   the staged package version the approval names
 //
@@ -46,13 +49,20 @@ export function parseEventsRequest(body: unknown): EventsRequest {
   return { ok: true, wave, afterSeq };
 }
 
+export const APPROVAL_ACTIONS = ['check', 'preview', 'approve'] as const;
+export type ApprovalAction = (typeof APPROVAL_ACTIONS)[number];
+
 export type ApprovalRequest =
-  | { ok: true; action: 'check' | 'approve'; company: string; version: string }
+  | { ok: true; action: ApprovalAction; company: string; version: string }
   | { ok: false; reason: 'bad-request' };
+
+function isApprovalAction(value: unknown): value is ApprovalAction {
+  return typeof value === 'string' && (APPROVAL_ACTIONS as readonly string[]).includes(value);
+}
 
 export function parseApprovalRequest(body: unknown): ApprovalRequest {
   const input = typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : {};
-  const action = input.action === 'check' || input.action === 'approve' ? input.action : null;
+  const action = isApprovalAction(input.action) ? input.action : null;
   const company = typeof input.company === 'string' && COMPANY_ID.test(input.company) ? input.company : null;
   const version = typeof input.version === 'string' && PACKAGE_VERSION.test(input.version) ? input.version : null;
   if (!action || !company || !version) return { ok: false, reason: 'bad-request' };

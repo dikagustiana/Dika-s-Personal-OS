@@ -15,7 +15,7 @@
  */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createReplaySource, liveSource, replaySource, type FsreApproval, type FsreApprovalAnswer, type FsreEventSource } from '../../../logic/lab/fsre/eventSource';
+import { createReplaySource, liveSource, replaySource, type FsreApproval, type FsreApprovalAnswer, type FsreEventSource, type FsrePreviewResult } from '../../../logic/lab/fsre/eventSource';
 import {
   PROVISIONAL_FILES,
   REAL_DATA,
@@ -25,6 +25,7 @@ import {
   tenCompanyEvents,
 } from '../../../logic/lab/fsre/__fixtures__/fsreFixtures';
 import { ROSTER_V2 } from '../../../data/fsreTransport/provisional';
+import synp from '../../../logic/lab/fsre/__fixtures__/synp.SYNTHETIC.package.json';
 import { FsreBuilding } from './FsreBuilding';
 import { useFsreViewStore } from './useFsreViewStore';
 
@@ -125,12 +126,12 @@ describe('v2: the replay on the department floors (brief v2 WO-2)', () => {
     expect(document.querySelector('[data-floor="f3"]')?.textContent).toMatch(/2 unstaffed/);
   });
 
-  it('offers Replay and Synthetic, and shows Live disabled as not wired yet', async () => {
+  it('offers Replay and Synthetic, and shows Live office disabled, waiting for the v2 transport', async () => {
     await open();
     const modes = within(screen.getByRole('group', { name: 'Mode' }));
     expect(modes.getByRole('button', { name: 'Replay' }).getAttribute('aria-pressed')).toBe('true');
     expect(modes.getByRole('button', { name: /Live/ }).hasAttribute('disabled')).toBe(true);
-    expect(modes.getByRole('button', { name: /Live/ }).textContent).toContain('Not wired yet');
+    expect(modes.getByRole('button', { name: /Live office/ }).textContent).toContain('Waits for the v2 transport');
   });
 });
 
@@ -357,13 +358,24 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
   const APPROVE = 'Approve SYN01-2026.1 for publication';
   const CONFIRM = 'Yes, approve SYN01-2026.1 for publication';
 
-  function fakeApproval(check: FsreApprovalAnswer | Error, approve: FsreApprovalAnswer = { ok: true, reasons: [] }) {
+  const PREVIEW_FAILED: FsrePreviewResult = { ok: false, reason: 'not-connected', detail: 'The approval function (fsre-approve) is not deployed yet, so the package cannot be read.', reasons: [] };
+  /** The SYNP golden package (SYNTHETIC) as the database stages it, for whichever version is asked. */
+  const staged = (version: string, provenance = 'filings'): FsrePreviewResult => ({
+    ok: true,
+    preview: { company: 'SYN01', version, waveId: 'syn-wave', status: 'staged', contentHash: 'c'.repeat(64), stagedAt: '2026-10-08T10:00:00+00:00', package: { ...synp, meta: { ...synp.meta, provenance } } },
+  });
+
+  function fakeApproval(check: FsreApprovalAnswer | Error, approve: FsreApprovalAnswer = { ok: true, reasons: [] }, preview: ((version: string) => FsrePreviewResult) | FsrePreviewResult = staged) {
     const calls: Array<[string, string, string]> = [];
     const approval: FsreApproval = {
       check: async (company, version) => {
         calls.push(['check', company, version]);
         if (check instanceof Error) throw check;
         return check;
+      },
+      preview: async (company, version) => {
+        calls.push(['preview', company, version]);
+        return typeof preview === 'function' ? preview(version) : preview;
       },
       approve: async (company, version) => {
         calls.push(['approve', company, version]);
@@ -372,6 +384,12 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
     };
     return { approval, calls };
   }
+  const READ = 'Read package SYN01-2026.1';
+  /** The owner reads the package: the approve button needs it on screen. */
+  const readPackage = async () => {
+    click(READ);
+    await screen.findByText(/Synthetic Process Co/);
+  };
   const live = (events: Record<string, unknown>[], approval?: FsreApproval): FsreEventSource => ({
     ...createReplaySource({ id: 'live-test', label: 'Live (test)', fileNames: ROUTER_FILE_NAMES, files: async () => routerFiles(events) }),
     kind: 'live',
@@ -382,11 +400,22 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
     click(/^Partner room:/);
   };
 
-  it('is enabled only when the approval function says yes, and approves only on the second click', async () => {
+  it('is enabled only when the approval function says yes AND the package has been read, and approves only on the second click', async () => {
     const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
     await openPartnerRoom(live(STAGED, approval));
+    await waitFor(() => expect(calls).toEqual([['check', 'SYN01', 'SYN01-2026.1']]));
+    await act(async () => undefined);
+    // the check said yes, but the owner has not read the package: still disabled, and the button says why
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+    expect(screen.getByText(/Read the package first/)).toBeTruthy();
+    await readPackage();
+    expect(calls).toContainEqual(['preview', 'SYN01', 'SYN01-2026.1']);
     await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
-    expect(calls).toEqual([['check', 'SYN01', 'SYN01-2026.1']]);
+    // the content hash of what is approved stands beside the button
+    expect(document.querySelector('[data-approve-hash]')?.getAttribute('data-approve-hash')).toBe('c'.repeat(64));
+    expect(screen.getAllByTitle('c'.repeat(64)).map((e) => e.textContent)).toEqual(['cccccccccccc…', 'cccccccccccc…']); // beside the button, and in the preview
+    expect(document.querySelector('[data-package-preview]')).toBeTruthy();
+    expect(document.querySelector('[data-provenance-warning]')).toBeNull(); // filings: nothing to warn about
     click(APPROVE);
     expect(calls.some(([action]) => action === 'approve')).toBe(false);
     click(CONFIRM);
@@ -394,9 +423,38 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
     expect(calls.filter(([action]) => action === 'approve')).toEqual([['approve', 'SYN01', 'SYN01-2026.1']]);
   });
 
+  it('warns when the package is not from filings, and still lets the database decide', async () => {
+    const { approval } = fakeApproval({ ok: true, reasons: [] }, { ok: true, reasons: [] }, (version) => staged(version, 'synthetic'));
+    await openPartnerRoom(live(STAGED, approval));
+    await readPackage();
+    const warning = await screen.findByRole('note');
+    expect(warning.textContent).toMatch(/not from filings.*synthetic.*will not appear on the production site/);
+    await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
+  });
+
+  it('says why the package could not be read, and keeps the approve button disabled', async () => {
+    const { approval } = fakeApproval({ ok: true, reasons: [] }, { ok: true, reasons: [] }, PREVIEW_FAILED);
+    await openPartnerRoom(live(STAGED, approval));
+    click(READ);
+    expect(await screen.findByText(/not deployed yet, so the package cannot be read/)).toBeTruthy();
+    expect(document.querySelector('[data-preview-failure]')?.getAttribute('data-preview-failure')).toBe('not-connected');
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+    expect(document.querySelector('[data-package-preview]')).toBeNull();
+  });
+
+  it("lists the database's reasons when it refuses to show the package", async () => {
+    const refused: FsrePreviewResult = { ok: false, reason: 'refused', detail: 'The database refused to show this package.', reasons: ['SYN01-2026.1 is withdrawn, not readable'] };
+    const { approval } = fakeApproval({ ok: true, reasons: [] }, { ok: true, reasons: [] }, refused);
+    await openPartnerRoom(live(STAGED, approval));
+    click(READ);
+    expect(await screen.findByText('SYN01-2026.1 is withdrawn, not readable')).toBeTruthy();
+    expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
+  });
+
   it('can be cancelled at the second click without asking anything', async () => {
     const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
     await openPartnerRoom(live(STAGED, approval));
+    await readPackage();
     await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
     click(APPROVE);
     click('Cancel');
@@ -412,10 +470,11 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
     expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
   });
 
-  it('stays disabled while the building shows an open escalation, even when the check says yes', async () => {
+  it('stays disabled while the building shows an open escalation, even when the check says yes and the package is read', async () => {
     const { approval, calls } = fakeApproval({ ok: true, reasons: [] });
     await openPartnerRoom(live(WITH_ESCALATION, approval));
     await waitFor(() => expect(calls).toHaveLength(1));
+    await readPackage();
     await act(async () => undefined);
     expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', true);
   });
@@ -423,6 +482,7 @@ describe('the owner approves a staged package (live run with a backend, M5)', ()
   it('shows the reasons when the approval function refuses at the last moment', async () => {
     const { approval } = fakeApproval({ ok: true, reasons: [] }, { ok: false, reasons: ['SYN01-2026.1 is published, not waiting'] });
     await openPartnerRoom(live(STAGED, approval));
+    await readPackage();
     await waitFor(() => expect(screen.getByRole('button', { name: APPROVE })).toHaveProperty('disabled', false));
     click(APPROVE);
     click(CONFIRM);

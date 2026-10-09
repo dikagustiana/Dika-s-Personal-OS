@@ -333,11 +333,20 @@ export const CHAIN_GROUPS = [
 ] as const;
 export type ChainGroup = (typeof CHAIN_GROUPS)[number];
 
-/** The header's mode switch. Live stays disabled until milestone M3 wires the backend. */
+/**
+ * The header's mode switch. Two things are called "live" and they are not
+ * the same thing (PRD "FSRE publish path" §6.2 E): the live PIPELINE FEED
+ * (fsre_status.events through fsre-events, with the approve button) is a run
+ * under Replay, offered beside the bundled replay since milestone M3; the
+ * live OFFICE (the synthetic office over SupabaseTransport v2: commands,
+ * engagements, a roster) waits for a backend that has those entities, so
+ * its mode stays disabled and says so, under a name that does not read as
+ * the feed.
+ */
 export const MODES = [
-  { id: 'replay', label: 'Replay', note: '' },
+  { id: 'replay', label: 'Replay', note: 'A recorded run, or the live pipeline feed' },
   { id: 'synthetic', label: 'Synthetic', note: 'The mock live office on synthetic data' },
-  { id: 'live', label: 'Live', note: 'Not wired yet' },
+  { id: 'live', label: 'Live office', note: 'Waits for the v2 transport; the live feed is a run under Replay' },
 ] as const;
 export type ModeId = (typeof MODES)[number]['id'];
 

@@ -11,10 +11,13 @@
  * agents work at the departments' lead and staff desks (brief v2 WO-2), and
  * folders, gate rooms and the partner room follow from the same desk keys.
  *
- * The bundled replay is the only source the app offers. The M5 live feed and
- * its approve button (eventSource.ts connectedLiveSource, PublishControl)
- * stay in the code and their tests through the `sources` prop; the building
- * does not offer them while Live is "Not wired yet" (milestone M3).
+ * Two sources are offered (milestone M3, PRD "FSRE publish path" §6.2 E): the
+ * bundled replay, and the live pipeline feed over the data layer's calls
+ * (src/data/fsreLiveFeed.ts, fsreApproval.ts) with the owner's approve
+ * button in the partner room. A build without a backend, or one whose
+ * functions are not deployed or not given their secret, still lists the live
+ * source: choosing it says "not connected" in words and draws no building,
+ * never an empty one. Tests pass their own sources through the prop.
  *
  * Mount report: docs/lab/fsre-building-mount-report.md; v2 port:
  * docs/lab/fsre-building-v2-port.md.
@@ -23,7 +26,9 @@ import { useEffect, useMemo, useState } from 'react';
 import type { FsreRun } from '../../../logic/lab/fsre/data';
 import type { FsreEvent } from '../../../logic/lab/fsre/events';
 import { planDepartmentFloors } from '../../../logic/lab/fsre/departmentPlan';
-import { appendEvents, followCursor, replaySource, type FsreEventSource, type FsreLoadFailure } from '../../../logic/lab/fsre/eventSource';
+import { fsreApproval } from '../../../data/fsreApproval';
+import { fsreLiveFeed } from '../../../data/fsreLiveFeed';
+import { appendEvents, connectedLiveSource, followCursor, replaySource, type FsreEventSource, type FsreLoadFailure } from '../../../logic/lab/fsre/eventSource';
 import { FLOOR_DISPLAY_ORDER } from '../../../logic/lab/fsre/layout';
 import { buildContext, createStateCache, runTotals } from '../../../logic/lab/fsre/reducer';
 import { agentStatuses, buildFloorScene, focusTickerOf, touchedBy, type FsreSelection, type Touched } from '../../../logic/lab/fsre/scene';
@@ -46,8 +51,8 @@ type LoadState =
 
 const NOTHING_MOVED: Touched = { chips: new Set(), arrivals: new Set() };
 
-/** The replay mode's sources: the bundled replay. Live waits for milestone M3. */
-export const REPLAY_SOURCES: readonly FsreEventSource[] = [replaySource];
+/** The replay mode's sources, in switcher order: the bundled replay first (opened by default), then the live pipeline feed. */
+export const REPLAY_SOURCES: readonly FsreEventSource[] = [replaySource, connectedLiveSource(fsreLiveFeed, fsreApproval)];
 
 export function FsreReplay({ sources = REPLAY_SOURCES }: { sources?: readonly FsreEventSource[] }) {
   const [firstSource] = sources;
