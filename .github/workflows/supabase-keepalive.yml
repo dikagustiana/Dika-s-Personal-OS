@@ -1,0 +1,66 @@
+# Keeps the free-tier Supabase project from auto-pausing.
+#
+# Why this exists: on 2026-10-25 the project was paused for ~6 hours
+# (Postgres shut down 23:01 UTC on the 24th, restored 05:26 UTC on the 25th).
+# The nightly pg_cron sweep does not count as project activity — it runs
+# inside the database and never touches the API — so a week with no app
+# traffic reads as idle no matter what cron is doing. One real API request a
+# few times a week is enough.
+#
+# What it sends: a single read-only GET of one row through PostgREST with the
+# anon key. No x-app-key header, so RLS decides what comes back — usually an
+# empty array, which is fine: the request itself is the point. It deliberately
+# does NOT call an RPC: os_key_valid() and its siblings sit next to the
+# auth-attempt bookkeeping, and a keep-alive must never look like a failed
+# sign-in.
+#
+# REQUIRED SECRETS (GitHub -> Settings -> Secrets and variables -> Actions):
+#   SUPABASE_URL        https://<project-ref>.supabase.co  (same as VITE_SUPABASE_URL)
+#   SUPABASE_ANON_KEY   the anon / publishable key          (same as VITE_SUPABASE_ANON_KEY)
+# Both are public by nature (they ship in the client bundle); they live in
+# secrets only so no key is committed to the tree.
+#
+# Caveat: GitHub disables scheduled workflows after 60 days with no commits to
+# the repo. If the app goes quiet for that long, re-enable this workflow from
+# the Actions tab.
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: '37 1 * * 1,4' # Mon & Thu, 08:37 WIB
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Refuse to run without the secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          missing=0
+          [ -n "$SUPABASE_URL" ] || { echo "::error::SUPABASE_URL is not set. No ping was sent."; missing=1; }
+          [ -n "$SUPABASE_ANON_KEY" ] || { echo "::error::SUPABASE_ANON_KEY is not set. No ping was sent."; missing=1; }
+          exit $missing
+
+      - name: Ping PostgREST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+          # A paused project answers with a non-200 (or not at all). Fail loudly
+          # so the red run in the Actions tab is the warning — a ping that
+          # swallows its own failure would keep reporting green while the
+          # project sleeps.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --retry 3 --retry-delay 10 \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            "${SUPABASE_URL%/}/rest/v1/os_ielts_topic?select=slug&limit=1")
+          echo "PostgREST answered HTTP ${code}"
+          [ "$code" = "200" ] || { echo "::error::Expected 200, got ${code}. The project may be paused — restore it from the Supabase dashboard."; exit 1; }
