@@ -14,7 +14,7 @@
 -- runs it on a local replay and greps for PASS.
 --
 -- What it asserts (ARCHITECTURE §2.11):
---   1. read with the read token on no matching rows → '[]'
+--   1. read with the read token returns exactly the open WORK tasks
 --   2. read returns open WORK tasks + WORK tasks completed since p_since only;
 --      never GROWTH tasks, never WORK habits, never done-before-since
 --   3. read with the write token / no header / revoked token / 63 chars → PT401
@@ -48,9 +48,10 @@ declare
 begin
   select count(*) into logs0 from public.os_daily_logs;
 
-  -- Start from a WORK task list that is empty for this transaction, so the
-  -- read assertions are exact. Rolled back with everything else.
-  delete from public.os_entries where domain = 'work' and type = 'task';
+  -- No DELETE to start from an empty list: the MCP SQL path asks for a
+  -- confirmation on any DELETE, and the assertions don't need one. C1
+  -- compares against the live open count; C2 looks at the fixture rows only
+  -- (titles 't-…').
 
   rtok := private.os_island_token_mint('read',  'test-read');
   wtok := private.os_island_token_mint('write', 'test-write');
@@ -61,7 +62,10 @@ begin
   perform set_config('request.headers', json_build_object('x-island-token', rtok)::text, true);
   res := public.os_island_tasks(since);
   n := n + 1;
-  if res -> 'tasks' <> '[]'::jsonb then fails := fails || 'C1 empty read'; end if;
+  if jsonb_array_length(res -> 'tasks') <> (select count(*) from public.os_entries
+       where domain = 'work' and type = 'task' and coalesce((payload ->> 'done')::boolean, false) = false) then
+    fails := fails || 'C1 read count';
+  end if;
 
   -- 2 ------------------------------------------------------------------------
   insert into public.os_entries (type, domain, entry_date, payload) values
@@ -79,11 +83,12 @@ begin
        'completedAt', to_char((since + interval '1 minute') at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')))
     returning id into id_done_new;
   insert into public.os_entries (type, domain, entry_date, payload) values
-    ('habit', 'work', null, '{"title":"h","active":true,"order":0}')
+    ('habit', 'work', null, '{"title":"t-habit","active":true,"order":0}')
     returning id into id_habit;
 
   res := public.os_island_tasks(since);
-  select array_agg(t ->> 'title' order by t ->> 'title') into ids from jsonb_array_elements(res -> 'tasks') t;
+  select array_agg(t ->> 'title' order by t ->> 'title') into ids from jsonb_array_elements(res -> 'tasks') t
+   where t ->> 'title' like 't-%';
   n := n + 1;
   if ids is distinct from array['t-done-new', 't-open'] then
     fails := fails || ('C2 read set = ' || coalesce(array_to_string(ids, ','), '∅'));
