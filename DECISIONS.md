@@ -250,3 +250,14 @@ a wall of white bars over the building they describe. An empty seat is the
 one thing on the floor you cannot infer by looking, so it is exempt: an
 unlabelled empty desk is indistinguishable from furniture, and naming it
 is the entire reason it is drawn.
+
+**D-29 — The project tracker is read in WORK › Today, never copied.** The
+owner prepares, reviews and monitors on the SAMB Project Board, a separate
+Supabase project with its own gates and validators. WORK › Today shows that
+work through the board's own feed (prepare / review / monitor), fetched on
+every visit by the owner-checked `tracker-feed` function, which holds the
+board's feed token. Nothing is written on either side, nothing lands in
+`os_entries`, and the daily score never sees it: a copied task would go
+stale the moment the board moved, and ticking it here would bypass the
+board's review. Each row opens the board, where the work is done.
+(`docs/tracker-feed.md`)
