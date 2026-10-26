@@ -26,8 +26,11 @@ key) plus `x-island-token: <64 hex>` and `Content-Type: application/json`.
 | `os_island_task_create` | write | `{"p_title": "…", "p_priority": "normal"\|"urgent", "p_due": "YYYY-MM-DD"\|null}` | `row` |
 | `os_island_task_patch` | write | `{"p_id": "<uuid>", "p_expected_updated_at": "<row.updated_at verbatim>", "p_patch": {"done": true}}` | `row` |
 
-`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "updated_at"}`.
-`completed_at` and `due_date` are echoed as stored, or `null`.
+`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "project", "updated_at"}`.
+`completed_at` and `due_date` are echoed as stored, or `null`. `project` is the
+SAMB Project Board project of a tracker task (`payload.tracker.project`, D-30),
+or `null` for every other task ("stand alone"); added by migration
+`20261026000112_island_task_project`.
 
 Errors use PostgREST's body `{"code","message","details","hint"}`:
 
