@@ -22,7 +22,7 @@ or whose `url` is not https, are dropped.
 |---|---|
 | Prepare | Kerja saya, commits, rework, packages and gates to resend |
 | Review | validate, sign off, decide gates and Keputusan, close, unblock |
-| Monitor | Menunggu orang lain, plus late work of others in projects the owner leads |
+| Monitor | Menunggu orang lain, plus, in projects the owner leads (PM or Project Admin): others' work late or due within 7 days, and work with no PIC due within 7 days |
 
 ## Sync into WORK tasks (D-30)
 
@@ -31,7 +31,7 @@ merges the feed, one task per item key (`payload.tracker.key`):
 
 | Case | Result |
 |---|---|
-| new item | WORK task, priority `normal`, tag `tracker`, title `Prepare · MB02 …`; due date = the item's date for Prepare/Review, none for Monitor |
+| new item | WORK task, priority `normal`, tag `tracker`, title `Prepare · MB02 …`; due date = the item's date for Prepare/Review and for watched Monitor tasks (late / due-soon / no-pic), none for waits |
 | item still there, task open | title, due date and `payload.tracker` follow the board; anything the owner added (priority, project, goal) stays |
 | task ticked by the owner | stays done (hidden); the board is not touched |
 | item gone from the feed | task done, `payload.tracker.closed = true`; reopens if the item comes back |

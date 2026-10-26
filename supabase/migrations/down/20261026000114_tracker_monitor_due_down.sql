@@ -1,0 +1,3 @@
+-- Down-migration for 20261026000114_tracker_monitor_due.sql: re-run the
+-- os_tracker_task_payload body from 20261026000113_tracker_writeback.sql
+-- (monitor items without a due date). The next sync removes their dueDate.
