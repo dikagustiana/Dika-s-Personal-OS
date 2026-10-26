@@ -251,6 +251,26 @@ one thing on the floor you cannot infer by looking, so it is exempt: an
 unlabelled empty desk is indistinguishable from furniture, and naming it
 is the entire reason it is drawn.
 
+**D-28 — The desktop island is an external client of WORK tasks, through
+capability-scoped tokens and `security definer` RPCs; the owner key stays in
+the browser.** (2026-10-26, migration `20261026000109_island_tasks`.) The
+owner's Windows island (the Oyen Poni fork) replaces its local to-do list
+with the WORK daily tasks held in `os_entries`. Three RPCs — read, create,
+patch — each check a hashed token from `private.os_island_tokens` (one
+capability per token) and touch only `domain = 'work' and type = 'task'`.
+Patch accepts `title`, `done` and `dueDate` and nothing else, so the island
+can never change `priority` and never move a task into the scored set by
+accident; `urgent` on create only when typed. Web wins conflicts (an
+`updated_at` compare, 409). No delete from the island. `os_daily_logs` is
+never read or written: a tick from the island reaches the stored score only
+when the web next recomputes it, accepted because the owner is reworking the
+score. Rejected: the owner key in a DPAPI blob on the desktop (it opens every
+`os_` table, the SAMB Finish line included); a second RLS key on
+`os_entries` (RLS keys are table-wide and cannot scope by domain without
+rewriting every policy); an Edge Function (a Deno deploy surface and a
+`verify_jwt` question for nothing PostgREST does not already do). Contract
+and runbook: `docs/island-tasks.md`.
+
 **D-29 — The project tracker is read in WORK › Today, never copied.** The
 owner prepares, reviews and monitors on the SAMB Project Board, a separate
 Supabase project with its own gates and validators. WORK › Today shows that

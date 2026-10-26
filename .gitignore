@@ -24,3 +24,6 @@ dist/
 
 # Build stamp for git-less uploads (see vite.config.ts)
 .build-sha
+
+# local, never committed (one-time import inputs, review files)
+scratch/
