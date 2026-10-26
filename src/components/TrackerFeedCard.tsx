@@ -20,10 +20,10 @@ const REASONS: Record<string, string> = {
 };
 
 /**
- * The SAMB Project Board, read-only (D-29): what the owner prepares, reviews
- * and monitors there. Read fresh on every visit, never copied into os_entries,
- * so it cannot go stale or touch the daily score. Every row opens the board,
- * where the work itself is done.
+ * The SAMB Project Board (D-29): what the owner prepares, reviews and
+ * monitors there, read fresh on every visit. The same read also merges the
+ * feed into WORK tasks (D-30) so the desktop island shows it. Every row opens
+ * the board, where the work itself is done.
  */
 export function TrackerFeedCard() {
   const [result, setResult] = useState<TrackerFeedResult | null>(null);
@@ -47,7 +47,7 @@ export function TrackerFeedCard() {
       <CardHeader>
         <div>
           <CardTitle>Project tracker</CardTitle>
-          <p className="mt-2 text-sm text-foreground-muted">From the SAMB Project Board, read-only.</p>
+          <p className="mt-2 text-sm text-foreground-muted">From the SAMB Project Board. Also in your WORK tasks, tagged tracker.</p>
         </div>
         <div className="flex items-center gap-2">
           {feed && <span className="text-xs tabular-nums text-foreground-muted">{total}</span>}
