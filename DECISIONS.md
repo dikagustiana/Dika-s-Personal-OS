@@ -304,3 +304,13 @@ the board refused, or that never answered within 30 minutes, is reopened by
 the next sync while the board still lists the item, so it is never silently
 lost. Reviews, decisions, waits and anything else stay read-only: ticking
 them only hides them. (`docs/tracker-feed.md`)
+
+**D-32 — A PIC can be named from the island for a board task that has
+none.** Monitor lists tasks with no PIC in the projects the owner
+administers, with the people the board would let hold them (its own PIC
+picker). The island shows them as pills; a pick goes to
+`os_island_task_assign`, which queues the same courier as D-31, and the
+board names the PIC as the owner through `save_task` — its rights checks and
+member triggers apply, and the new PIC is notified there. Undo clears it
+again while that person still holds it. Nothing on this side decides who may
+hold a task. (`docs/tracker-feed.md`, `docs/island-tasks.md`)
