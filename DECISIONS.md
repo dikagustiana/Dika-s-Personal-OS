@@ -270,3 +270,24 @@ score. Rejected: the owner key in a DPAPI blob on the desktop (it opens every
 rewriting every policy); an Edge Function (a Deno deploy surface and a
 `verify_jwt` question for nothing PostgREST does not already do). Contract
 and runbook: `docs/island-tasks.md`.
+
+**D-29 — The project tracker is read in WORK › Today, never copied.** The
+owner prepares, reviews and monitors on the SAMB Project Board, a separate
+Supabase project with its own gates and validators. WORK › Today shows that
+work through the board's own feed (prepare / review / monitor), fetched on
+every visit by the owner-checked `tracker-feed` function, which holds the
+board's feed token. Nothing is written on either side, nothing lands in
+`os_entries`, and the daily score never sees it: a copied task would go
+stale the moment the board moved, and ticking it here would bypass the
+board's review. Each row opens the board, where the work is done.
+(`docs/tracker-feed.md`)
+
+**D-30 — Tracker items also land as WORK tasks (amends D-29).** The owner
+wants the board's prepare / review / monitor in the desktop island's to-do,
+which reads WORK tasks only. So the feed is now also merged into
+`os_entries` by one database function, `os_tracker_sync`, run when Today
+loads and every 15 minutes by pg_cron. The board stays the source of truth:
+title and due date follow it, a task gone from the board closes itself, and
+ticking a task here only hides it — it never writes to the board. Tasks are
+priority `normal` and tagged `tracker`, so the 40/40/20 score is untouched
+unless the owner marks one urgent themselves. (`docs/tracker-feed.md`)

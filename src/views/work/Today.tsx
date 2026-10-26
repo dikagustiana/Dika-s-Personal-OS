@@ -23,6 +23,7 @@ import { Input } from '../../components/ui/Input';
 import { EmptyRow } from '../../components/ui/EmptyRow';
 import { ScoreRing } from '../../components/ScoreRing';
 import { TimeboxSection } from '../../components/TimeboxSection';
+import { TrackerFeedCard } from '../../components/TrackerFeedCard';
 import { DOMAIN_HOURS, minutesToTime } from '../../logic/timebox';
 import type {
   BrainDumpEntry,
@@ -641,6 +642,8 @@ export function Today() {
         </div>
 
         <div className="grid content-start gap-5">
+          {domain === 'work' && <TrackerFeedCard />}
+
           <Card>
             <CardHeader>
               <CardTitle>Weekly direction</CardTitle>
