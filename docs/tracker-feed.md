@@ -64,6 +64,17 @@ POST to `tracker-writeback` (Vault `tracker_writeback_url`, token
 select payload -> 'tracker' -> 'writeback' from public.os_entries where payload -> 'tracker' ->> 'key' = '<key>';
 ```
 
+## PIC from the island (D-32)
+
+A Monitor task with no PIC (`no-pic`) in a project the owner administers
+carries `payload.tracker.pickable` (the board's PIC picker). The island's
+`os_island_task_assign` marks `payload.tracker.assign = {state: pending,
+action: assign|unassign, person, name}` and queues the courier, which calls
+`personal-feed` with `{action: assign|unassign, task, person}`; the board
+runs `save_task` as the owner and notifies the new PIC. The answer lands in
+`tracker.assign.state` (done / failed) via `os_tracker_assign_result`. The
+sync keeps a pick while it is pending or the board still shows no PIC.
+
 ## Setup (once)
 
 1. Board side: its `docs/deploy.md` §23 (migration, `personal-feed` function,

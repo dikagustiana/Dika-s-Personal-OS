@@ -26,11 +26,23 @@ key) plus `x-island-token: <64 hex>` and `Content-Type: application/json`.
 | `os_island_task_create` | write | `{"p_title": "…", "p_priority": "normal"\|"urgent", "p_due": "YYYY-MM-DD"\|null}` | `row` |
 | `os_island_task_patch` | write | `{"p_id": "<uuid>", "p_expected_updated_at": "<row.updated_at verbatim>", "p_patch": {"done": true}}` | `row` |
 
-`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "project", "updated_at"}`.
+`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "project", "pic_options", "pic", "updated_at"}`.
 `completed_at` and `due_date` are echoed as stored, or `null`. `project` is the
 SAMB Project Board project of a tracker task (`payload.tracker.project`, D-30),
 or `null` for every other task ("stand alone"); added by migration
-`20261026000112_island_task_project`.
+`20261026000112_island_task_project`. `pic_options` is `[{"id","name"}]`,
+the people who may hold a tracker task with no PIC (empty otherwise, and
+while a pick is on its way); `pic` is the name picked, while that pick is
+pending or taken (D-32, migration `20261026000115_tracker_assign_pic`).
+
+### `os_island_task_assign` (write token)
+
+`{"p_id", "p_expected_updated_at", "p_person": "<uuid>"|null}` → `row`. A
+person picks one of `pic_options`; `null` undoes the last pick the board
+took. PT404 not a tracker task, PT409 `updated_at` moved, PT422 not offered /
+already has a PIC / a pick on its way / nothing to undo. The board's answer
+arrives later (courier `tracker-writeback`): a refused pick brings the
+options back.
 
 Errors use PostgREST's body `{"code","message","details","hint"}`:
 
