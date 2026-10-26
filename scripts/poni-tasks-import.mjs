@@ -83,6 +83,9 @@ function review(dataPath, outPath) {
       title,
       dueDate,
       done: Boolean(t.done),
+      // Kept so a done task the owner chooses to include arrives done, with
+      // the time it was ticked, rather than reopened.
+      done_unix: t.done ? Number(t.done_unix ?? 0) || null : null,
       source_id: t.id,
       source_text: t.text,
     };
@@ -109,8 +112,10 @@ function sql(reviewPath, outPath) {
     if (r.dueDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(r.dueDate)) throw new Error(`bad dueDate: ${r.dueDate}`);
   }
   const values = picked.map((r) => {
-    const payload = { title: r.title, priority: r.priority, done: false };
+    const payload = { title: r.title, priority: r.priority, done: Boolean(r.done) };
     if (r.dueDate) payload.dueDate = r.dueDate;
+    // Date.toISOString(), as the SPA writes completedAt.
+    if (r.done) payload.completedAt = new Date((r.done_unix ?? 0) * 1000).toISOString();
     return `  ('task', ${sqlString(r.domain)}, '{poni-import}', ${r.dueDate ? sqlString(r.dueDate) : 'null'}, ${sqlString(JSON.stringify(payload))}::jsonb)`;
   });
   const out = [

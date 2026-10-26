@@ -28,6 +28,8 @@
 --      nothing changed; {} → PT422
 --   7. os_daily_logs row count identical before and after
 --   8. anon may execute exactly the three public RPCs and nothing in private
+--   9. a malformed WORK row (string done, unparseable completedAt) is read
+--      as open / left out instead of failing the whole read (needs 110)
 
 do $$
 declare
@@ -240,6 +242,24 @@ begin
     fails := fails || 'C6 read token patched';
   exception when others then
     if sqlstate <> 'PT401' then fails := fails || ('C6 rtok ' || sqlstate); end if;
+  end;
+
+  -- 9 (20261026000110) -------------------------------------------------------
+  -- A malformed WORK row is shown as open or left out, never an error for
+  -- every row: a string `done` and an unparseable `completedAt`.
+  insert into public.os_entries (type, domain, entry_date, payload) values
+    ('task', 'work', null, '{"title":"t-bad-done","priority":"normal","done":"yes"}'),
+    ('task', 'work', null, '{"title":"t-bad-at","priority":"normal","done":true,"completedAt":"kemarin"}');
+  perform set_config('request.headers', json_build_object('x-island-token', rtok)::text, true);
+  n := n + 1;
+  begin
+    res := public.os_island_tasks(since);
+    if not exists (select 1 from jsonb_array_elements(res -> 'tasks') t where t ->> 'title' = 't-bad-done' and not (t ->> 'done')::boolean)
+       or exists (select 1 from jsonb_array_elements(res -> 'tasks') t where t ->> 'title' = 't-bad-at') then
+      fails := fails || 'C9 malformed rows misread';
+    end if;
+  exception when others then
+    fails := fails || ('C9 malformed row broke the read: ' || sqlstate);
   end;
 
   -- 7 ------------------------------------------------------------------------
