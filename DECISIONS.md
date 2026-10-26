@@ -291,3 +291,16 @@ title and due date follow it, a task gone from the board closes itself, and
 ticking a task here only hides it — it never writes to the board. Tasks are
 priority `normal` and tagged `tracker`, so the 40/40/20 score is untouched
 unless the owner marks one urgent themselves. (`docs/tracker-feed.md`)
+
+**D-31 — Ticking a tracker task here ticks it on the board, when the board
+would let the owner tick it.** (Amends D-30.) The feed marks an item
+`completable` only for the owner's own open task in a project they
+administer — the board's own centang rule. Ticking such a task here, from
+the web or the island, reaches the board as that centang (complete_task, as
+the owner, through the feed token); unticking sends its Batal. A BEFORE
+UPDATE trigger queues the call (pg_net) so every client takes the same path;
+`tracker-writeback` delivers it and records the answer on the task. A tick
+the board refused, or that never answered within 30 minutes, is reopened by
+the next sync while the board still lists the item, so it is never silently
+lost. Reviews, decisions, waits and anything else stay read-only: ticking
+them only hides them. (`docs/tracker-feed.md`)

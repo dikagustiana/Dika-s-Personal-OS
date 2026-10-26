@@ -1,7 +1,8 @@
 # Tracker feed — the SAMB Project Board inside WORK › Today
 
 Decisions: D-29 (read the board in Today), D-30 (merge it into WORK tasks so
-the desktop island shows it). Nothing here ever writes to the board.
+the desktop island shows it), D-31 (ticking a completable task ticks it on
+the board). Nothing else here ever writes to the board.
 
 ## Path
 
@@ -39,6 +40,29 @@ Who runs it: `tracker-feed` after each read (opening Today), and
 `tracker-sync` every 15 minutes via pg_cron job `tracker-sync`
 (`private.os_tracker_sync_invoke`, Vault secrets `tracker_sync_url` and
 `tracker_sync_token`).
+
+## Write-back (D-31)
+
+An item is `completable` when it is the owner's own open task (PIC) in a
+project they administer — the board's own centang rule; the board checks it
+again on every call. For those tasks only:
+
+| Here | On the board |
+|---|---|
+| tick (web or island) | `complete_task` as the owner (centang): done, review round, actor = owner |
+| untick a tick the board took | `restore_task_states` with what the tick returned (Batal) |
+| tick refused or no answer in 30 min | the next sync reopens the task while the board lists it |
+
+Path: trigger `os_tracker_writeback` (BEFORE UPDATE on `os_entries`) marks
+`payload.tracker.writeback = {state: pending, action}` and queues a pg_net
+POST to `tracker-writeback` (Vault `tracker_writeback_url`, token
+`tracker_sync_token`), which calls the board's `personal-feed` with
+`{action, task, undo?}` and records `{state: done|failed, …}` through
+`os_tracker_writeback_result` (updated_at untouched). Check a tick:
+
+```sql
+select payload -> 'tracker' -> 'writeback' from public.os_entries where payload -> 'tracker' ->> 'key' = '<key>';
+```
 
 ## Setup (once)
 
