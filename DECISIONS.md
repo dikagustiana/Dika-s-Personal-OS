@@ -336,5 +336,6 @@ the following week with its open to-dos. New `_in` doors take the domain;
 the WORK-only doors of D-28 and D-33 stay as they are. Blocks keep each
 workspace's web window (WORK 08:30–18:30, GROWTH 18:30–23:30), so the
 island's single grid never holds a block the web can't show; this settles
-the island PRD's assumed "08:30–23:30" grid. The web does not list weekly
-items yet. (`docs/island-tasks.md` § GROWTH and weekly items)
+the island PRD's assumed "08:30–23:30" grid. The web's Week view lists the
+week's items read-only; the island creates and edits them.
+(`docs/island-tasks.md` § GROWTH and weekly items)
