@@ -278,18 +278,29 @@ begin
 
   -- 8 ------------------------------------------------------------------------
   n := n + 1;
-  select array_agg(p.oid::regprocedure::text order by p.oid::regprocedure::text) into ids
+  select array_agg(p.oid::regprocedure::text order by p.oid::regprocedure::text collate "C") into ids
     from pg_proc p
    where p.proname like 'os_island%'
      and has_function_privilege('anon', p.oid, 'execute');
+  -- Plus the doors of 117 (either domain, weekly items): island_growth_weekly.sql tests them.
   if ids is distinct from array[
        'os_island_block_create(date,text,text,text)',
+       'os_island_block_create_in(text,date,text,text,text,text,uuid)',
        'os_island_block_patch(uuid,timestamp with time zone,jsonb)',
+       'os_island_block_patch_in(text,uuid,timestamp with time zone,jsonb)',
        'os_island_blocks(date)',
+       'os_island_blocks_in(date)',
        'os_island_task_assign(uuid,timestamp with time zone,uuid)',
        'os_island_task_create(text,text,date)',
+       'os_island_task_create_in(text,text,text,date,uuid)',
        'os_island_task_patch(uuid,timestamp with time zone,jsonb)',
-       'os_island_tasks(timestamp with time zone)'] then
+       'os_island_task_patch_in(text,uuid,timestamp with time zone,jsonb)',
+       'os_island_tasks(timestamp with time zone)',
+       'os_island_tasks_in(text,timestamp with time zone)',
+       'os_island_weekly_carry(uuid,timestamp with time zone)',
+       'os_island_weekly_create(text,text,date,date,uuid,text)',
+       'os_island_weekly_items(text,date,date)',
+       'os_island_weekly_patch(uuid,timestamp with time zone,jsonb)'] then
     fails := fails || ('C8 anon can execute ' || coalesce(array_to_string(ids, ' | '), '∅'));
   end if;
   n := n + 1;

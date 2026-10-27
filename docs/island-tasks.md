@@ -9,10 +9,11 @@ Migration: `supabase/migrations/20261026000109_island_tasks.sql`.
 
 | Can | Cannot |
 |---|---|
-| Read open WORK tasks, and WORK tasks completed since a timestamp it passes | GROWTH anything, habits, brain dumps |
+| Read open WORK tasks, and WORK tasks completed since a timestamp it passes | habits, brain dumps, GROWTH outside tasks / weekly items / blocks |
 | Create a WORK task (`normal`, or `urgent` only when sent explicitly) | `os_daily_logs` (score), `os_projects`, Finish line, IELTS, Lab |
 | Patch `title`, `done`, `dueDate` on a WORK task | change `priority`, `projectId`, `weeklyGoalId`, `tags`, `domain` |
 | Read the WORK time blocks of one day; plan one; rename, move, mark `done` or back to `planned` (D-33) | delete a block; set `skipped` / `carried` / `blocked`; link a task or milestone; set a category |
+| The same for GROWTH tasks and blocks, plus weekly items in either domain (D-34) | `os_weekly_plans` (the web's ISO-week goals) |
 | | delete anything |
 
 ## Calls
@@ -98,6 +99,55 @@ blocked need a reason or a carry-over, and attribution needs a pick; all
 three stay in the web. The score is not written, as with tasks (next
 section).
 
+## GROWTH and weekly items (D-34)
+
+Migration `20261028000117_island_growth_weekly.sql`. The island's Tasks tab
+has a Work | Growth switch; each side has weekly items (a stretch of days
+with to-dos under it), daily to-dos and time blocks.
+
+**Weekly items** live in a new table, `os_weekly_items`: `domain`
+(`work`/`growth`), `title`, `start_date`..`end_date` (at most 93 days),
+optional `project_id` (same domain, enforced by trigger) and `area`, and
+`status` `open` / `done` / `carried`. RLS is the `os_weekly_plans` set
+(owner key writes, owner or read key reads); members see nothing, so the
+GROWTH guard holds. `os_weekly_plans` (the web's ISO-week goals) is not
+touched. A to-do joins an item through `payload.weeklyItemId`; the web keeps
+unknown payload keys, so a web edit leaves the link in place.
+
+The WORK-only doors above are unchanged. The new doors take the domain:
+
+| Function | Token | Body | 200 returns |
+|---|---|---|---|
+| `os_island_tasks_in` | read | `{"p_domain", "p_since"}` | `{"server_time", "tasks": [task…]}` |
+| `os_island_task_create_in` | write | `{"p_domain", "p_title", "p_priority", "p_due", "p_weekly_item"}` | `task` |
+| `os_island_task_patch_in` | write | `{"p_domain", "p_id", "p_expected_updated_at", "p_patch"}`, keys `title`, `done`, `dueDate`, `weeklyItemId` | `task` |
+| `os_island_weekly_items` | read | `{"p_domain", "p_from", "p_to"}` (≤ 400 days; items overlapping the range) | `{"server_time", "items": [item…]}` |
+| `os_island_weekly_create` | write | `{"p_domain", "p_title", "p_start", "p_end", "p_project", "p_area"}` | `item` |
+| `os_island_weekly_patch` | write | `{"p_id", "p_expected_updated_at", "p_patch"}`, keys `title`, `start` + `end`, `status` (`open`/`done`), `area` | `item` |
+| `os_island_weekly_carry` | write | `{"p_id", "p_expected_updated_at"}` | the new `item` |
+| `os_island_blocks_in` | read | `{"p_day"}` | `{"blocks": [block…]}` of both domains |
+| `os_island_block_create_in` | write | `{"p_domain", "p_day", "p_start", "p_end", "p_label", "p_ref_kind", "p_ref_id"}`, ref `task` or `weekly` | `block` |
+| `os_island_block_patch_in` | write | as `os_island_block_patch` plus `p_domain` | `block` |
+
+`task` and `block` gain `domain` and `weekly_item_id`. `item` = `{"id",
+"domain", "title", "start_date", "end_date", "project_id", "project",
+"area", "status", "carried_from", "todos", "todos_done", "updated_at"}`.
+
+**Carry** marks the item `carried` and copies it to start on the Sunday
+after its end, with the same length (the island's week runs Sunday to
+Saturday). Open to-dos move to the copy; done ones stay with the original.
+
+**Blocks keep the web's windows.** The island draws one 08:30–23:30 grid,
+but the web's Timebox gives each workspace its own stretch
+(`src/logic/timebox.ts`): WORK 08:30–18:30, GROWTH 18:30–23:30. A block
+outside its domain's window would never show in the web, so the doors refuse
+it (PT422). No overlap on the same day. A GROWTH block may name a GROWTH
+to-do or weekly item; ticking it ticks the named to-do, as for WORK.
+
+PT404 a reference of the other domain or a missing row, PT409 a stale
+`updated_at`, PT422 a bad domain, key, date range or time. Nothing is
+deleted from the island.
+
 ## Payload shape: mirrors the SPA
 
 `src/data/supabaseRepository.ts` (`entryToRow`) serialises a `TaskEntry`
@@ -160,6 +210,8 @@ answers 401 at the next call.
 - `supabase/tests/island_tasks.sql` — one DO block that always raises
   `island_tasks PASS (n checks)` or `… FAIL …`. The exception rolls back
   every write it made, so it is safe to run against production.
+- `supabase/tests/island_growth_weekly.sql` — the D-34 doors, same pattern
+  (`island_growth_weekly PASS (n checks)`).
 - `scripts/island-tasks-tests.sh` — the same file on a local replay, plus a
   negative control (the patch RPC without its WORK filter must go red).
 
