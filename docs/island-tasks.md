@@ -112,7 +112,10 @@ optional `project_id` (same domain, enforced by trigger) and `area`, and
 (owner key writes, owner or read key reads); members see nothing, so the
 GROWTH guard holds. `os_weekly_plans` (the web's ISO-week goals) is not
 touched. A to-do joins an item through `payload.weeklyItemId`; the web keeps
-unknown payload keys, so a web edit leaves the link in place.
+unknown payload keys, so a web edit leaves the link in place. The web's Week
+view lists the items sharing a day with the week on screen (read-only,
+`listWeeklyItems`); before migration 117 that read fails quietly and the
+card stays hidden.
 
 The WORK-only doors above are unchanged. The new doors take the domain:
 

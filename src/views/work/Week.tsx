@@ -17,7 +17,7 @@ import { Button } from '../../components/ui/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/Card';
 import { Checkbox } from '../../components/ui/Checkbox';
 import { Input } from '../../components/ui/Input';
-import type { DailyLog, Project, WeeklyGoal, WeeklyPlan } from '../../data/types';
+import type { DailyLog, Project, WeeklyGoal, WeeklyItem, WeeklyPlan } from '../../data/types';
 import {
   formatWeekLabel,
   getIsoWeekKey,
@@ -69,6 +69,8 @@ export function Week() {
   // decisions-only screen and carries no charts. Week already owned the
   // habit-consistency figure, so the graph belongs beside it.
   const [habitLogs, setHabitLogs] = useState<DailyLog[]>([]);
+  // Weekly items planned from the desktop island (D-34): listed, not edited.
+  const [items, setItems] = useState<WeeklyItem[]>([]);
 
   const isSundayEvening = getDay(now) === 0 && getHours(now) >= 18;
   // The week the review card summarizes — and the week its `reviewedAt`
@@ -77,7 +79,8 @@ export function Week() {
 
   const load = useCallback(async () => {
     const previousRange = getWeekRange(previousWeek);
-    const [selectedPlan, previousPlan, previousLogs, projectData, recentLogs] =
+    const selectedRange = getWeekRange(selectedWeek);
+    const [selectedPlan, previousPlan, previousLogs, projectData, recentLogs, weekItems] =
       await Promise.all([
         repository.getWeeklyPlan(selectedWeek, domain),
         repository.getWeeklyPlan(previousWeek, domain),
@@ -92,6 +95,15 @@ export function Week() {
           to: todayKey,
           domain,
         }),
+        // A database without migration 117 has no table yet: no items,
+        // and the rest of the week still loads.
+        repository
+          .listWeeklyItems(
+            domain,
+            selectedRange.from,
+            format(subDays(parseISO(selectedRange.to), 1), 'yyyy-MM-dd'),
+          )
+          .catch(() => [] as WeeklyItem[]),
       ]);
     setPlan(selectedPlan ?? { week: selectedWeek, domain, goals: emptyGoals() });
     setReviewedPlan(previousPlan);
@@ -99,6 +111,7 @@ export function Week() {
     setSummary(summarizeWeek(previousLogs, previousPlan, 7));
     setProjects(projectData);
     setHabitLogs(recentLogs);
+    setItems(weekItems);
     setSaved(false);
   }, [domain, previousWeek, repository, selectedWeek, todayKey]);
 
@@ -403,6 +416,47 @@ export function Week() {
           </CardContent>
         </Card>
       </div>
+
+      {items.length > 0 && (
+        <Card className="mt-5">
+          <CardHeader className="border-b border-border-subtle">
+            <div>
+              <CardTitle>Weekly items</CardTitle>
+              <p className="mt-2 text-sm text-foreground-muted">Planned on the desktop island</p>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-5">
+            <ul className="space-y-2" aria-label="Weekly items">
+              {items.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border border-border-subtle bg-surface-2 px-3 py-2 text-sm"
+                >
+                  <span className={item.status === 'open' ? 'text-foreground' : 'text-foreground-muted'}>
+                    {item.title}
+                    {item.area ? <span className="text-foreground-muted"> · {item.area}</span> : null}
+                  </span>
+                  <span className="text-xs tabular-nums text-foreground-muted">
+                    {formatItemDays(item)} · {itemStatus(item, todayKey)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
+}
+
+/** "28 Oct – 31 Oct", or one day. */
+function formatItemDays(item: WeeklyItem): string {
+  const day = (iso: string) => format(parseISO(iso), 'd MMM');
+  return item.startDate === item.endDate ? day(item.startDate) : `${day(item.startDate)} – ${day(item.endDate)}`;
+}
+
+/** open, overdue (open past its last day), done or carried. */
+function itemStatus(item: WeeklyItem, todayKey: string): string {
+  if (item.status === 'open' && item.endDate < todayKey) return 'overdue';
+  return item.status;
 }

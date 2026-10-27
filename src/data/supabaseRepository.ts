@@ -105,6 +105,7 @@ import type {
   SignInEvent,
   TaskHistoryEntry,
   TaskStatus,
+  WeeklyItem,
   WeeklyPlan,
   WebsiteCategory,
   CollabLinkState,
@@ -520,6 +521,33 @@ interface DailyLogRow {
   domain: Domain;
   habits: Record<string, boolean>;
   score: number;
+}
+
+interface WeeklyItemRow {
+  id: string;
+  domain: Domain;
+  title: string;
+  start_date: string;
+  end_date: string;
+  project_id: string | null;
+  area: string | null;
+  status: WeeklyItem['status'];
+  carried_from: string | null;
+}
+
+function rowToWeeklyItem(row: WeeklyItemRow): WeeklyItem {
+  const item: WeeklyItem = {
+    id: row.id,
+    domain: row.domain,
+    title: row.title,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status,
+  };
+  if (row.project_id) item.projectId = row.project_id;
+  if (row.area) item.area = row.area;
+  if (row.carried_from) item.carriedFrom = row.carried_from;
+  return item;
 }
 
 interface WeeklyPlanRow {
@@ -986,6 +1014,18 @@ class SupabaseRepository implements Repository {
       .order('date', { ascending: true });
     if (error) throw new Error(`listDailyLogs failed: ${error.message}`);
     return (data as DailyLogRow[]).map(rowToDailyLog);
+  }
+
+  async listWeeklyItems(domain: Domain, from: string, to: string): Promise<WeeklyItem[]> {
+    const { data, error } = await this.client
+      .from('os_weekly_items')
+      .select('id, domain, title, start_date, end_date, project_id, area, status, carried_from')
+      .eq('domain', domain)
+      .lte('start_date', to)
+      .gte('end_date', from)
+      .order('start_date', { ascending: true });
+    if (error) throw new Error(`listWeeklyItems failed: ${error.message}`);
+    return (data as WeeklyItemRow[]).map(rowToWeeklyItem);
   }
 
   async getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null> {

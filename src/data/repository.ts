@@ -60,6 +60,7 @@ import type {
   SignInEvent,
   TaskHistoryEntry,
   TaskStatus,
+  WeeklyItem,
   WeeklyPlan,
 } from './types';
 
@@ -97,6 +98,9 @@ export interface Repository {
   // Weekly plans are keyed by (week, domain).
   getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null>;
   upsertWeeklyPlan(plan: WeeklyPlan): Promise<WeeklyPlan>;
+
+  // Weekly items (D-34) sharing a day with [from, to], both inclusive, by start day.
+  listWeeklyItems(domain: Domain, from: string, to: string): Promise<WeeklyItem[]>;
 
   listProjects(domain?: Domain): Promise<Project[]>;
   getProject(id: string): Promise<Project | null>;
