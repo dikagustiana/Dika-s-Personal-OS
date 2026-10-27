@@ -314,3 +314,11 @@ board names the PIC as the owner through `save_task` — its rights checks and
 member triggers apply, and the new PIC is notified there. Undo clears it
 again while that person still holds it. Nothing on this side decides who may
 hold a task. (`docs/tracker-feed.md`, `docs/island-tasks.md`)
+
+**D-33 — The island ticks today's WORK time blocks.** The Tasks tab gains a
+"Blocks" segment: the WORK blocks of the island's local day, read through
+`os_island_blocks`. A tick sends `os_island_block_patch`, which moves a block
+between `planned` and `done` only, and on done ticks an open linked WORK task
+the way the web's Timebox does. Skip, carry and blocked stay in the web,
+where they ask for a reason. The score is not written from the island, as in
+D-28. (`docs/island-tasks.md` § Time blocks)

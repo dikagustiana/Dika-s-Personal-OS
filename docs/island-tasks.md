@@ -9,9 +9,10 @@ Migration: `supabase/migrations/20261026000109_island_tasks.sql`.
 
 | Can | Cannot |
 |---|---|
-| Read open WORK tasks, and WORK tasks completed since a timestamp it passes | GROWTH anything, habits, time blocks, brain dumps |
+| Read open WORK tasks, and WORK tasks completed since a timestamp it passes | GROWTH anything, habits, brain dumps |
 | Create a WORK task (`normal`, or `urgent` only when sent explicitly) | `os_daily_logs` (score), `os_projects`, Finish line, IELTS, Lab |
 | Patch `title`, `done`, `dueDate` on a WORK task | change `priority`, `projectId`, `weeklyGoalId`, `tags`, `domain` |
+| Read the WORK time blocks of one day; mark one `done` or back to `planned` (D-33) | create, edit, move or delete a block; set `skipped` / `carried` / `blocked` |
 | | delete anything |
 
 ## Calls
@@ -54,6 +55,33 @@ Errors use PostgREST's body `{"code","message","details","hint"}`:
 | 422 | PT422 | patch key outside `title`/`done`/`dueDate`, empty patch, empty or >500-char title, bad priority, bad date |
 
 Every 200 carries `Cache-Control: no-store`.
+
+## Time blocks (D-33)
+
+Migration `20261027000116_island_blocks.sql`. The island's Tasks tab shows
+them as a "Blocks" segment beside the task segments.
+
+| Function | Token | Body | 200 returns |
+|---|---|---|---|
+| `os_island_blocks` | read | `{"p_day": "2026-10-27"}` (the island's local day) | `{"blocks": [block…]}` in start order |
+| `os_island_block_patch` | write | `{"p_id", "p_expected_updated_at", "p_done": true\|false}` | `block` |
+
+`block` = `{"id", "date", "start", "end", "label", "category", "status",
+"task_id", "updated_at"}`; `category` and `task_id` are `null` when absent,
+and every value is read as text, so one odd payload can't break the list.
+
+The patch does what the web's `setBlockStatus` (`src/views/work/Today.tsx`)
+does for the same two statuses:
+
+- `p_done: true` → `status: "done"`; `false` → `status: "planned"`.
+  `blockedOn` and `carryNote` are removed either way.
+- Done with a `taskId` that names an **open WORK task** ticks that task too
+  (`done: true` + `completedAt`). The tracker writeback trigger (D-31) sees it
+  like a web tick. Unticking a block never reopens the task.
+- PT404 not a WORK block, PT409 `updated_at` moved, PT422 `p_done` null.
+
+Skipped, carried and blocked need a reason or a carry-over and stay in the
+web. The score is not written, as with tasks (next section).
 
 ## Payload shape: mirrors the SPA
 
