@@ -33,7 +33,9 @@
 --  10. time blocks (needs 116): read returns the WORK blocks of p_day only,
 --      in start order; write token on read / read token on patch → PT401;
 --      done drops blockedOn, completes the open linked WORK task; untick →
---      planned and the task stays done; stale → PT409; GROWTH block → PT404
+--      planned and the task stays done; stale → PT409; GROWTH block → PT404;
+--      create writes the web's shape; off-grid, out-of-hours, overlapping
+--      times → PT422; a move may not overlap, a label patch keeps the rest
 
 do $$
 declare
@@ -52,7 +54,7 @@ declare
   n      int := 0;
   ids    text[];
   bday   date := date '2000-01-03';
-  id_blk uuid; id_blk_g uuid; id_linked uuid;
+  id_blk uuid; id_blk_g uuid; id_linked uuid; id_new uuid;
 begin
   select count(*) into logs0 from public.os_daily_logs;
 
@@ -281,7 +283,8 @@ begin
    where p.proname like 'os_island%'
      and has_function_privilege('anon', p.oid, 'execute');
   if ids is distinct from array[
-       'os_island_block_patch(uuid,timestamp with time zone,boolean)',
+       'os_island_block_create(date,text,text,text)',
+       'os_island_block_patch(uuid,timestamp with time zone,jsonb)',
        'os_island_blocks(date)',
        'os_island_task_assign(uuid,timestamp with time zone,uuid)',
        'os_island_task_create(text,text,date)',
@@ -331,7 +334,7 @@ begin
 
   n := n + 1;
   begin
-    perform public.os_island_block_patch(id_blk, (row1 ->> 'updated_at')::timestamptz, true);
+    perform public.os_island_block_patch(id_blk, (row1 ->> 'updated_at')::timestamptz, '{"done":true}');
     fails := fails || 'C10 read token patched a block';
   exception when others then
     if sqlstate <> 'PT401' then fails := fails || ('C10 read-token patch ' || sqlstate); end if;
@@ -346,7 +349,7 @@ begin
     if sqlstate <> 'PT401' then fails := fails || ('C10 write-token read ' || sqlstate); end if;
   end;
 
-  res := public.os_island_block_patch(id_blk, (row1 ->> 'updated_at')::timestamptz, true);
+  res := public.os_island_block_patch(id_blk, (row1 ->> 'updated_at')::timestamptz, '{"done":true}');
   select payload into after from public.os_entries where id = id_blk;
   n := n + 1;
   if res ->> 'status' <> 'done' or after ? 'blockedOn' or after ->> 'label' <> 'b-second' then
@@ -361,13 +364,13 @@ begin
 
   n := n + 1;
   begin
-    perform public.os_island_block_patch(id_blk, '2000-01-01T00:00:00Z', false);
+    perform public.os_island_block_patch(id_blk, '2000-01-01T00:00:00Z', '{"done":false}');
     fails := fails || 'C10 stale block patch accepted';
   exception when others then
     if sqlstate <> 'PT409' then fails := fails || ('C10 stale ' || sqlstate); end if;
   end;
 
-  res := public.os_island_block_patch(id_blk, (res ->> 'updated_at')::timestamptz, false);
+  res := public.os_island_block_patch(id_blk, (res ->> 'updated_at')::timestamptz, '{"done":false}');
   n := n + 1;
   if res ->> 'status' <> 'planned'
      or (select payload -> 'done' from public.os_entries where id = id_linked) <> 'true'::jsonb then
@@ -376,10 +379,61 @@ begin
 
   n := n + 1;
   begin
-    perform public.os_island_block_patch(id_blk_g, now(), true);
+    perform public.os_island_block_patch(id_blk_g, now(), '{"done":true}');
     fails := fails || 'C10 GROWTH block patched';
   exception when others then
     if sqlstate <> 'PT404' then fails := fails || ('C10 growth ' || sqlstate); end if;
+  end;
+
+
+  -- create: the web's shape, and the grid rule
+  res := public.os_island_block_create(bday, '11:00', '11:30', '  b-new  ');
+  id_new := (res ->> 'id')::uuid;
+  select payload into after from public.os_entries where id = id_new;
+  n := n + 1;
+  if after <> jsonb_build_object('date', bday::text, 'start', '11:00', 'end', '11:30', 'label', 'b-new', 'status', 'planned')
+     or (select entry_date from public.os_entries where id = id_new) <> bday
+     or (select domain from public.os_entries where id = id_new) <> 'work' then
+    fails := fails || ('C10 create = ' || after::text);
+  end if;
+  foreach got in array array['09:30|10:00', '08:00|09:00', '11:15|12:00', '18:00|19:00', '12:00|12:00', '9:00|9:30'] loop
+    n := n + 1;
+    begin
+      perform public.os_island_block_create(bday, split_part(got, '|', 1), split_part(got, '|', 2), 'b-bad');
+      fails := fails || ('C10 create accepted ' || got);
+    exception when others then
+      if sqlstate <> 'PT422' then fails := fails || ('C10 create ' || got || ' ' || sqlstate); end if;
+    end;
+  end loop;
+
+  -- move and rename
+  n := n + 1;
+  begin
+    perform public.os_island_block_patch(id_new, (res ->> 'updated_at')::timestamptz, '{"start":"09:30","end":"10:00"}');
+    fails := fails || 'C10 move onto another block accepted';
+  exception when others then
+    if sqlstate <> 'PT422' then fails := fails || ('C10 move overlap ' || sqlstate); end if;
+  end;
+  n := n + 1;
+  begin
+    perform public.os_island_block_patch(id_new, (res ->> 'updated_at')::timestamptz, '{"start":"13:00"}');
+    fails := fails || 'C10 start without end accepted';
+  exception when others then
+    if sqlstate <> 'PT422' then fails := fails || ('C10 start alone ' || sqlstate); end if;
+  end;
+  res := public.os_island_block_patch(id_new, (res ->> 'updated_at')::timestamptz, '{"start":"11:00","end":"12:30"}');
+  res := public.os_island_block_patch(id_new, (res ->> 'updated_at')::timestamptz, '{"label":"b-renamed"}');
+  select payload into after from public.os_entries where id = id_new;
+  n := n + 1;
+  if after <> jsonb_build_object('date', bday::text, 'start', '11:00', 'end', '12:30', 'label', 'b-renamed', 'status', 'planned') then
+    fails := fails || ('C10 move/rename = ' || after::text);
+  end if;
+  n := n + 1;
+  begin
+    perform public.os_island_block_patch(id_new, (res ->> 'updated_at')::timestamptz, '{"category":"meeting"}');
+    fails := fails || 'C10 category patch accepted';
+  exception when others then
+    if sqlstate <> 'PT422' then fails := fails || ('C10 category ' || sqlstate); end if;
   end;
 
   if cardinality(fails) = 0 then

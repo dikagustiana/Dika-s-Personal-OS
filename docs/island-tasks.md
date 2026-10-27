@@ -12,7 +12,7 @@ Migration: `supabase/migrations/20261026000109_island_tasks.sql`.
 | Read open WORK tasks, and WORK tasks completed since a timestamp it passes | GROWTH anything, habits, brain dumps |
 | Create a WORK task (`normal`, or `urgent` only when sent explicitly) | `os_daily_logs` (score), `os_projects`, Finish line, IELTS, Lab |
 | Patch `title`, `done`, `dueDate` on a WORK task | change `priority`, `projectId`, `weeklyGoalId`, `tags`, `domain` |
-| Read the WORK time blocks of one day; mark one `done` or back to `planned` (D-33) | create, edit, move or delete a block; set `skipped` / `carried` / `blocked` |
+| Read the WORK time blocks of one day; plan one; rename, move, mark `done` or back to `planned` (D-33) | delete a block; set `skipped` / `carried` / `blocked`; link a task or milestone; set a category |
 | | delete anything |
 
 ## Calls
@@ -64,24 +64,39 @@ them as a "Blocks" segment beside the task segments.
 | Function | Token | Body | 200 returns |
 |---|---|---|---|
 | `os_island_blocks` | read | `{"p_day": "2026-10-27"}` (the island's local day) | `{"blocks": [block…]}` in start order |
-| `os_island_block_patch` | write | `{"p_id", "p_expected_updated_at", "p_done": true\|false}` | `block` |
+| `os_island_block_create` | write | `{"p_day", "p_start": "09:00", "p_end": "10:30", "p_label"}` | `block` |
+| `os_island_block_patch` | write | `{"p_id", "p_expected_updated_at", "p_patch": {…}}`, keys `done`, `label`, `start` + `end` | `block` |
 
 `block` = `{"id", "date", "start", "end", "label", "category", "status",
 "task_id", "updated_at"}`; `category` and `task_id` are `null` when absent,
 and every value is read as text, so one odd payload can't break the list.
 
-The patch does what the web's `setBlockStatus` (`src/views/work/Today.tsx`)
+**Times fit the web's grid.** WORK's Timebox shows 30-minute slots from
+08:30 to 18:30 and finds a block by its start (`src/logic/timebox.ts`). So
+both writes require `HH:MM` on `:00` or `:30`, `08:30 <= start < end <=
+18:30`, and no overlap with another WORK block that day. An overlapping
+block would land in a slot the grid has already given away and never be
+seen. Longer blocks are fine: the web shows them at their start and counts
+their full duration. PT422 carries the reason (`overlaps 09:00–09:30 …`).
+
+**Create** writes what the web's `createBlock` writes: `{date, start, end,
+label, status: "planned"}`, `tags '{}'`, `entry_date = date`. It is
+unattributed (no `taskId` or `milestoneId`) and has no category.
+
+**`done`** does what the web's `setBlockStatus` (`src/views/work/Today.tsx`)
 does for the same two statuses:
 
-- `p_done: true` → `status: "done"`; `false` → `status: "planned"`.
-  `blockedOn` and `carryNote` are removed either way.
+- `true` → `status: "done"`; `false` → `status: "planned"`. `blockedOn` and
+  `carryNote` are removed either way.
 - Done with a `taskId` that names an **open WORK task** ticks that task too
   (`done: true` + `completedAt`). The tracker writeback trigger (D-31) sees it
   like a web tick. Unticking a block never reopens the task.
-- PT404 not a WORK block, PT409 `updated_at` moved, PT422 `p_done` null.
 
-Skipped, carried and blocked need a reason or a carry-over and stay in the
-web. The score is not written, as with tasks (next section).
+PT404 not a WORK block, PT409 `updated_at` moved, PT422 bad key / time /
+label, or `start` without `end`. There is no delete. Skipped, carried and
+blocked need a reason or a carry-over, and attribution needs a pick; all
+three stay in the web. The score is not written, as with tasks (next
+section).
 
 ## Payload shape: mirrors the SPA
 
