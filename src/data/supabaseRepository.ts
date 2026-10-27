@@ -561,6 +561,11 @@ interface ProjectRow {
   // Added by migration 20260724000014, same possibly-absent treatment: the
   // app must still render against a database that has not run it yet.
   dashboard_pinned?: boolean | null;
+  // Added by migration 20260724000016 (research pipeline), same treatment.
+  // smallint crosses PostgREST as a JSON number.
+  priority?: number | null;
+  wip_limit?: number | null;
+  stale_months?: number | null;
 }
 
 interface IeltsResultRow {
@@ -761,6 +766,11 @@ function rowToProject(row: ProjectRow): Project {
   // Absent (migration not applied) and false both mean "not pinned", so the
   // dashboard renders an empty pinned set instead of erroring.
   if (row.dashboard_pinned) project.dashboardPinned = true;
+  // Research ordering and settings. `!= null` rather than truthiness: these are
+  // numbers, and a 0 must not read as absent.
+  if (row.priority != null) project.priority = row.priority;
+  if (row.wip_limit != null) project.wipLimit = row.wip_limit;
+  if (row.stale_months != null) project.staleMonths = row.stale_months;
   return project;
 }
 
@@ -829,6 +839,9 @@ function projectPatchToRow(patch: Partial<Project>): Partial<ProjectRow> {
   if ('entityTag' in patch) row.entity_tag = patch.entityTag ?? null;
   if ('documents' in patch) row.documents = patch.documents ?? [];
   if ('dashboardPinned' in patch) row.dashboard_pinned = patch.dashboardPinned ?? false;
+  if ('priority' in patch) row.priority = patch.priority ?? null;
+  if ('wipLimit' in patch) row.wip_limit = patch.wipLimit ?? null;
+  if ('staleMonths' in patch) row.stale_months = patch.staleMonths ?? null;
   return row;
 }
 
@@ -1063,6 +1076,14 @@ class SupabaseRepository implements Repository {
         ...(input.linkedProjects?.length ? { linked_projects: input.linkedProjects } : {}),
         ...(input.documents?.length ? { documents: input.documents } : {}),
         ...(input.dashboardPinned ? { dashboard_pinned: true } : {}),
+        // Same rule for date confidence and the research columns. Leaving
+        // date_confidence out of this insert is what made an estimated or
+        // unknown deadline come back null and read as confirmed after a
+        // reload (C2.PRECISE-PLACEHOLDER); patch and read always carried it.
+        ...(input.dateConfidence ? { date_confidence: input.dateConfidence } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+        ...(input.wipLimit !== undefined ? { wip_limit: input.wipLimit } : {}),
+        ...(input.staleMonths !== undefined ? { stale_months: input.staleMonths } : {}),
       })
       .select()
       .single();
