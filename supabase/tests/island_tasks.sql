@@ -36,6 +36,9 @@
 --      planned and the task stays done; stale → PT409; GROWTH block → PT404;
 --      create writes the web's shape; off-grid, out-of-hours, overlapping
 --      times → PT422; a move may not overlap, a label patch keeps the rest
+--  11. tracker (needs 118): a tracker task's row carries its feed place
+--      {group, kind, url, detail, since}; a plain task's tracker is null; the
+--      sync payload keeps the feed's detail and date
 
 do $$
 declare
@@ -55,6 +58,7 @@ declare
   ids    text[];
   bday   date := date '2000-01-03';
   id_blk uuid; id_blk_g uuid; id_linked uuid; id_new uuid;
+  id_tracked uuid; id_plain uuid;
 begin
   select count(*) into logs0 from public.os_daily_logs;
 
@@ -446,6 +450,33 @@ begin
   exception when others then
     if sqlstate <> 'PT422' then fails := fails || ('C10 category ' || sqlstate); end if;
   end;
+
+  -- 11 (needs 118) ------------------------------------------------------------
+  perform set_config('request.headers', json_build_object('x-island-token', rtok)::text, true);
+  insert into public.os_entries (type, domain, entry_date, payload) values
+    ('task', 'work', null, '{"title":"t-tracked","priority":"normal","done":false,"tracker":{"key":"watch:x","url":"https://board.example/t/x","group":"monitor","kind":"late","project":"Budget 2027 BMG","detail":"Terlambat · Teddy","date":"2026-10-27"}}')
+    returning id into id_tracked;
+  insert into public.os_entries (type, domain, entry_date, payload) values
+    ('task', 'work', null, '{"title":"t-plain","priority":"normal","done":false}')
+    returning id into id_plain;
+  res := public.os_island_tasks(since);
+  select t into row1 from jsonb_array_elements(res -> 'tasks') t where t ->> 'id' = id_tracked::text;
+  n := n + 1;
+  if row1 -> 'tracker' is distinct from '{"group":"monitor","kind":"late","url":"https://board.example/t/x","detail":"Terlambat · Teddy","since":"2026-10-27"}'::jsonb
+     or row1 ->> 'project' <> 'Budget 2027 BMG' then
+    fails := fails || ('C11 tracker = ' || coalesce((row1 -> 'tracker')::text, 'missing'));
+  end if;
+  select t into row1 from jsonb_array_elements(res -> 'tasks') t where t ->> 'id' = id_plain::text;
+  n := n + 1;
+  if row1 -> 'tracker' is distinct from 'null'::jsonb then
+    fails := fails || ('C11 plain tracker = ' || coalesce((row1 -> 'tracker')::text, 'missing'));
+  end if;
+  -- The sync keeps the feed's detail and date in the payload.
+  row1 := private.os_tracker_task_payload('{"key":"k","url":"u","kind":"validate","title":"Sign off","ref":"G3","project":"P","detail":"Validate · Nur","date":"2026-10-20"}'::jsonb, 'review');
+  n := n + 1;
+  if row1 -> 'tracker' ->> 'detail' <> 'Validate · Nur' or row1 -> 'tracker' ->> 'date' <> '2026-10-20' or row1 ->> 'dueDate' <> '2026-10-20' then
+    fails := fails || ('C11 payload = ' || row1::text);
+  end if;
 
   if cardinality(fails) = 0 then
     raise exception 'island_tasks PASS (% checks)', n;

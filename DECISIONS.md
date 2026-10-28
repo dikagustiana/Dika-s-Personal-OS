@@ -339,3 +339,16 @@ island's single grid never holds a block the web can't show; this settles
 the island PRD's assumed "08:30–23:30" grid. The web's Week view lists the
 week's items read-only; the island creates and edits them.
 (`docs/island-tasks.md` § GROWTH and weekly items)
+
+**D-35 — The island's Follow view gets a tracker task's feed place.** Three
+groups come from the board feed (D-30): `prepare` is the owner's own work,
+`review` waits on their judgement (validate, sign off, decide, close,
+unblock), `monitor` waits on someone else (late, due soon, no PIC). The island
+showed all three as the owner's to-dos. Now a task's island row carries
+`tracker: {group, kind, url, detail, since}` (null for a plain task), the
+sync keeps the feed item's `detail` and `date` in `payload.tracker`, and the
+island keeps `prepare` on Tasks while `review` and `monitor` go to its Follow
+view, with how long each has waited. The web is unchanged: there every synced
+row is still a task. Nothing is written back from Follow beyond what D-31 and
+D-32 already allow. (`docs/island-tasks.md` § Calls, migration
+`20261029000118_island_tracker_follow`)
