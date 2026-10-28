@@ -28,7 +28,7 @@ key) plus `x-island-token: <64 hex>` and `Content-Type: application/json`.
 | `os_island_task_create` | write | `{"p_title": "…", "p_priority": "normal"\|"urgent", "p_due": "YYYY-MM-DD"\|null}` | `row` |
 | `os_island_task_patch` | write | `{"p_id": "<uuid>", "p_expected_updated_at": "<row.updated_at verbatim>", "p_patch": {"done": true}}` | `row` |
 
-`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "project", "pic_options", "pic", "updated_at"}`.
+`row` = `{"id", "title", "priority", "done", "completed_at", "due_date", "project", "pic_options", "pic", "tracker", "updated_at"}`.
 `completed_at` and `due_date` are echoed as stored, or `null`. `project` is the
 SAMB Project Board project of a tracker task (`payload.tracker.project`, D-30),
 or `null` for every other task ("stand alone"); added by migration
@@ -36,6 +36,12 @@ or `null` for every other task ("stand alone"); added by migration
 the people who may hold a tracker task with no PIC (empty otherwise, and
 while a pick is on its way); `pic` is the name picked, while that pick is
 pending or taken (D-32, migration `20261026000115_tracker_assign_pic`).
+`tracker` is `{"group", "kind", "url", "detail", "since"}` for a tracker task
+(its place in the owner's board feed: `prepare` their own work, `review`
+waiting on their judgement, `monitor` waiting on someone else; `since` the
+feed item's date or `null`), or `null` for every other task. The island keeps
+`prepare` rows on Tasks and lists `review` and `monitor` on Follow (D-35,
+migration `20261029000118_island_tracker_follow`).
 
 ### `os_island_task_assign` (write token)
 
