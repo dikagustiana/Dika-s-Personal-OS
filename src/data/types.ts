@@ -118,6 +118,23 @@ export interface WeeklyPlan {
   reviewedAt?: string;
 }
 
+/**
+ * A weekly item planned from the desktop island (D-34): a stretch of days,
+ * possibly across weeks, with daily to-dos under it (`payload.weeklyItemId`
+ * on a task). The web lists them; the island creates and edits them.
+ */
+export interface WeeklyItem {
+  id: string;
+  domain: Domain;
+  title: string;
+  startDate: string; // yyyy-MM-dd, inclusive
+  endDate: string; // yyyy-MM-dd, inclusive
+  projectId?: string;
+  area?: string;
+  status: 'open' | 'done' | 'carried';
+  carriedFrom?: string;
+}
+
 export type MilestoneStatus = 'not-started' | 'in-progress' | 'blocked' | 'done';
 
 /**

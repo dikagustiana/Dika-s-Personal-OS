@@ -325,3 +325,17 @@ marks, 08:30–18:30, no overlap), so every island block shows in the web.
 Skip, carry, blocked, task or milestone links and categories stay in the
 web. There is no delete. The score is not written from the island, as in
 D-28. (`docs/island-tasks.md` § Time blocks)
+
+**D-34 — The island plans GROWTH too, around weekly items.** The island's
+Tasks tab gets a Work | Growth switch. A weekly item is a stretch of days
+(at most 93) with daily to-dos under it; it lives in a new table,
+`os_weekly_items`, because `os_weekly_plans` is one ISO week per domain with
+goals inside it and the island's items cross weeks. A to-do joins an item by
+`payload.weeklyItemId`. Carry closes an item as `carried` and copies it to
+the following week with its open to-dos. New `_in` doors take the domain;
+the WORK-only doors of D-28 and D-33 stay as they are. Blocks keep each
+workspace's web window (WORK 08:30–18:30, GROWTH 18:30–23:30), so the
+island's single grid never holds a block the web can't show; this settles
+the island PRD's assumed "08:30–23:30" grid. The web's Week view lists the
+week's items read-only; the island creates and edits them.
+(`docs/island-tasks.md` § GROWTH and weekly items)

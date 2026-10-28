@@ -69,6 +69,7 @@ import type {
   SignInEvent,
   TaskHistoryEntry,
   TaskStatus,
+  WeeklyItem,
   WeeklyPlan,
 } from './types';
 import type {
@@ -260,6 +261,7 @@ export class MockRepository implements Repository {
   private readonly weeklyPlans = new Map(
     seedWeeklyPlans.map((plan) => [planKey(plan.week, plan.domain), clone(plan)]),
   );
+  private weeklyItems: WeeklyItem[] = [];
   private readonly projects = new Map(
     seedProjects.map((project) => [project.id, clone(project)]),
   );
@@ -359,6 +361,21 @@ export class MockRepository implements Repository {
       )
       .sort((a, b) => a.date.localeCompare(b.date));
     return clone(logs);
+  }
+
+  async listWeeklyItems(domain: Domain, from: string, to: string): Promise<WeeklyItem[]> {
+    // RLS gives members no row (owner key or read key only).
+    if (this.isContributor()) return [];
+    return clone(
+      this.weeklyItems
+        .filter((item) => item.domain === domain && item.startDate <= to && item.endDate >= from)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate)),
+    );
+  }
+
+  /** Test seam: the island writes weekly items; the web only reads them. */
+  seedWeeklyItems(items: WeeklyItem[]): void {
+    this.weeklyItems = clone(items);
   }
 
   async getWeeklyPlan(week: string, domain: Domain): Promise<WeeklyPlan | null> {
